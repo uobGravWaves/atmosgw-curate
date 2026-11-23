@@ -221,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local AI-agent instruction files: kept on each machine, never committed
+AGENTS.md
+CLAUDE.md
+.claude/

@@ -27,12 +27,22 @@ general-purpose package outside this family.
 ```bash
 git clone https://github.com/uobGravWaves/atmosgw-curate.git
 cd atmosgw-curate
-pip install -e ".[dev]"
-pytest
-ruff check .
+uv sync --extra dev        # exact versions from uv.lock
+uv run pytest
+uv run ruff check .
 ```
 
-Requires Python 3.10 or later.
+`pip install -e ".[dev]"` also works, with the newest allowed versions
+instead of the locked ones. Requires Python 3.10 or later.
+
+## Where the data are
+
+Loaders find instrument data under a data root folder, set once per machine
+by either:
+
+- the environment variable `ATMOSGW_DATA`, or
+- a settings file `~/.config/atmosgw/config.toml` containing, for example,
+  `data_dir = "C:/Data"`.
 
 ## Planned layout
 
@@ -58,16 +68,21 @@ src/atmosgw/curate/
 
 - PEP 8 naming throughout, including inside functions; enforced by `ruff`
   (rule set `N`).
-- Every function follows the group's documentation checklist (purpose, inputs
-  and outputs, science, origin, validation, AI involvement, usage, status,
-  how to cite).
-- Semantic versioning; stays at 0.x until the Phase 1 reference tests pass.
+- Every function follows the documentation checklist in `CONTRIBUTING.md`.
+- Semantic versioning; stays at 0.x until the ports match the MATLAB
+  reference outputs.
 
 ## Licence and citation
 
-BSD-3-Clause; see `LICENSE`. Citation details are in `CITATION.cff`
+BSD-3-Clause; copyright Corwin Wright and the University of Bath. See `LICENSE`. Citation details are in `CITATION.cff`
 (GitHub's "Cite this repository" button). A Zenodo DOI will be added with the
 first release.
+
+## Trademarks
+
+MATLAB is a registered trademark of The MathWorks, Inc. This package is
+independent of MathWorks; its MATLAB-compatible functions are written from
+public documentation.
 
 ## Contact
 
