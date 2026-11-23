@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "atmosgw-curate"
+version = "0.0.1"
+description = "AtmosGW Curate: loading, standardising and analysing atmospheric gravity-wave observations"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Corwin J. Wright" }]
+keywords = ["atmospheric gravity waves", "remote sensing", "middle atmosphere", "satellite"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.urls]
+Repository = "https://github.com/uobGravWaves/atmosgw-curate"
+Issues = "https://github.com/uobGravWaves/atmosgw-curate/issues"
+
+# atmosgw is a PEP 420 namespace package shared with atmosgw-fuse and later
+# family members. Only the atmosgw/curate subpackage belongs to this
+# distribution: never add src/atmosgw/__init__.py.
+[tool.hatch.build.targets.wheel]
+packages = ["src/atmosgw"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, N pep8-naming (the agreed PEP 8 naming rule)
+select = ["E", "W", "F", "I", "N"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

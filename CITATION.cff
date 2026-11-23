@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below, together with the method papers listed in each function's documentation."
+title: "AtmosGW Curate"
+type: software
+authors:
+  - family-names: Wright
+    given-names: Corwin J.
+    affiliation: University of Bath
+repository-code: "https://github.com/uobGravWaves/atmosgw-curate"
+license: BSD-3-Clause
+version: 0.0.1
+keywords:
+  - atmospheric gravity waves
+  - remote sensing
+  - middle atmosphere
