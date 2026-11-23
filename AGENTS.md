@@ -33,6 +33,13 @@ data directories, no `sudo`, local logging) still apply.
   MATLAB datenum, never hand-written offsets.
 - Avoid unnecessary classes and new dependencies. Adding a dependency needs the
   maintainers' approval.
+- Dependencies: `pyproject.toml` states the allowed ranges; `uv.lock` records
+  the exact versions used for development and CI. Change dependencies with
+  `uv add` / `uv remove` (or edit `pyproject.toml` and run `uv lock`), commit
+  both files together, and never edit `uv.lock` by hand. Refresh versions
+  with `uv lock --upgrade` in its own commit.
+- Never hard-code data paths. Use `atmosgw.curate.paths.local_data_dir()` for
+  the data root; instrument sub-folders are defined by the loaders.
 
 ## MATLAB-to-Python porting traps
 Check each of these in every port; all give silently different results.
@@ -88,8 +95,10 @@ Check each of these in every port; all give silently different results.
 9. How to cite: method papers, plus the package citation.
 
 ## Tests
-- `ruff check .` and `pytest` must pass before work is reported as done; CI
-  runs both on Python 3.10 and 3.13.
+- `ruff check .` and `pytest` must pass before work is reported as done.
+  Locally: `uv sync --extra dev`, then `uv run ruff check .` and
+  `uv run pytest`. CI runs both on Python 3.10 and 3.13, once with the locked
+  versions and once with the newest allowed versions.
 - Reference (parity) tests compare against MATLAB outputs from a pinned MATLAB
   commit. They skip when the reference files are absent and must say so; a
   skipped test is not a passed test.

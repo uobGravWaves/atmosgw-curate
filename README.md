@@ -27,12 +27,22 @@ general-purpose package outside this family.
 ```bash
 git clone https://github.com/uobGravWaves/atmosgw-curate.git
 cd atmosgw-curate
-pip install -e ".[dev]"
-pytest
-ruff check .
+uv sync --extra dev        # exact versions from uv.lock
+uv run pytest
+uv run ruff check .
 ```
 
-Requires Python 3.10 or later.
+`pip install -e ".[dev]"` also works, with the newest allowed versions
+instead of the locked ones. Requires Python 3.10 or later.
+
+## Where the data are
+
+Loaders find instrument data under a data root folder, set once per machine
+by either:
+
+- the environment variable `ATMOSGW_DATA`, or
+- a settings file `~/.config/atmosgw/config.toml` containing, for example,
+  `data_dir = "C:/Data"`.
 
 ## Planned layout
 

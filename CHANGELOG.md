@@ -4,6 +4,11 @@ All notable changes to this package. Versions follow semantic versioning;
 the package stays at 0.x until the Phase 1 reference tests pass.
 
 ## [Unreleased]
+- Added `atmosgw.curate.paths.local_data_dir()`: finds the data root from an
+  argument, the `ATMOSGW_DATA` environment variable or a settings file,
+  replacing hostname-based lookup. Adds `tomli` (Python 3.10 only). [Claude]
+- Added `uv.lock`; CI now tests both the locked versions and the newest
+  allowed versions. [Claude]
 - Copyright holder in `LICENSE` is now Corwin Wright and the University of
   Bath. [Claude]
 - Added `.gitattributes` pinning line endings (LF for text, CRLF for MATLAB
