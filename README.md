@@ -65,7 +65,7 @@ src/atmosgw/curate/
 
 ## Licence and citation
 
-BSD-3-Clause; see `LICENSE`. Citation details are in `CITATION.cff`
+BSD-3-Clause; copyright Corwin Wright and the University of Bath. See `LICENSE`. Citation details are in `CITATION.cff`
 (GitHub's "Cite this repository" button). A Zenodo DOI will be added with the
 first release.
 

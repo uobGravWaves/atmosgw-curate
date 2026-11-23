@@ -4,6 +4,8 @@ All notable changes to this package. Versions follow semantic versioning;
 the package stays at 0.x until the Phase 1 reference tests pass.
 
 ## [Unreleased]
+- Copyright holder in `LICENSE` is now Corwin Wright and the University of
+  Bath. [Claude]
 - Added `.gitattributes` pinning line endings (LF for text, CRLF for MATLAB
   and Windows scripts, no conversion for data files). [Claude]
 - Added `atmosgw.curate.matlab_time`: MATLAB-compatible `datenum()` (with
