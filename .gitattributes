@@ -1,0 +1,18 @@
+# Line endings: pinned here so every machine behaves the same, whatever its
+# core.autocrlf setting (these rules take precedence over it).
+
+# Text files: LF everywhere (repository and every machine)
+*        text=auto eol=lf
+
+# MATLAB and Windows scripts: CRLF, matching the Windows master copies
+*.m      text eol=crlf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Data and documents: never converted
+*.mat    binary
+*.nc     binary
+*.h5     binary
+*.he5    binary
+*.pdf    binary
+*.png    binary
