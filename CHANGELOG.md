@@ -20,6 +20,8 @@ reference outputs.
 - Added numpy and xarray (>= 2025.1.2, for non-nanosecond times) as
   dependencies. [Claude]
 - Replaced AGENTS.md with CONTRIBUTING.md (contributor guidelines). [Claude]
+- Local AI-agent instruction files (AGENTS.md, CLAUDE.md, .claude/) are
+  git-ignored. [Claude]
 
 ## [0.0.1] - 2026-11-23
 - Initial skeleton: `atmosgw` namespace package with the `atmosgw.curate`
