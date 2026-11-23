@@ -68,16 +68,21 @@ src/atmosgw/curate/
 
 - PEP 8 naming throughout, including inside functions; enforced by `ruff`
   (rule set `N`).
-- Every function follows the group's documentation checklist (purpose, inputs
-  and outputs, science, origin, validation, AI involvement, usage, status,
-  how to cite).
-- Semantic versioning; stays at 0.x until the Phase 1 reference tests pass.
+- Every function follows the documentation checklist in `CONTRIBUTING.md`.
+- Semantic versioning; stays at 0.x until the ports match the MATLAB
+  reference outputs.
 
 ## Licence and citation
 
 BSD-3-Clause; copyright Corwin Wright and the University of Bath. See `LICENSE`. Citation details are in `CITATION.cff`
 (GitHub's "Cite this repository" button). A Zenodo DOI will be added with the
 first release.
+
+## Trademarks
+
+MATLAB is a registered trademark of The MathWorks, Inc. This package is
+independent of MathWorks; its MATLAB-compatible functions are written from
+public documentation.
 
 ## Contact
 
