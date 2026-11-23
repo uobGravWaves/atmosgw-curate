@@ -18,7 +18,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
 ]
-dependencies = []
+dependencies = [
+    "numpy>=1.24",
+    # 2025.1.2 is the first xarray with non-nanosecond datetime64 support;
+    # the package stores times as datetime64[us].
+    "xarray>=2025.1.2",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
