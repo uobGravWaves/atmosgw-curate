@@ -5,6 +5,57 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `profiles.interpolate_profiles`: linear, nearest, next and previous
+  interpolation now handle all profiles at once (results unchanged, bit for
+  bit); `load_limb_sounders` is now faster than the MATLAB original in every
+  reference case. [Claude]
+- ALOMAR: each day's own heights are now used (Q7). The first day's heights
+  of a yearly file were used for every day, placing much of 2007 (from
+  2007-05-14) 0.15 km too high. Fixed the same way in the MATLAB
+  `module_load_ALOMAR.m`; the MATLAB reference cases are unchanged. [Claude]
+- `load_limb_sounders`: added the MLS, MIPAS, SOFIE and ALOMAR readers; the
+  port now covers every instrument except AIRS and IASI, and matches all 33
+  MATLAB reference cases (11 bit for bit in every field; otherwise HIRDLS
+  positions within 7.1e-14 degrees and pressure computed from height within
+  4.9e-16 relative). [Claude]
+- `atmosphere.pressure_to_height`: float32 input is computed in single
+  precision, as MATLAB does (needed for MLS). [Claude]
+- `load_limb_sounders`: added the HIRDLS and SABER readers. They match the
+  MATLAB reference outputs for all 9 HIRDLS and SABER cases of 2007-01-01/02:
+  SABER bit for bit; HIRDLS bit for bit except latitude and longitude (within
+  7e-14 degrees, from the geolocation correction's trig functions). Added
+  `readers.read_hdf5` and `readers.read_netcdf` (as the MATLAB `nph_getnet`).
+  Adds `h5py` and `netCDF4`. [Claude]
+- Added `atmosgw.curate.obs.load_limb_sounders` (port of the MATLAB
+  `get_limbsounders`, in progress): the core, and the ACE/GNSS/Misc,
+  planetary-wave and sampler readers. Matches the MATLAB reference outputs for
+  all 14 synthetic cases (bit for bit, except pressure computed from height,
+  within 4e-16 relative). The other instrument readers are still to come.
+  [Claude]
+- Added `atmosgw.curate.profiles` (join, select, interpolate, clip and mask
+  [profiles x levels] data) and `atmosgw.curate.readers` (`find_files`,
+  `read_mat`). Adds `mat-io`. [Claude]
+- `matlab_compat.interp1`: linear interpolation between two equal values now
+  returns exactly that value, as MATLAB does. [Claude]
+- `docs/quirks.md`: added Q5 (a deliberate difference in file searching) and
+  Q6 (pressure interpolated linearly in height). [Claude]
+- Python 3.11 or later is now required (needed by the MATLAB file reader
+  mat-io; Python 3.10 reached end of life in October 2026). The `tomli`
+  dependency is no longer needed. [Claude]
+- Added `atmosgw.curate.matlab_compat`: MATLAB-compatible `interp1`, `unwrap`
+  and `wrap_to_pi`, checked against MATLAB R2024b output. Adds `scipy`.
+  [Claude]
+- Added `atmosgw.curate.atmosphere`: `height_to_pressure` and
+  `pressure_to_height`, faithful ports of the MATLAB `h2p` and `p2h`, with
+  their known limitations listed in `docs/quirks.md` (Q1-Q3). [Claude]
+- Added `atmosgw.curate.geodesy`: spherical `haversine` (port of N. Hindley's
+  `nph_haversine`), `azimuth`, `reckon` and `km2deg`, matching MATLAB.
+  [Claude]
+- Added `paths.dataset_dir()` and `paths.reference_dir()`: dataset folders
+  default to `datasets.toml` and can be overridden in the settings file.
+  [Claude]
+- Added `docs/theory/relations.md` (physical relations and their sources) and
+  `docs/quirks.md` (MATLAB behaviour kept for now, to fix later). [Claude]
 - Added `atmosgw.curate.paths.local_data_dir()`: finds the data root from an
   argument, the `ATMOSGW_DATA` environment variable or a settings file,
   replacing hostname-based lookup. Adds `tomli` (Python 3.10 only). [Claude]

@@ -9,7 +9,8 @@ description = "AtmosGW Curate: loading, standardising and analysing atmospheric 
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+# 3.11: needed by mat-io (MATLAB file reader); Python 3.10 ended in October 2026
+requires-python = ">=3.11"
 authors = [{ name = "Corwin J. Wright" }]
 keywords = ["atmospheric gravity waves", "remote sensing", "middle atmosphere", "satellite"]
 classifiers = [
@@ -23,8 +24,16 @@ dependencies = [
     # 2025.1.2 is the first xarray with non-nanosecond datetime64 support;
     # the package stores times as datetime64[us].
     "xarray>=2025.1.2",
-    # TOML reader for the settings file; built in (tomllib) from Python 3.11
-    "tomli>=1.1; python_version < '3.11'",
+    # interpolation methods in matlab_compat.interp1 (1.13 is the first with
+    # makima) and reading MATLAB .mat test files
+    "scipy>=1.13",
+    # MATLAB .mat files of every version, including v7.3 and MATLAB tables
+    # (ACE, GNSS, PW, sampler and other MATLAB-written instrument files)
+    "mat-io>=1.0",
+    # HDF5 instrument files (HIRDLS, MLS, ALOMAR)
+    "h5py>=3.8",
+    # netCDF instrument files (SABER, MIPAS, SOFIE)
+    "netcdf4>=1.6",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +51,7 @@ packages = ["src/atmosgw"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, I isort, N pep8-naming (the agreed PEP 8 naming rule)
