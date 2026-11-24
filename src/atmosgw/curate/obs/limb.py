@@ -482,7 +482,8 @@ def _prepare(time_range, instrument, options):
     # where the files are
     inst_info = {"path": "", "identifier": "", "inst": name}
     reader = info["reader"]
-    if name not in ("Misc", "Sampler"):
+    # (with file_path given, the data root is not needed, so is not looked up)
+    if name not in ("Misc", "Sampler") and options["file_path"] is None:
         kind = "pws" if options["hindley_pws"] else "raw"
         try:
             inst_info["path"] = str(dataset_dir(name, kind, must_exist=False))

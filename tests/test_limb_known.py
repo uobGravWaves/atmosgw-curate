@@ -365,6 +365,18 @@ def test_out_of_range_date_warns_and_returns_nothing(syn):
     assert n_profiles(ds) == 0
 
 
+def test_no_data_root_needed_with_explicit_paths(syn, monkeypatch, tmp_path):
+    # as on a machine (e.g. CI) with no data root set: file_path, misc_path and
+    # sample_path must work without one
+    monkeypatch.delenv("ATMOSGW_DATA", raising=False)
+    monkeypatch.setenv("ATMOSGW_CONFIG", str(tmp_path / "no_such_config.toml"))
+    with pytest.warns(UserWarning, match="only available"):
+        assert n_profiles(load_limb_sounders("2001-01-01", "ACE", file_path=syn)) == 0
+    assert n_profiles(misc(syn, "synlin")) == 8
+    assert n_profiles(load_limb_sounders(D1, "Sampler",
+                                         sample_path=syn / "sampler")) == 8
+
+
 # output format and arguments
 
 
