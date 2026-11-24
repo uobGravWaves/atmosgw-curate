@@ -3,9 +3,10 @@
 Python tools for loading, standardising and analysing observations of
 **atmospheric gravity waves** from satellites and other instruments.
 
-> **Status: pre-alpha skeleton (0.0.x).** There is no scientific code yet.
-> Ports of the group's MATLAB tools will be added one at a time, and nothing
-> should be treated as validated until it matches the MATLAB reference outputs.
+> **Status: pre-alpha (0.0.x).** Ports of the group's MATLAB tools are being
+> added one at a time, and nothing should be treated as validated until it
+> matches the MATLAB reference outputs. The first, `obs.load_limb_sounders`
+> (from `get_limbsounders`), matches them but has not yet been reviewed.
 
 ## The AtmosGW family
 
@@ -33,7 +34,7 @@ uv run ruff check .
 ```
 
 `pip install -e ".[dev]"` also works, with the newest allowed versions
-instead of the locked ones. Requires Python 3.10 or later.
+instead of the locked ones. Requires Python 3.11 or later.
 
 ## Where the data are
 
@@ -44,6 +45,22 @@ by either:
 - a settings file `~/.config/atmosgw/config.toml` containing, for example,
   `data_dir = "C:/Data"`.
 
+Each dataset's folder under that root is listed in
+`src/atmosgw/curate/datasets.toml`. If yours are elsewhere, override just
+those entries in your settings file, for example:
+
+```toml
+data_dir = "D:/Data"
+
+[datasets.SABER]
+raw = "E:/big_disk/saber"     # absolute: used as it is
+pws = "SABER_v2/pws"          # relative: under data_dir
+```
+
+Tests that compare against MATLAB reference outputs look for them in
+`reference_dir` (set in the same file; relative paths are under `data_dir`),
+and skip if it is not set.
+
 ## Planned layout
 
 Agree changes with the maintainers before adding to this. Folders are added
@@ -51,8 +68,16 @@ only when code for them exists.
 
 ```
 src/atmosgw/curate/
+    paths.py, datasets.toml   where the data are
+    matlab_time.py            MATLAB-compatible dates
+    matlab_compat.py          MATLAB-compatible interp1, unwrap, wrapToPi
+    atmosphere.py             height <-> pressure (approximate)
+    geodesy.py                great-circle distance, azimuth, reckon
+    profiles.py               join, select, interpolate, clip and mask profiles
+    readers.py                find files; read .mat, HDF5 and netCDF files
     data/         shared data formats
-    obs/          instrument loaders (starting with get_limbsounders)
+    obs/          instrument loaders: load_limb_sounders (port of the MATLAB
+                  get_limbsounders)
     instrument/   instrument characterisations (CPs)
     context/      global context (GC) interface
     analysis/     detrending, Stockwell wrappers

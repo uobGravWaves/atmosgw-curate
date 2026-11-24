@@ -1,0 +1,20 @@
+# Known quirks kept from the MATLAB code
+
+Ports reproduce the MATLAB code exactly first, so they can be checked against
+its outputs. Behaviour that is known to be wrong or questionable is kept, and
+listed here so it can be fixed later. Each fix is a separate change with
+before/after tests.
+
+Each quirk has an ID, used in the code comments at the place where it
+happens, and a test that pins the current behaviour. Fixing a quirk should
+change that test and the matching MATLAB regression fields, and nothing else.
+
+| ID | Where | What happens | Why it matters | Pinned by |
+|---|---|---|---|---|
+| Q1 | `atmosphere.py` (from `h2p.m`, `p2h.m`) | Each layer between the reference heights is treated as isothermal (one exponential), and the reference heights are used as geometric heights. The U.S. Standard Atmosphere has temperature gradients in most layers, and its layer heights are probably geopotential (UNVERIFIED). | Height-pressure conversion is approximate, increasingly so with height. | `test_atmosphere.py::test_height_to_pressure_against_matlab` |
+| Q2 | `atmosphere.height_to_pressure` (from `h2p.m`) | Altitudes below 0 km give NaN. | Low-lying data, or small negative altitudes from retrievals, get no pressure. | `test_atmosphere.py::test_q2_negative_altitude_is_nan` |
+| Q3 | `atmosphere.pressure_to_height` (from `p2h.m`) | A pressure above 1013.25 hPa matches no layer: it reuses the layer of the previous finite element (in MATLAB, column-major order), or stops with an error if it is the first. | The result for such a pressure depends on what came before it in the array. Probably not reached by the limb-sounder loader, whose only use of this is the MLS pressure levels (UNVERIFIED). | `test_atmosphere.py::test_q3_*` |
+| Q4 | `geodesy.haversine` (from `nph_haversine.m`) | For points within about 1e-7 degrees of exactly antipodal, rounding can make the intermediate value a slightly greater than 1, so sqrt(1 - a) is undefined: NaN in Python (MATLAB stops with an error). Clipping a to [0, 1] would fix it. | Only nearly antipodal points are affected; not reached by the limb-sounder loader, which measures between neighbouring profiles. | `test_geodesy.py::test_q4_near_antipodal_can_be_nan` |
+| Q5 | `readers.find_files` (from `wildcardsearch.m`, `regexpdir.m`) | **Not reproduced, a deliberate difference.** `regexpdir` keeps the root folder of its first call in a MATLAB session (a `persistent` variable never reset), so later calls match the pattern against the full path instead of the path relative to their own root. Python always uses the relative path. | Results can differ only if the root folder's own path matches the pattern (e.g. contains the date being searched for). MATLAB's result then depends on what was searched earlier in the session. | `test_readers.py::test_matches_relative_path_and_folders` |
+| Q6 | `obs/limb.py` (from `get_limbsounders.m`) | Pressure is interpolated to the height scale linearly in height, like every other variable. | Pressure falls roughly exponentially with height, so linear interpolation overestimates it between levels (by up to about 0.25%, midway between levels 1 km apart, for a 7 km scale height; about 1% for 2 km spacing); log-pressure interpolation would be better. | `test_limb_known.py::test_q6_pressure_linear_in_height` |
+| Q7 | `obs/_limb_alomar.py` (from `module_load_ALOMAR.m`) | **Fixed 2026-11-24** (MATLAB: MultiInstrumentFunctions commit e13e247; Python: same day). The heights of the first day in each yearly file were used for every day. In the 2007 file, 37 of the 58 days (from 2007-05-14) have a different grid: 766 levels from 5.10 km instead of 765 from 5.25 km, so on those days every temperature was placed 0.15 km (one level) too high, and the top level had no height. Each day's own `z_lidar` is now used. | Interpolated temperatures on 2007-06-01 changed by a median of 0.39 K (up to 15.6 K). The MATLAB reference cases (2007-01-23, the file's first day) are unchanged. Other years not checked. | `test_limb_known.py::test_q7_alomar_each_day_has_its_own_heights` |

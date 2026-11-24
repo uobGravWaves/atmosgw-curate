@@ -1,0 +1,10 @@
+# Physical relations and their sources
+
+Each physical relation used in the code is listed here with its source, and is
+cited in the code by its ID (e.g. `[R1]`). Status says whether the relation and
+any numbers taken from the source have been checked against the source itself.
+
+| ID | Relation | Source | Used in | Status |
+|---|---|---|---|---|
+| R1 | Reference pressures at fixed heights (0, 11, 20, 32, 47, 51, 71 km), used to convert between height and pressure | U.S. Standard Atmosphere, 1976 (NOAA, NASA and USAF, Washington, D.C.) | `atmosphere.py` | The basis was confirmed by C. Wright (2026-11-24). The level values and the bibliographic details have not been checked against the document: UNVERIFIED. The way the code joins the levels is the group's own approximation, not the standard's (see Q1 in `docs/quirks.md`). |
+| R2 | HIRDLS geolocation: profile positions are given at 30 km, and the measurement point moves about 0.6 km along track for each 1 km of vertical scan | Wright, C. J., Osprey, S. M., and Gille, J. C.: Global distributions of overlapping gravity waves in HIRDLS data, Atmos. Chem. Phys., 15, 8459-8477, https://doi.org/10.5194/acp-15-8459-2015, 2015; Sect. 4.3 | `obs/_limb_hirdls.py` | The 0.6 km and 30 km values were checked in Sect. 4.3 (2026-11-24). Applying the shift in opposite directions for upward and downward scans is not described in the paper; it is the group's own reasoning, carried over from the MATLAB loader. C. Wright confirmed (2026-11-24) that the retrieval's vertical regridding mentioned in Sect. 4.3 does not already move the positions, so the correction is not counted twice. |

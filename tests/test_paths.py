@@ -3,7 +3,12 @@
 import pytest
 
 from atmosgw.curate import paths
-from atmosgw.curate.paths import DataDirNotSetError, local_data_dir
+from atmosgw.curate.paths import (
+    DataDirNotSetError,
+    dataset_dir,
+    local_data_dir,
+    reference_dir,
+)
 
 
 @pytest.fixture
@@ -80,3 +85,85 @@ def test_missing_folder(clean_env):
     with pytest.raises(FileNotFoundError, match="not_there"):
         local_data_dir(missing)
     assert local_data_dir(missing, must_exist=False) == missing
+
+
+# dataset_dir and reference_dir
+
+
+@pytest.fixture
+def data_root(clean_env):
+    """A data root set in the settings file; returns (root, home)."""
+    root = clean_env / "data"
+    root.mkdir()
+    home = clean_env / "home"
+    return root, home
+
+
+def test_dataset_default(data_root):
+    root, home = data_root
+    write_config(home, f'data_dir = "{root.as_posix()}"\n')
+    (root / "SABER" / "raw").mkdir(parents=True)
+    assert dataset_dir("SABER") == root / "SABER" / "raw"
+    assert dataset_dir("SABER", "pws", must_exist=False) == root / "SABER" / "pws"
+    assert dataset_dir("ALOMAR", must_exist=False) == root / "lidar" / "ALOMAR"
+
+
+def test_dataset_overrides(data_root, clean_env):
+    root, home = data_root
+    elsewhere = clean_env / "big_disk" / "saber"
+    elsewhere.mkdir(parents=True)
+    write_config(
+        home,
+        f'data_dir = "{root.as_posix()}"\n'
+        "[datasets.SABER]\n"
+        f'raw = "{elsewhere.as_posix()}"\n'
+        'pws = "SABER_v2/pws"\n',
+    )
+    assert dataset_dir("SABER") == elsewhere  # absolute override
+    assert dataset_dir("SABER", "pws", must_exist=False) == root / "SABER_v2" / "pws"
+    # other datasets keep their defaults
+    assert dataset_dir("HIRDLS", must_exist=False) == root / "HIRDLS" / "raw"
+
+
+def test_dataset_added_by_user(data_root):
+    root, home = data_root
+    write_config(
+        home, f'data_dir = "{root.as_posix()}"\n[datasets.NEWSAT]\nraw = "new/raw"\n'
+    )
+    assert dataset_dir("NEWSAT", must_exist=False) == root / "new" / "raw"
+
+
+def test_dataset_unknown(data_root):
+    root, home = data_root
+    write_config(home, f'data_dir = "{root.as_posix()}"\n')
+    with pytest.raises(KeyError, match="Unknown dataset"):
+        dataset_dir("saber")  # names are case-sensitive
+    with pytest.raises(KeyError, match="no 'pws' folder"):
+        dataset_dir("ALOMAR", "pws")
+
+
+def test_dataset_missing_folder(data_root):
+    root, home = data_root
+    write_config(home, f'data_dir = "{root.as_posix()}"\n')
+    with pytest.raises(FileNotFoundError, match="package defaults"):
+        dataset_dir("MLS")
+
+
+def test_reference_dir(data_root, clean_env):
+    root, home = data_root
+    (root / "tests").mkdir()
+    config = write_config(
+        home, f'data_dir = "{root.as_posix()}"\nreference_dir = "tests"\n'
+    )
+    assert reference_dir() == root / "tests"
+    absolute = clean_env / "refs"
+    absolute.mkdir()
+    config.write_text(f'reference_dir = "{absolute.as_posix()}"\n')
+    assert reference_dir() == absolute
+
+
+def test_reference_dir_unset(data_root):
+    root, home = data_root
+    write_config(home, f'data_dir = "{root.as_posix()}"\n')
+    with pytest.raises(DataDirNotSetError, match="reference_dir"):
+        reference_dir()

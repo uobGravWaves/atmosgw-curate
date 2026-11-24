@@ -63,7 +63,7 @@ how to cite.
 
 ## Tests
 - `uv sync --extra dev`, then `uv run ruff check .` and `uv run pytest`.
-  CI runs both on Python 3.10 and 3.13, with locked and with latest versions.
+  CI runs both on Python 3.11 and 3.13, with locked and with latest versions.
 - MATLAB reference tests skip when their data are absent; a skip is not a
   pass.
 - State the tolerance in every numerical comparison.
