@@ -15,8 +15,9 @@ Each field keeps its stored number type (as ``get_MLS``), except that a field
 containing its ``_FillValue`` is converted to float64 with those values NaN.
 Negative ``L2gpPrecision`` values are meaningful (a priori influence) and are
 kept. Heights are estimated from the pressure levels with
-``atmosphere.pressure_to_height``; MLS pressures are float32, so, as in MATLAB,
-this is computed in single precision.
+``atmosphere.pressure_to_height`` (U.S. Standard Atmosphere 1976), in double
+precision (MLS pressures are float32; until 2026-11-25 the heights were computed
+in single precision, as the old MATLAB ``p2h`` did).
 """
 
 import h5py

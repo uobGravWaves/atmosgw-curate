@@ -1,17 +1,19 @@
 """Regression tests: load_limb_sounders against the MATLAB get_limbsounders.
 
 Reference: <reference_dir>/get_limbsounders_reference.mat, made 2026-11-25 by
-corwin365/MatlabFunctions-Tests@cc972c9 (test_get_limbsounders.m) with MATLAB
-R2024b Update 6, from uobGravWaves/MultiInstrumentFunctions@9eb6bde (Q6 fix:
-pressure interpolated in log(pressure)) and corwin365/MatlabFunctions@edc9aa3.
-It differs from the previous reference (made 2026-11-22 from
-MultiInstrumentFunctions@78eef78, kept as get_limbsounders_reference_78eef78.mat)
-only in Pres, in the 25 cases that interpolate heights. Its SHA-256 is pinned
-below; a different file fails the test rather than being used.
+corwin365/MatlabFunctions-Tests@e150b89 (test_get_limbsounders.m) with MATLAB
+R2024b Update 6, from uobGravWaves/MultiInstrumentFunctions@9db1b4b and
+corwin365/MatlabFunctions@d54b177 (h2p.m and p2h.m implementing the U.S.
+Standard Atmosphere 1976, Q1-Q3; outputs bit-identical at 22d5aec). Earlier
+references are kept beside it: get_limbsounders_reference_9eb6bde.mat (before
+Q1-Q3) and get_limbsounders_reference_78eef78.mat (before Q6). Its SHA-256 is
+pinned below; a different file fails the test rather than being used.
 
 Synthetic inputs: <reference_dir>/get_limbsounders_synthetic, written by
 tests/matlab/make_limb_synthetic_inputs.m (checked 2026-11-24 to reproduce all
-14 synthetic reference cases in MATLAB).
+14 synthetic reference cases in MATLAB; rewritten 2026-11-25 with the new
+h2p.m, which changed only the sampler file's pressure; the previous files are
+kept in get_limbsounders_synthetic_20261124).
 
 What is compared: the private layer (_load_limb_arrays), whose output has the
 MATLAB names and datenum times, field by field: the same fields, shapes and NaN
@@ -47,7 +49,7 @@ from atmosgw.curate.obs.limb import _load_limb_arrays
 from atmosgw.curate.paths import DataDirNotSetError, dataset_dir, reference_dir
 from atmosgw.curate.readers import read_mat
 
-REFERENCE_SHA256 = "3a9d7c3e21b63c9821d3332ff2c5770adceb81299ee0a3a6675036f0a609c4ab"
+REFERENCE_SHA256 = "7522a950f6eb306d9cd957c47ca6ac07fd19d95ad1ec46a67535cf420b4295ac"
 PRESSURE_RTOL = 1e-15
 POSITION_ATOL = 1e-12  # degrees
 DX_RTOL = 1e-12

@@ -5,6 +5,19 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `atmosphere.height_to_pressure` and `pressure_to_height` now implement the
+  U.S. Standard Atmosphere 1976 (Q1-Q3), as the rewritten MATLAB `h2p` and
+  `p2h`: the standard's equations up to 86 km and log-pressure interpolation
+  of its Table I from 86 to 149 km, valid from -5 to 149 km (NaN outside).
+  Constants and table values checked against the document. The old method
+  (isothermal layers between seven pressures, geopotential heights used as
+  geometric) was off by up to 15% in pressure at 60 km, and 1.1 km in height.
+  Effects in `load_limb_sounders`: MLS heights move (up to 0.4 km near the
+  stratopause, more above), so MLS temperatures on the height grid change by
+  up to 10 K; pressures computed from height change (ALOMAR, Misc and PW
+  files). Other instruments are unchanged. `pressure_to_height` now always
+  computes in double precision (float32 MLS pressures were computed in single
+  precision). MATLAB reference outputs regenerated. [Claude]
 
 ## [0.2.0] - 2026-11-25
 - `load_limb_sounders`: pressure is now interpolated to the height scale in
