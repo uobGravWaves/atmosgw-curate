@@ -76,6 +76,7 @@ Proposal (the state list is a draft for agreement).
 Change log
 ----------
 2026/11/25 [Claude] initial version
+2026/11/25 [Claude] descriptions match the shared rules; counts_text
 
 How to cite
 -----------
@@ -91,20 +92,22 @@ State = namedtuple("State", "name bit no_value group description")
 # the registry: bit values are fixed once released; append new states only
 STATES = (
     State("no_observation", 1, True, "never there",
-          "no measurement at this point: outside the swath or profile, in a gap "
-          "between segments, below the lowest or above the highest level"),
+          "nothing measured here: outside the swath, above or below a "
+          "profile's measured values, padding between profiles, or a gap "
+          "between segments"),
     State("missing", 2, True, "never there",
-          "a measurement was expected but the file has none (fill value, "
-          "missing scan)"),
+          "a gap inside what was measured: a fill value or NaN at a scanned "
+          "point, or between a profile's first and last value"),
     State("outside_requested_range", 4, True, "never there",
           "removed because outside the height, latitude or longitude range "
           "asked for"),
     State("bad_geolocation", 8, True, "removed as bad",
-          "latitude or longitude outside its range"),
+          "latitude or longitude out of range (nadir: also NaN; limb: out "
+          "of range only, as MATLAB)"),
     State("outside_physical_range", 16, True, "removed as bad",
           "temperature < 100 K, or > 400 K below 100 km"),
     State("statistical_outlier", 32, True, "removed as bad",
-          "outside 3 x IQR of its height level"),
+          "marked by the instrument's statistical screen (obs._screen)"),
     State("instrument_flag", 64, True, "removed as bad",
           "the instrument's own quality control marks it bad"),
     State("derived", 128, False, "qualified value",
@@ -112,7 +115,7 @@ STATES = (
     State("filled", 256, False, "qualified value",
           "filled from neighbours after loading"),
     State("extrapolated", 512, False, "qualified value",
-          "outside the source data's coverage"),
+          "outside the source data's coverage (only on values that exist)"),
     State("a_priori_dominated", 1024, False, "qualified value",
           "the retrieval has little information here (reserved)"),
 )
@@ -176,6 +179,17 @@ def state_counts(flags):
     counts = {s.name: int(np.count_nonzero(flags & FLAG_DTYPE(s.bit)))
               for s in STATES}
     return {k: v for k, v in counts.items() if v}
+
+
+def counts_text(flags_by_variable):
+    """The ``state_counts`` attribute text for {variable: flag array}, e.g.
+    'temperature: missing 3, derived 10; pressure: none'."""
+    parts = []
+    for name, flags in flags_by_variable.items():
+        found = state_counts(flags)
+        parts.append(f"{name}: " + (", ".join(f"{k} {n}" for k, n in found.items())
+                                    or "none"))
+    return "; ".join(parts)
 
 
 def format_availability(mapping):

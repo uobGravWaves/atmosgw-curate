@@ -117,10 +117,12 @@ variable (``temperature``, ``pressure``, ``temperature_residual``,
 height scale); as in
 MATLAB, a point removed for one variable is removed (and flagged) in all of
 them. With ``keep_outliers`` the values are kept and the states still set.
-Every other NaN is ``no_observation``: above or below a profile, padding
-between profiles of different lengths, or NaN in the file (the loader cannot
-tell these apart). With ``extrapolate``, points outside a profile's own
-heights are ``extrapolated`` (where they have a value). ``origin``:
+Every other NaN is ``missing`` if it lies between the profile's first and
+last value of that variable (a gap in what was measured, e.g. a fill value),
+and ``no_observation`` otherwise (above or below the profile, or padding
+between profiles of different lengths). With ``extrapolate``, points outside
+a profile's own heights are ``extrapolated`` (where they have a value).
+``origin``:
 "retrieved", except "derived" for planetary-wave data, for Sampler data (from
 a model) and for pressure estimated from height, and "mixed" when only some
 of the pressures in the output are estimated (files without pressure);
@@ -240,6 +242,9 @@ Change log
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] output in the profile format: state flags, origins, attributes
 2026/11/25 [Claude] states: estimated pressure marked per point; extrapolated
+2026/11/25 [Claude] states: missing (gaps inside a profile) vs no_observation
+2026/11/25 [Claude] preprocessing attribute (GNSS files pre-interpolated); shared
+  warning and attributes
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
@@ -284,8 +289,10 @@ from atmosgw.curate.obs._common import (
     load_attrs,
     outside_physical_range,
     record,
+    record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_multiple_matches,
 )
 from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.paths import dataset_dir
@@ -307,7 +314,11 @@ INSTRUMENTS = {
     "ALOMAR": {"time_range": (datenum(2003, 1, 1), _FAR), "height_range": (0, 80),
                "reader": _limb_alomar},
     "GNSS": {"time_range": (datenum(2000, 1, 1), _FAR), "height_range": (0, 40),
-             "reader": _limb_ace_gnss},
+             "reader": _limb_ace_gnss,
+             # (C. Wright, 2026-11-25: the files are not the provider's raw data)
+             "preprocessing": "files pre-interpolated to a fixed height grid by C. "
+                              "Wright, to reduce their size; positions are missing "
+                              "at some levels"},
     "HIRDLS": {"time_range": (datenum(2005, 1, 29), datenum(2008, 1, 77)),
                "height_range": (0, 80), "reader": _limb_hirdls},
     "MIPAS": {"time_range": (datenum(2002, 7, 2), datenum(2012, 4, 8)),
@@ -421,15 +432,7 @@ def _load_limb_arrays(time_range, instrument, **options):
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
-    multiple = settings["record"]["multiple_matches"]
-    if multiple:
-        warnings.warn(
-            f"{len(multiple)} day(s) had more than one matching "
-            f"{settings['instrument']} file; one was used for each (e.g. "
-            f"{multiple[0]}). All are listed in "
-            "the output attribute 'multiple_matches'.",
-            stacklevel=3,
-        )
+    warn_multiple_matches(settings, stacklevel=3)
 
     # variables not on the [profiles x levels] grid of Lat are left untouched
     # (only if ignore_non_modal; otherwise the readers have already refused them)
@@ -706,16 +709,8 @@ def _find_outliers(data, settings):
 def _variable_attrs(name, out, settings):
     """Standard attributes of one output variable, plus where it came from."""
     attrs = dict(_ATTRS.get(out, {}))
-    rec = settings["record"]
-    if name in rec["source_variables"]:
-        attrs["source_variable"] = rec["source_variables"][name]
-    if name in rec["notes"]:
-        attrs["comment"] = rec["notes"][name]
-    if name == "Alt" and not settings["original_z"]:
-        attrs.pop("source_variable", None)
-        origin = rec["notes"].get(name) or rec["source_variables"].get(name)
-        attrs["comment"] = "the height scale; the data were interpolated to it" + (
-            f" from the file's heights ({origin})" if origin else "")
+    attrs.update(record_attrs(name, settings["record"],
+                              interpolated=not settings["original_z"]))
     return attrs
 
 
@@ -723,9 +718,9 @@ def _state_flags(value, lat_shape, masks):
     """
     The state flag of one data variable (shape of value): the states of
     state_masks ([profiles x levels] masks by state name, repeated over any
-    further dimension), then no_observation at every other NaN (outside a
-    profile's heights, padding between profiles of different lengths, or NaN
-    in the file: the loader cannot tell these apart).
+    further dimension); then, at every other NaN, missing between the
+    profile's first and last value along level, and no_observation outside
+    (above or below the profile, padding between profiles).
     """
     def over_value(x):  # [profiles x levels] -> shape of value
         return np.broadcast_to(x.reshape(x.shape + (1,) * (value.ndim - 2)),
@@ -743,9 +738,35 @@ def _state_flags(value, lat_shape, masks):
     for name, mask in masks.items():
         if not states.state(name).no_value:
             states.set_state(flag, over_value(mask) & np.isfinite(value), name)
-    states.set_state(flag, np.isnan(value) & ~states.no_value_mask(flag),
+    # other NaN: missing inside the profile's measured coverage (between its
+    # first and last value along level), no_observation outside it
+    # (points removed as bad count as measured)
+    removed = np.zeros(flag.shape, dtype=bool)
+    for state in states.STATES:
+        if state.group == "removed as bad":
+            removed |= states.has_state(flag, state.name)
+    unexplained = np.isnan(value) & ~states.no_value_mask(flag)
+    states.set_state(flag, unexplained & _inside_coverage(np.isfinite(value) | removed),
+                     "missing")
+    states.set_state(flag, unexplained & ~states.has_state(flag, "missing"),
                      "no_observation")
     return flag
+
+
+def _inside_coverage(measured):
+    """True strictly between each profile's first and last measured point
+    (measured: bool array) along the level axis (axis 1), separately for any
+    further dimension."""
+    finite = np.asarray(measured, dtype=bool)
+    value = finite
+    if value.ndim < 2 or value.shape[1] == 0:
+        return np.zeros(value.shape, dtype=bool)
+    n_lev = value.shape[1]
+    level = np.arange(n_lev).reshape((1, n_lev) + (1,) * (value.ndim - 2))
+    first = np.argmax(finite, axis=1, keepdims=True)
+    last = n_lev - 1 - np.argmax(finite[:, ::-1], axis=1, keepdims=True)
+    has = finite.any(axis=1, keepdims=True)
+    return has & (level > first) & (level < last)
 
 
 def _origin(out, value, settings):
@@ -801,7 +822,7 @@ def _to_dataset(data, settings, call=None):
         variables[out] = (dims, value, _variable_attrs(name, out, settings))
 
     # profile format: a state flag and an origin for each data variable
-    counts = []
+    flags_by_variable = {}
     for out in _DATA_VARIABLES:
         if out not in variables:
             continue
@@ -812,9 +833,7 @@ def _to_dataset(data, settings, call=None):
             states.set_state(flag, derived, "derived")
         var_attrs.update(origin=origin, ancillary_variables=f"{out}_flag")
         variables[f"{out}_flag"] = (dims, flag, states.flag_attrs())
-        found = states.state_counts(flag)
-        counts.append(f"{out}: " + (", ".join(f"{k} {n}" for k, n in found.items())
-                                    or "none"))
+        flags_by_variable[out] = flag
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
                if s.get("tracked")]
     availability = {n: "not_requested" for n in tracked
@@ -822,17 +841,22 @@ def _to_dataset(data, settings, call=None):
     availability.update({f"{out}_uncertainty": "not_provided"
                          for out in _DATA_VARIABLES if out in variables})
     instrument = settings["instrument_name"]
+    # (the PW files are a separate product: the raw files' text does not apply)
+    preprocessing = ("" if settings["hindley_pws"]
+                     else INSTRUMENTS[instrument].get("preprocessing", ""))
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders")
     attrs = {
         "format": "profile", "format_version": FORMATS["profile"]["version"],
         "instrument": instrument, "product": _PRODUCT,
         "characterisation": f"{instrument}-{_PRODUCT.upper()}-placeholder/0",
-        "data": "planetary-wave-filtered" if settings["hindley_pws"] else "raw",
+        "data": ("planetary-wave-filtered" if settings["hindley_pws"]
+                 else "preprocessed" if preprocessing else "raw"),
+        "preprocessing": preprocessing,
         "heights": "original" if settings["original_z"] else "interpolated",
         "time_range": common.pop("time_range"),
         "availability": states.format_availability(availability),
         **common,
-        "state_counts": "; ".join(counts),
+        "state_counts": states.counts_text(flags_by_variable),
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 

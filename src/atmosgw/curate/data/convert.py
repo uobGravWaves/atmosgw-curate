@@ -21,8 +21,16 @@ Inputs and outputs
   altitude with ``atmosphere.height_to_pressure`` (U.S. Standard Atmosphere
   1976 [R1]): ``origin`` "derived", and the ``derived`` state at every point.
 - Per profile: ``swath_along``, ``swath_cross`` (1-based positions in the
-  swath), ``granule``, ``granule_day``, ``segment``, and ``day_retrieval`` if
-  present.
+  swath), ``granule``, ``granule_day``, ``segment``, and ``day_retrieval`` and
+  ``source_row`` if present.
+- ``source_file`` (if present, from ``file_source=True``): the row's value
+  repeated over cross-track positions and levels, dims (profile, level); the
+  ``original_files`` coordinate is kept. ``source_profile`` has no meaning
+  for a swath and is listed as ``not_provided``: ``source_row`` and
+  ``swath_cross`` identify the point in its file.
+- ``availability``: each tracked profile variable not in the output keeps
+  the swath's reason if the swath lists it (e.g. ``not_in_files``), else
+  ``not_requested``.
 - Attributes are kept, with ``format``, ``format_version``,
   ``availability`` and ``state_counts`` set for the profile format, and
   ``converted_from`` = "swath".
@@ -40,8 +48,9 @@ New code (no MATLAB equivalent).
 
 Validation
 ----------
-``tests/test_data_convert.py``: shapes, order, values and states, and that
-the result passes ``validate(ds, "profile")``.
+``tests/test_data_convert.py``: shapes, order, values and states, file
+provenance and availability, and that the result passes
+``validate(ds, "profile")``.
 
 AI involvement
 --------------
@@ -59,6 +68,7 @@ Proposal.
 Change log
 ----------
 2026/11/25 [Claude] initial version
+2026/11/25 [Claude] keep source_file, source_row, original_files; inherit availability
 
 How to cite
 -----------
@@ -72,7 +82,7 @@ from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 
-_PER_PROFILE = ("granule", "granule_day", "segment")
+_PER_PROFILE = ("granule", "granule_day", "segment", "source_row")
 
 
 def to_profiles(ds):
@@ -131,18 +141,24 @@ def to_profiles(ds):
     if "day_retrieval" in ds:
         out["day_retrieval"] = (("profile",), per_point("day_retrieval"),
                                 ds["day_retrieval"].attrs)
+    if "source_file" in ds:  # row value over cross-track positions and levels
+        out["source_file"] = (pl, over_levels(np.repeat(ds["source_file"].values,
+                                                        n_cross)),
+                              ds["source_file"].attrs)
     result = xr.Dataset(out)
+    if "original_files" in ds.coords:
+        result = result.assign_coords(original_files=ds["original_files"])
 
+    # absent tracked variables keep the swath's reason; source_profile has no
+    # meaning for a swath (source_row and swath_cross locate the point)
+    swath_availability = states.parse_availability(ds.attrs.get("availability", ""))
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
                if s.get("tracked") and n not in result]
-    availability = {n: "not_requested" for n in tracked}
+    availability = {n: swath_availability.get(n, "not_requested") for n in tracked}
+    if "source_profile" in availability:
+        availability["source_profile"] = "not_provided"
     availability.update({"temperature_uncertainty": "not_provided",
                          "pressure_uncertainty": "not_provided"})
-    counts = []
-    for name in ("temperature", "pressure"):
-        c = states.state_counts(result[f"{name}_flag"].values)
-        counts.append(f"{name}: " + (", ".join(f"{k} {n}" for k, n in c.items())
-                                     or "none"))
     result.attrs = dict(ds.attrs)
     for name in ("spatial_dims", "grid_spacing_km", "grid"):
         result.attrs.pop(name, None)
@@ -150,6 +166,7 @@ def to_profiles(ds):
         "format": "profile", "format_version": FORMATS["profile"]["version"],
         "converted_from": "swath",
         "availability": states.format_availability(availability),
-        "state_counts": "; ".join(counts),
+        "state_counts": states.counts_text(
+            {n: result[f"{n}_flag"].values for n in ("temperature", "pressure")}),
     })
     return result

@@ -145,6 +145,8 @@ Change log
 2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] docstring: IASI screen, segment rule, duplicate option fixed
+2026/11/25 [Claude] extrapolated state; record-based attributes; heights and
+  preprocessing attributes (preprocessing as the readers record it)
 
 How to cite
 -----------
@@ -172,6 +174,7 @@ from atmosgw.curate.obs._common import (
     load_attrs,
     outside_physical_range,
     record,
+    record_attrs,
     to_datenums,
     warn_if_no_data,
 )
@@ -474,8 +477,24 @@ def _regrid(data, flags, settings, info):
         new_flags = out["flags"]
         unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
         states.set_state(new_flags, unexplained, "no_observation")
+        d_seg = swath.swath_distances(lat[:, rows], lon[:, rows])
+        if settings["extrapolate"]:
+            # outside this segment's own distances (e.g. cross-track, where the
+            # common cross axis is wider than the segment): extrapolated, where
+            # there is a value
+            cross_out = ((cross_axis < np.nanmin(d_seg["cross"]))
+                         | (cross_axis > np.nanmax(d_seg["cross"])))
+            along_out = ((out["along"] < np.nanmin(d_seg["along"]))
+                         | (out["along"] > np.nanmax(d_seg["along"])))
+            outside = cross_out[:, None] | along_out[None, :]
+            outside = np.broadcast_to(
+                outside.reshape(outside.shape + (1,) * (new_flags.ndim - 2)),
+                new_flags.shape)
+            states.set_state(new_flags,
+                             outside & np.isfinite(out["fields"]["Temp"]),
+                             "extrapolated")
         # per-row information: from the nearest input row along track
-        d_in = swath.swath_distances(lat[:, rows], lon[:, rows])["along"]
+        d_in = d_seg["along"]
         nearest = rows[np.clip(np.searchsorted(d_in, out["along"]), 0, rows.size - 1)]
         part = {"Lat": out["lat"], "Lon": out["lon"],
                 "Time": out["fields"]["Time"], "Temp": out["fields"]["Temp"],
@@ -562,8 +581,7 @@ def _along_track_names(data):
 _ATTRS = {
     **COORD_ATTRS,
     "temperature": {"units": "K", "standard_name": "air_temperature",
-                    "origin": "retrieved", "ancillary_variables": "temperature_flag",
-                    "source_variable": "ret_temp"},
+                    "origin": "retrieved", "ancillary_variables": "temperature_flag"},
     "brightness_temperature": {"units": "K", "long_name": "brightness temperature",
                                "origin": "measured",
                                "ancillary_variables": "brightness_temperature_flag"},
@@ -634,6 +652,10 @@ def _to_dataset(data, settings, call=None):
         if not settings["keep_outliers"]:
             value[states.no_value_mask(flags)] = np.nan
         dflag = flags.copy()
+        # (qualified states only where this variable has a value)
+        for name in ("extrapolated", "filled"):
+            bit = states.FLAG_DTYPE(states.state(name).bit)
+            dflag[np.isnan(value)] &= ~bit
         states.set_state(dflag, np.isfinite(value), "derived")
         states.set_state(dflag, np.isnan(value) & ~states.no_value_mask(dflag),
                          "no_observation")
@@ -675,6 +697,13 @@ def _to_dataset(data, settings, call=None):
                        t(value))
     ds = xr.Dataset({k: (val[0], val[1], val[2] if len(val) > 2 else
                          dict(_ATTRS.get(k, {}))) for k, val in v.items()})
+    # where each variable comes from, from the readers' record (as limb)
+    for name, out in (("Lat", "latitude"), ("Lon", "longitude"), ("Time", "time"),
+                      ("Alt", "altitude"), ("Temp", main)):
+        if out in ds:
+            ds[out].attrs.update(record_attrs(
+                name, settings["record"],
+                interpolated=three_d and not settings["original_z"]))
     if settings["file_source"]:
         ds = ds.assign_coords(original_files=("file", np.array(settings["files_read"],
                                                                dtype=str)))
@@ -686,18 +715,23 @@ def _to_dataset(data, settings, call=None):
     availability[f"{main}_uncertainty"] = "not_provided"
     for out in derived_outputs:
         availability[f"{out}_uncertainty"] = "not_provided"
-    counts = states.state_counts(flags)
+    flags_by_variable = {main: flags, **{out: v[f"{out}_flag"][1]
+                                         for out in derived_outputs}}
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_nadir_sounders")
+    # what was done to the files before loading, as the readers record it
+    preprocessing = "; ".join(sorted(settings["record"].get("preprocessing", ())))
     ds.attrs = {
         "format": "swath", "format_version": FORMATS["swath"]["version"],
         "instrument": settings["instrument"], "product": settings["product"],
         "characterisation": info["characterisation"][settings["product"]],
-        "data": "raw", "time_range": common.pop("time_range"),
+        "data": "preprocessed" if preprocessing else "raw",
+        "preprocessing": preprocessing,
+        "heights": (("original" if settings["original_z"] else "interpolated")
+                    if three_d else "none"),
+        "time_range": common.pop("time_range"),
         "availability": states.format_availability(availability),
         **common,
-        "state_counts": f"{main}: " + (", ".join(f"{k} {n}"
-                                                      for k, n in counts.items())
-                                            or "none"),
+        "state_counts": states.counts_text(flags_by_variable),
         "spatial_dims": "along_track cross_track" + (" level" if three_d else ""),
         "grid_spacing_km": [float(data["Spacing"][1]), float(data["Spacing"][0]),
                             float(data["Spacing"][2])],

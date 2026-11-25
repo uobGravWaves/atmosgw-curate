@@ -77,6 +77,12 @@ def candidate_granules(settings):
     return out
 
 
+# what was done to the daily files before loading (output attribute preprocessing)
+DAILY_PREPROCESSING = ("daily files merged from L. Hoffmann's granule files "
+                       "(merge_airs_into_daily.sh): temperatures rounded to whole "
+                       "kelvin, times stored as float32")
+
+
 def find_file(root, day, granule):
     """(path, kind): the daily file if present, else the granule file; (None, None)."""
     year, doy = year_and_day(day)
@@ -113,6 +119,9 @@ def load(settings, inst_info, var_names):
     granules, file_list, alt = [], [], None
     for (path, kind), wanted in sorted(by_file.items()):
         rows = [g - 1 for _, g in wanted] if kind == "daily" else None
+        if kind == "daily":  # (granule files are the producer's, unaltered)
+            done = record(inst_info).setdefault("preprocessing", set())
+            done.add(DAILY_PREPROCESSING)
         values = read_netcdf(path, file_names, rows=rows)
         z = read_netcdf(path, ["ret_z"])["ret_z"].ravel()
         if np.nansum(np.abs(z)) == 0:
