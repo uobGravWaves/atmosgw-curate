@@ -38,6 +38,11 @@ uv run ruff check .
 `pip install -e ".[dev]"` also works, with the newest allowed versions
 instead of the locked ones. Requires Python 3.11 or later.
 
+## Using it
+
+See `docs/usage.md` for loading limb profiles (`obs.load_limb_sounders`) and
+nadir swaths (`obs.load_nadir_sounders`), and reading what they return.
+
 ## Where the data are
 
 Loaders find instrument data under a data root folder, set once per machine

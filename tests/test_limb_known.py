@@ -601,9 +601,9 @@ def test_q7_alomar_each_day_has_its_own_heights():
     assert np.isfinite(late.altitude.values[0]).sum() == 766
 
 
-def test_airs_and_iasi_not_ported():
+def test_airs_and_iasi_point_to_nadir_loader():
     for name in ("AIRS", "IASI"):
-        with pytest.raises(ValueError, match="AIRS and IASI are not ported"):
+        with pytest.raises(ValueError, match="use load_nadir_sounders"):
             load_limb_sounders(D1, name)
 
 

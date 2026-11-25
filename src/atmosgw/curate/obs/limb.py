@@ -12,7 +12,8 @@ common height scale, with outliers removed.
 
 Port of the MATLAB ``get_limbsounders`` (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78), the group's own code. AIRS and
-IASI, which the MATLAB function can also load, are not ported.
+IASI, which the MATLAB function can also load, are loaded by
+``load_nadir_sounders`` instead.
 
 Status of the port: complete for every instrument above. It matches all 33
 cases of the MATLAB reference outputs (see Validation).
@@ -111,8 +112,9 @@ variable (``temperature``, ``pressure``, ``temperature_residual``,
 ``temperature_pw``) has a state flag ``<name>_flag`` of the same dimensions
 (``data.states``) and an ``origin`` attribute. States set: ``bad_geolocation``
 (latitude or longitude out of range), ``outside_physical_range`` (temperature
-< 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside the
-height scale, or outside ``height_range`` with ``original_z``); as in
+< 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
+``height_range``, with ``original_z``; interpolated data are only on the
+height scale); as in
 MATLAB, a point removed for one variable is removed (and flagged) in all of
 them. With ``keep_outliers`` the values are kept and the states still set.
 Every other NaN is ``no_observation``: above or below a profile, padding
@@ -576,7 +578,7 @@ def _prepare(time_range, instrument, options):
 
     # instrument: exact name, any case
     name = find_instrument(instrument, INSTRUMENTS,
-                           " (AIRS and IASI are not ported)")
+                           " (for AIRS and IASI use load_nadir_sounders)")
     info = INSTRUMENTS[name]
 
     # heights
@@ -704,8 +706,10 @@ def _state_flags(value, lat_shape, masks):
     """
     flag = states.new_flags(lat_shape)
     for name, mask in masks.items():
-        if np.shape(mask) == tuple(lat_shape):
-            states.set_state(flag, mask, name)
+        if np.shape(mask) != tuple(lat_shape):  # (a bug, not a data problem)
+            raise ValueError(f"state mask {name} has shape {np.shape(mask)}, "
+                             f"not that of the data {tuple(lat_shape)}")
+        states.set_state(flag, mask, name)
     if value.ndim > 2:
         flag = np.broadcast_to(flag.reshape(flag.shape + (1,) * (value.ndim - 2)),
                                value.shape).copy()

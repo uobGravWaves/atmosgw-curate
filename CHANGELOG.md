@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.5] - 2026-11-25
+- New usage guide, `docs/usage.md`: loading limb profiles and nadir swaths,
+  times, formats, data states, availability and saving. Loader docstrings
+  brought up to date (IASI screen, segment rule). [Claude]
 - `load_limb_sounders` output is now in the common "profile" format: a state
   flag (`<variable>_flag`) and an `origin` for each data variable, and the
   attributes `format`, `format_version`, `product`, `characterisation`,

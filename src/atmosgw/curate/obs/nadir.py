@@ -1,5 +1,5 @@
 """
-Load nadir-sounder swaths (AIRS; later IASI, CrIS, IASI-NG) in a common format.
+Load nadir-sounder swaths (AIRS, IASI; later CrIS, IASI-NG) in a common format.
 
 Purpose
 -------
@@ -56,12 +56,6 @@ Options (type, default; MATLAB name):
   **settings) -> bool``, or ``"none"``; see ``obs._screen``. Recorded in the
   ``screen`` attribute. Data read beyond the request for the screen are
   listed in ``files_read``.
-- ``screen`` (None): the statistical outlier screen; None uses the
-  instrument's default (IASI ``"rolling"``, AIRS ``"none"``). A name, a
-  ``(name, settings)`` pair, a function ``screen(temp, time, lat, lon,
-  **settings) -> bool``, or ``"none"``; see ``obs._screen``. Recorded in the
-  ``screen`` attribute. Data read beyond the request for the screen are
-  listed in ``files_read``.
 - ``day_night`` (bool, False; ``DayNightFlag``): add ``day_retrieval``.
 - ``keep_native_geolocation`` (bool, False; ``KeepOldTime`` for time): also
   return the positions and times before regridding.
@@ -82,8 +76,9 @@ start of each segment) and ``distance_cross`` on a regular grid; optional
 variables as requested. Variables that do not exist are listed in the
 ``availability`` attribute (e.g. the satellite position: ``not_in_files``).
 
-Segments: the swath is split where successive rows are more than 1.5 scan
-intervals apart (missing granules, or separate time ranges); each segment is
+Segments: the swath is split where successive rows are more than 180 s apart
+(missing granules, or separate time ranges; not 1.5 scans, because the AIRS
+daily files store times as float32); each segment is
 regridded on its own along-track axis, all on one cross-track axis (that of
 the first segment, as MATLAB assumes every scan has the same cross-track
 geometry). Rows of different segments are not interpolated across.
@@ -102,9 +97,11 @@ Science
   ``bad_geolocation``; temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (proposal: MATLAB applies this only to IASI;
   for AIRS it changes nothing where no such values exist, as in the test
-  granules); for IASI, values more than 3 interquartile ranges from the
-  quartiles of their height level, over all points loaded, are
-  ``statistical_outlier`` (the reader's ``screen``). Unless ``keep_outliers``,
+  granules); values the instrument's statistical screen marks are
+  ``statistical_outlier`` (IASI default ``"rolling"``: more than 5
+  interquartile ranges beyond the quartiles of their height level within a
+  10-minute window, day and night separately; AIRS none; see
+  ``obs._screen``). Unless ``keep_outliers``,
   bad values are NaN before regridding,
   so a regridded point is NaN if any input it uses is; regridded points take
   the states of the inputs they use (the OR of the flags of every input point
@@ -147,6 +144,7 @@ Change log
 2026/11/25 [Claude] IASI 3-D: orbit files, pseudo-granules, outlier screen (no refill)
 2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
+2026/11/25 [Claude] docstring: IASI screen, segment rule, duplicate option fixed
 
 How to cite
 -----------

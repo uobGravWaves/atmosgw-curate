@@ -1,0 +1,202 @@
+# Using the loaders
+
+How to load limb-sounder profiles and nadir-sounder swaths with
+`atmosgw.curate`, and how to read what comes back. The full list of options
+is in each loader's docstring (`help(load_limb_sounders)`,
+`help(load_nadir_sounders)`); this guide covers the common tasks.
+
+Status: pre-alpha. `load_limb_sounders` matches the MATLAB `get_limbsounders`;
+`load_nadir_sounders` matches `prep_airs_3d` without its detrending and
+smoothing, which will come with a general detrender. The data formats
+(`docs/design/data_formats.md`) are version 1 proposals.
+
+## Setting up
+
+Install the package (see `README.md`), then tell it once per machine where
+the data are: `ATMOSGW_DATA`, or `data_dir` in `~/.config/atmosgw/config.toml`
+(see "Where the data are" in `README.md`).
+
+```python
+from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders
+from atmosgw.curate.data import validate, availability, to_profiles
+from atmosgw.curate.data import states
+```
+
+## Times
+
+Both loaders take `time_range` as one time (that whole day) or two (start
+and end): `numpy.datetime64`, ISO strings or `datetime` objects.
+
+```python
+ds = load_limb_sounders("2007-01-01", "SABER")                     # one day
+ds = load_limb_sounders(["2007-01-01", "2007-01-03"], "SABER")     # three days
+ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER",
+                        time_handling="strict")                    # six hours
+```
+
+`time_handling` says what the times mean:
+
+| Mode | One time | Two times |
+|---|---|---|
+| `"fuzzy"` (default) | that whole day | as given; an end at exactly midnight includes that day |
+| `"generous"` | that whole day | from the start of the first day to the end of the last |
+| `"strict"` | that instant only (usually nothing) | exactly as given |
+
+Profiles (limb) and granules (nadir) are selected by their mean time, so
+they are never split. MATLAB datenums are refused: convert them with
+`atmosgw.curate.matlab_time.datenum_to_datetime`. Dates must exist:
+"2022-01-34" is an error (MATLAB would carry it over to 3 February).
+
+## Limb sounders and other profiles
+
+Instruments: `"ACE"`, `"GNSS"`, `"HIRDLS"`, `"MIPAS"`, `"MLS"`, `"SABER"`,
+`"SOFIE"`, `"ALOMAR"` (lidar), `"Sampler"` (output of the Wright and Hindley
+sampler) and `"Misc"` (any files in the same MATLAB format).
+
+```python
+# default: interpolated to 18-60 km every 0.5 km, outliers removed
+ds = load_limb_sounders("2007-01-01", "HIRDLS")
+ds.temperature                     # (profile, level), K
+
+# the file's own levels, 20-80 km only
+ds = load_limb_sounders("2007-01-01", "HIRDLS", original_z=True,
+                        height_range=(20, 80))
+
+# your own height scale, a region, and where each profile came from
+import numpy as np
+ds = load_limb_sounders("2007-01-01", "SABER", height_scale=np.arange(20, 100.5, 1),
+                        lat_range=(-30, 30), file_source=True, dx=True)
+
+# planetary-wave-filtered data (temperature_residual, temperature_pw)
+ds = load_limb_sounders("2007-01-01", "HIRDLS", hindley_pws=True)
+
+# files of your own, named <identifier>...<yyyy>d<ddd>...mat
+ds = load_limb_sounders("2007-01-01", "Misc", misc_path="/path/to/files",
+                        misc_identifier="mydata")
+```
+
+Output dimensions are `profile` and `level` (and `mode` for
+`temperature_pw`). `altitude` is the height scale (or the file heights with
+`original_z`); `pressure` is in hPa, and its `origin` attribute says whether
+it was read or estimated from height. Extra file variables can be added with
+`additional_vars=["name", ...]`.
+
+## Nadir sounders
+
+Instruments: `"AIRS"` (3-D retrieval; 2-D brightness temperature with
+`product="2d"`) and `"IASI"` (3-D).
+
+```python
+# two hours of AIRS, regridded to a regular distance grid (90 x 135 per granule)
+ds = load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T02:00"], "AIRS")
+ds.temperature                     # (along_track, cross_track, level), K, float32
+
+# particular granules (day, granule number), on the instrument's own grid
+ds = load_nadir_sounders(None, "AIRS", granules=[("2007-01-01", 5), ("2007-01-01", 6)],
+                         original_grid=True)
+
+# IASI, with the day/night retrieval flag
+ds = load_nadir_sounders(["2010-07-01T00:00", "2010-07-01T03:00"], "IASI",
+                         day_night=True)
+
+# AIRS 2-D brightness temperature, two of the four channel groups (needs
+# L. Hoffmann's 2-D granule files in the "2d" AIRS folder of datasets.toml)
+ds = load_nadir_sounders(["2020-01-20T00:00", "2020-01-20T01:00"], "AIRS",
+                         product="2d", channels=["4mu", "15mu_high"])
+```
+
+The swath is split into `segment`s wherever successive scans are more than
+180 s apart (a missing granule, or separate times); each segment is regridded
+on its own, and `distance_along` restarts at each. `granule` and
+`granule_day` say where each along-track row came from.
+
+IASI has a statistical outlier screen on by default (`"rolling"`: values
+more than 5 interquartile ranges beyond the quartiles of their height level
+within a 10-minute window, day and night separately); AIRS has none. Choose
+another with `screen=` (`"none"`, `"pooled"` as MATLAB, or a function); the
+choice is recorded in the `screen` attribute.
+
+## What comes back: formats, states and attributes
+
+Both loaders return an `xarray.Dataset` in a named format: `"profile"` for
+`load_limb_sounders`, `"swath"` for `load_nadir_sounders`.
+
+```python
+ds.attrs["format"]                 # "profile" or "swath"
+validate(ds, ds.attrs["format"])   # raises FormatError listing any problem
+```
+
+**Why a value is missing.** Every data variable (`temperature`, `pressure`,
+`brightness_temperature` ...) has a flag variable `<name>_flag` of the same
+shape: one bit per data state, zero for a plain good value.
+
+```python
+ds = load_limb_sounders("2007-01-01", "HIRDLS", original_z=True)
+flag = ds.temperature_flag.values
+states.has_state(flag, "outside_physical_range")   # bool array
+states.no_value_mask(flag)                         # True wherever there is no value
+ds.attrs["state_counts"]                           # e.g. "temperature: no_observation 1264, ..."
+```
+
+| State | Value | Meaning |
+|---|---|---|
+| `no_observation` | NaN | nothing measured here (outside the swath or profile, above or below the data) |
+| `missing` | NaN | expected but absent in the file (fill value) |
+| `outside_requested_range` | NaN | outside the heights asked for |
+| `bad_geolocation` | NaN | latitude or longitude out of range |
+| `outside_physical_range` | NaN | temperature < 100 K, or > 400 K below 100 km |
+| `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
+| `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
+
+With `keep_outliers=True` the "removed as bad" values are kept, and their
+states are still set, so you can remove them later yourself. The full list
+is `states.STATES`.
+
+**Variables that do not exist.** Optional variables of the format that are
+not in the Dataset are listed in the `availability` attribute, with the
+reason:
+
+```python
+availability(ds, "source_file")             # "present", or e.g. "not_requested"
+airs = load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS")
+availability(airs, "satellite_latitude")    # "not_in_files"
+```
+
+**The record of the load**, in the attributes: `instrument`, `time_range` (as
+expanded), `options` (the call's arguments, JSON), `files_read`,
+`files_not_found`, `multiple_matches` (days with more than one matching
+file, and the one used), `atmosgw_curate_version`, and per variable
+`source_variable` and `comment`. All are text, so they survive saving.
+
+## Swaths as profiles
+
+`to_profiles` turns a 3-D swath into the profile format, one profile per
+swath point, so profile tools can use nadir data too:
+
+```python
+prof = to_profiles(load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS"))
+prof.temperature                   # (profile, level)
+prof.pressure                      # estimated from altitude, marked derived
+```
+
+## Saving
+
+```python
+ds.to_netcdf("/path/to/output.nc")
+```
+
+A day of AIRS or IASI regridded is several GB in memory; save to a disk with
+room (on the group's Linux machine, under `~/Data/<you>/`, not your home
+folder).
+
+## Things to know
+
+- Times in the AIRS daily files are float32, so up to 8-32 s off; their
+  temperatures are rounded to whole kelvin (about 0.3 K rms).
+- Limb data keep the type the files give (mostly float64); nadir data are
+  float32. Either is far finer than the data's precision.
+- UNVERIFIED: the AIRS and IASI start dates in the loaders, and that IASI's
+  retrieval switches between day and night at the same 96 degree solar zenith
+  angle as AIRS.
+- HIRDLS and MLS times are converted without leap seconds (a few seconds).
+- MLS heights come from a standard atmosphere on MLS's pressure levels.
