@@ -24,10 +24,14 @@ reference outputs.
   4e-10 days; load-only bit-identical). AIRS added to `datasets.toml`.
   [Claude]
 - `obs.load_nadir_sounders`: IASI 3-D (orbit files, 6-min pseudo-granules,
-  every file overlapping a granule, per-height outlier screen with screened
-  points left NaN and flagged; files without temperature skipped and
-  recorded). Matches the MATLAB reference wherever Python has a value. IASI
-  added to `datasets.toml`. [Claude]
+  every file overlapping a granule; files without temperature skipped and
+  recorded). Outlier screens are swappable (`screen=`: a name, settings or a
+  function; recorded in the `screen` attribute): IASI uses a rolling 10-min
+  window, day and night separately, 5 x IQR, with data padded so flags do not
+  depend on the request; AIRS has none; MATLAB's pooled screen is kept.
+  Screened points are NaN and flagged, never refilled. Matches the MATLAB
+  reference (with the pooled screen) wherever Python has a value. IASI added
+  to `datasets.toml`. [Claude]
 - Design notes for the nadir-sounder loader and the data formats
   (`docs/design/`). [Claude]
 

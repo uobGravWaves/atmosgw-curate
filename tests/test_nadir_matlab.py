@@ -137,7 +137,10 @@ def test_iasi_against_matlab(iasi_reference, case):
 
     ref = iasi_reference[case]
     want = ref["Data"]
-    data, _ = _load_nadir_arrays(None, "IASI", **{**DEFAULTS, **IASI_CASES[case]})
+    # screen="pooled": the MATLAB screen, to compare like with like (the default
+    # rolling screen flags slightly different points; see obs._screen)
+    data, _ = _load_nadir_arrays(None, "IASI", **{**DEFAULTS, **IASI_CASES[case],
+                                                  "screen": "pooled"})
     exact = case == "IASI_loadonly"
     temp = want["ret_temp"]
     if exact:

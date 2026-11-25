@@ -10,7 +10,8 @@ import numpy as np
 
 from atmosgw.curate.data import states, validate
 from atmosgw.curate.obs import load_nadir_sounders
-from atmosgw.curate.obs._nadir_iasi import granule_of, screen
+from atmosgw.curate.obs._nadir_iasi import granule_of
+from atmosgw.curate.obs._screen import pooled_screen, resolve, rolling_screen
 
 DAY_SECONDS = ((np.datetime64("2007-11-07") - np.datetime64("2000-01-01"))
                / np.timedelta64(1, "s"))
@@ -94,8 +95,101 @@ def test_screen_removes_spike_keeps_wave(tmp_path):
     np.testing.assert_array_equal(ds.temperature.values[others], temp[:270][others])
 
 
-def test_screen_function_matches_definition():
+def test_pooled_screen_matches_definition():
     x = np.arange(1.0, 101.0)[:, None, None] * np.ones((1, 1, 2))
     x[0, 0, 1] = 1000.0
-    out = screen(x)
+    out = pooled_screen(x, None, None, None)
     assert out[0, 0, 1] and out.sum() == 1
+
+
+# ------------------------------------------------- rolling screen, swappable
+
+
+def row_times(n_rows, start=733353.0, seconds=4.0, n_cross=60):
+    """[cross x along] datenums, one row every `seconds`."""
+    rows = np.arange(n_rows) * seconds / 86400
+    return start + np.broadcast_to(rows, (n_cross, n_rows))
+
+
+def test_rolling_screen_follows_slow_changes():
+    """A 30 K drift over an hour is not flagged; a 100 K spike is."""
+    n = 900
+    rng = np.random.default_rng(2)
+    drift = np.linspace(0, 30, n)
+    temp = (220 + drift[None, :, None] + rng.standard_normal((60, n, 3))).copy()
+    temp[10, 450, 1] += 100
+    lat = np.zeros((60, n))
+    out = rolling_screen(temp, row_times(n), lat, lat, split_day_night=False)
+    assert out.sum() == 1 and out[10, 450, 1]
+    # the pooled (MATLAB) screen over the hour would see the drift as spread
+    assert pooled_screen(temp, None, None, None)[10, 450, 1]
+
+
+def test_rolling_screen_day_night_groups():
+    """A 15 K day/night offset with a thin night sliver: split keeps the sliver."""
+    n = 300
+    rng = np.random.default_rng(3)
+    temp = 220 + rng.standard_normal((60, n, 1))
+    time = row_times(n, start=733353.5)  # noon UTC
+    lon = np.broadcast_to(np.linspace(-30, 30, 60)[:, None], (60, n)).copy()
+    lat = np.zeros((60, n))
+    lon[:6] = 180.0  # midnight longitude: night points
+    temp[:6] += 15
+    split = rolling_screen(temp, time, lat, lon, min_points=50)
+    pooled = rolling_screen(temp, time, lat, lon, split_day_night=False)
+    assert split.sum() == 0
+    assert pooled[:6].mean() > 0.9  # the whole sliver flagged without the split
+
+
+def test_rolling_screen_too_few_points_not_screened():
+    temp = 220 + np.random.default_rng(5).standard_normal((60, 10, 1))
+    temp[0, 5, 0] = 500
+    out = rolling_screen(temp, row_times(10), np.zeros((60, 10)), np.zeros((60, 10)),
+                         split_day_night=False)  # 600 points >= 500: screened
+    assert out[0, 5, 0]
+    out = rolling_screen(temp, row_times(10), np.zeros((60, 10)), np.zeros((60, 10)),
+                         split_day_night=False, min_points=1000)
+    assert not out.any()
+
+
+def test_flags_do_not_depend_on_the_request(tmp_path):
+    rng = np.random.default_rng(4)
+    temp = (220 + Z[None, None, :] + 1.5 * rng.standard_normal((900, 60, Z.size)))
+    temp[100:110, 5, 10] += 40  # moderate outliers near a granule edge
+    write_orbit(tmp_path, DAY_SECONDS, 900, temp.astype(np.float32))
+    one = load_nadir_sounders(None, "IASI", granules=[("2007-11-07", 2)],
+                              file_path=tmp_path, original_grid=True)
+    three = load_nadir_sounders(None, "IASI",
+                                granules=[("2007-11-07", k) for k in (1, 2, 3)],
+                                file_path=tmp_path, original_grid=True)
+    middle = three.granule.values == 2
+    np.testing.assert_array_equal(one.temperature_flag.values,
+                                  three.temperature_flag.values[middle])
+    assert one.attrs["files_not_found"] == ""  # padding granules are not requests
+
+
+def test_screen_is_swappable(tmp_path):
+    write_orbit(tmp_path, DAY_SECONDS, 900)
+    args = dict(granules=[("2007-11-07", 2)], file_path=tmp_path, original_grid=True)
+
+    def bottom_level(temp, time, lat, lon):
+        out = np.zeros(np.shape(temp), dtype=bool)
+        out[..., 0] = True
+        return out
+
+    custom = load_nadir_sounders(None, "IASI", screen=bottom_level, **args)
+    outlier = states.has_state(custom.temperature_flag.values, "statistical_outlier")
+    assert outlier[..., 0].all() and not outlier[..., 1:].any()
+    assert custom.attrs["screen"] == "custom: bottom_level"
+    none = load_nadir_sounders(None, "IASI", screen="none", **args)
+    flags = none.temperature_flag.values
+    assert not states.has_state(flags, "statistical_outlier").any()
+    assert none.attrs["screen"] == "none"
+    tuned = load_nadir_sounders(None, "IASI", screen=("rolling", {"factor": 5}), **args)
+    assert tuned.attrs["screen"] == "rolling(factor=5)"
+    default = load_nadir_sounders(None, "IASI", **args)
+    assert default.attrs["screen"] == "rolling()"
+    assert resolve(None, ("none", {}))[0] is None
+    import pytest
+    with pytest.raises(ValueError):
+        load_nadir_sounders(None, "IASI", screen="median", **args)

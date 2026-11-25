@@ -46,6 +46,18 @@ Options (type, default; MATLAB name):
   only.
 - ``keep_outliers`` (bool, False): keep values whose state marks them bad
   (the states are recorded either way).
+- ``screen`` (None): the statistical outlier screen; None uses the
+  instrument's default (IASI ``"rolling"``, AIRS ``"none"``). A name, a
+  ``(name, settings)`` pair, a function ``screen(temp, time, lat, lon,
+  **settings) -> bool``, or ``"none"``; see ``obs._screen``. Recorded in the
+  ``screen`` attribute. Data read beyond the request for the screen are
+  listed in ``files_read``.
+- ``screen`` (None): the statistical outlier screen; None uses the
+  instrument's default (IASI ``"rolling"``, AIRS ``"none"``). A name, a
+  ``(name, settings)`` pair, a function ``screen(temp, time, lat, lon,
+  **settings) -> bool``, or ``"none"``; see ``obs._screen``. Recorded in the
+  ``screen`` attribute. Data read beyond the request for the screen are
+  listed in ``files_read``.
 - ``day_night`` (bool, False; ``DayNightFlag``): add ``day_retrieval``.
 - ``keep_native_geolocation`` (bool, False; ``KeepOldTime`` for time): also
   return the positions and times before regridding.
@@ -144,8 +156,13 @@ from atmosgw.curate import __version__, swath
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs import _nadir_airs, _nadir_iasi
-from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range, record
+from atmosgw.curate.obs import _nadir_airs, _nadir_iasi, _screen
+from atmosgw.curate.obs._limb_tools import (
+    TIME_HANDLING,
+    day_label,
+    expand_time_range,
+    record,
+)
 from atmosgw.curate.obs.limb import _options_json, _to_datenums
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.solar import day_retrieval
@@ -159,6 +176,7 @@ INSTRUMENTS = {
              "row_seconds": 360 / 135, "max_row_gap_seconds": 180.0,
              "products": ("3d",),
              "characterisation": {"3d": "AIRS-3D-placeholder/0"},
+             "screen": ("none", {}),
              "not_in_files": ("satellite_latitude", "satellite_longitude",
                               "satellite_altitude", "view_zenith_angle",
                               "view_azimuth_angle")},
@@ -171,6 +189,7 @@ INSTRUMENTS["IASI"] = {
     "dataset": "IASI", "n_cross": 90, "rows_per_granule": 135,
     "row_seconds": 4.0, "max_row_gap_seconds": 180.0, "products": ("3d",),
     "characterisation": {"3d": "IASI-3D-placeholder/0"},
+    "screen": ("rolling", {}),
     "not_in_files": INSTRUMENTS["AIRS"]["not_in_files"],
 }
 
@@ -195,6 +214,7 @@ def load_nadir_sounders(
     interp_type="linear",
     extrapolate=False,
     keep_outliers=False,
+    screen=None,
     day_night=False,
     keep_native_geolocation=False,
     additional_vars=(),
@@ -222,18 +242,27 @@ def _load_nadir_arrays(time_range, instrument, **options):
 
     say("--> Loading data")
     var_names = ["Lat", "Lon", "Time", "Temp", "Alt"] + settings["additional_vars"]
-    data, file_list = info["reader"].load(settings, inst_info, var_names)
+    screen, screen_settings, screen_text, pad = _screen.resolve(settings["screen"],
+                                                               info["screen"])
+    settings["screen_text"] = screen_text
+    # with a screen that needs neighbouring data, read beyond the request
+    # (then trim), so a scan's flags do not depend on how it was requested
+    load_settings, padded = settings, screen is not None and pad > 0
+    if padded:
+        load_settings = dict(settings)
+        if settings["granules"] is not None:
+            load_settings["granules"] = _with_neighbours(settings["granules"])
+        else:
+            t0, t1 = settings["time_range"]
+            load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
+    data, file_list = info["reader"].load(load_settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
-    if (settings["scalar_time"] and settings["time_handling"] == "strict"
-            and data["Lat"].shape[1] == 0):
-        warnings.warn("A single time_range value with time_handling='strict' selects "
-                      "only granules whose mean time is exactly that instant, and none "
-                      "were found. Use 'fuzzy' (default) or two times.", stacklevel=3)
-    if settings["time_range"] is None:  # granules given: record their times
-        t = data["Time"]
-        settings["time_range"] = ((np.nanmin(t), np.nanmax(t)) if t.size
-                                  else (np.nan, np.nan))
+    if padded and settings["granules"] is not None:  # padding is not a request
+        extra = {f"{day_label(d)} granule {g}"
+                 for d, g in set(load_settings["granules"]) - set(settings["granules"])}
+        settings["record"]["files_not_found"][:] = [
+            f for f in settings["record"]["files_not_found"] if f not in extra]
 
     # states, then bad values to NaN (unless keep_outliers)
     temp = np.asarray(data["Temp"], dtype=float)
@@ -244,14 +273,32 @@ def _load_nadir_arrays(time_range, instrument, **options):
                 & (np.abs(lon) <= 180))
     states.set_state(flags, np.broadcast_to(bad_geo[..., None], temp.shape),
                      "bad_geolocation")
-    # instrument screen (IASI: per height, 3 IQR), before the range check, as MATLAB
-    if hasattr(info["reader"], "screen"):
-        states.set_state(flags, info["reader"].screen(temp), "statistical_outlier")
+    # instrument statistical screen (swappable: see obs._screen), on the padded
+    # data, before the range check as MATLAB
+    if screen is not None:
+        states.set_state(flags, screen(temp, np.asarray(data["Time"], float), lat, lon,
+                                       **screen_settings), "statistical_outlier")
     with np.errstate(invalid="ignore"):
         states.set_state(flags, (temp < 100) | (temp > 400), "outside_physical_range")
     if not settings["keep_outliers"]:
         temp[states.no_value_mask(flags)] = np.nan
     data["Temp"] = temp
+    if padded:
+        keep = _requested_rows(data, settings)
+        for name in _along_track_names(data):
+            data[name] = np.take(data[name], keep, axis=1 if np.ndim(data[name]) > 1
+                                 else 0)
+        flags = flags[:, keep]
+        lat, lon = data["Lat"], data["Lon"]
+    if (settings["scalar_time"] and settings["time_handling"] == "strict"
+            and data["Lat"].shape[1] == 0):
+        warnings.warn("A single time_range value with time_handling='strict' selects "
+                      "only granules whose mean time is exactly that instant, and none "
+                      "were found. Use 'fuzzy' (default) or two times.", stacklevel=3)
+    if settings["time_range"] is None:  # granules given: record their times
+        t = data["Time"]
+        settings["time_range"] = ((np.nanmin(t), np.nanmax(t)) if t.size
+                                  else (np.nan, np.nan))
 
     # segments: break where successive rows are more than max_row_gap_seconds
     # apart (180 s for AIRS: the daily files store times as float32, in steps of
@@ -338,6 +385,7 @@ def _prepare(time_range, instrument, options):
                                   f"yet (available: {', '.join(info['products'])}).")
     if options["interp_type"].lower() not in ("linear", "nearest"):
         raise ValueError("interp_type must be 'linear' or 'nearest'.")
+    _screen.resolve(options["screen"], info["screen"])  # (checks the choice)
     additional = options["additional_vars"]
     if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
         raise TypeError("additional_vars must be a list of variable names.")
@@ -453,6 +501,39 @@ def _interpolate_with_states(z, values, flags, new_z):
     unexplained = np.isnan(out) & ~states.no_value_mask(new_flags)
     states.set_state(new_flags, unexplained, "no_observation")
     return out, new_flags
+
+
+def _with_neighbours(granules):
+    """The granules and the one before and after each (for screen padding)."""
+    out = set(granules)
+    for day, g in granules:
+        for step in (-1, 1):
+            n = g + step
+            if n < 1:
+                out.add((day - 1, 240))
+            elif n > 240:
+                out.add((day + 1, 1))
+            else:
+                out.add((day, n))
+    return sorted(out)
+
+
+def _requested_rows(data, settings):
+    """Indices of the along-track rows of the granules actually requested."""
+    key = np.asarray(data["Day"]) * 1000 + np.asarray(data["Granule"])
+    if settings["granules"] is not None:
+        wanted = [d * 1000 + g for d, g in settings["granules"]]
+        return np.flatnonzero(np.isin(key, wanted))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        row_time = np.nanmean(np.asarray(data["Time"], float), axis=0)
+    ids, inverse = np.unique(key, return_inverse=True)
+    sums = np.bincount(inverse, weights=np.nan_to_num(row_time))
+    counts = np.bincount(inverse, weights=np.isfinite(row_time).astype(float))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = sums / counts
+    t0, t1 = settings["time_range"]
+    return np.flatnonzero(((mean >= t0) & (mean <= t1))[inverse])
 
 
 def _along_track_names(data):
@@ -576,6 +657,7 @@ def _to_dataset(data, settings, call=None):
         "grid_spacing_km": [float(data["Spacing"][1]), float(data["Spacing"][0]),
                             float(data["Spacing"][2])],
         "grid": settings["grid"],
+        "screen": settings["screen_text"],
     }
     return ds
 

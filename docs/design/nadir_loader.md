@@ -293,9 +293,12 @@ own branches, so it can run alongside the limb-loader work.
 3. *Deferred (agreed 2026-11-25), waiting for a general Detrender:*
    `analysis.detrend`, `analysis.smooth` (MATLAB `Tp`, `BG`). Until then the
    loader returns temperatures only, with no perturbations.
-4. IASI reader. *Done.* Screen statistics are over all points loaded in one
-   call, as MATLAB; regridding defaults to 90 x 135 per granule, as MATLAB
-   (native 60 x 90).
+4. IASI reader. *Done.* The outlier screen is swappable (`obs._screen`;
+   `load_nadir_sounders(screen=...)`): IASI uses a rolling 10-min window,
+   day and night separately, 5 x IQR (agreed 2026-11-25, from measurements);
+   AIRS has none (its 3 x IQR flags were real variability); MATLAB's
+   pooled screen is kept for comparison. Regridding defaults to 90 x 135 per
+   granule, as MATLAB (native 60 x 90).
 5. The 2-D path on synthetic data; `to_profiles`; docs; release.
 6. Move the shared helpers into `obs/_common.py` and use them in both loaders
    (limb outputs bit-identical). *Touches the limb loader: done after the

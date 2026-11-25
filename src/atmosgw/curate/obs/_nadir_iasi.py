@@ -29,7 +29,8 @@ Differences from MATLAB, by design:
 - files without temperature (e.g. all of 2007-05-29 and 2007-11-08 on
   eepc-0184) are skipped and recorded ("<file>: no ret_temp"); MATLAB stops
   with an error;
-- the screen marks points (``screen``) but does not refill them: MATLAB
+- the outlier screen (now the swappable ``obs._screen``, rolling by default)
+  marks points but does not refill them: MATLAB
   refills screened points from the nearest along-track value; here they are
   NaN with their state, and filling is a separate, visible step (agreed);
 - MATLAB's warnings when more than 5 % (``IasiFracBad``) or a connected 3 %
@@ -184,27 +185,3 @@ def load(settings, inst_info, var_names):
                                   dtype=float)
     return data, [file_list[n - 1] for n in used]
 
-
-def screen(temp):
-    """
-    IASI outlier screen: True where a value is more than 3 interquartile ranges
-    beyond the quartiles of its height level, over all points loaded.
-
-    temp: [cross x along x level]. Quartiles as MATLAB's ``isoutlier``
-    'quartiles' method (``prctile``: linear interpolation at
-    (k - 0.5)/n, i.e. NumPy's "hazen" method), NaN ignored. MATLAB:
-    ``isoutlier(reshape(T,nz,[]),'quartiles',2,'ThresholdFactor',3)`` (fixed
-    2026-11-25: was along track at 1.5 IQR).
-    """
-    temp = np.asarray(temp, dtype=float)
-    flat = temp.reshape(-1, temp.shape[-1])
-    out = np.zeros(flat.shape, dtype=bool)
-    if flat.size == 0:
-        return out.reshape(temp.shape)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        q1, q3 = np.nanpercentile(flat, [25, 75], axis=0, method="hazen")
-    iqr = q3 - q1
-    with np.errstate(invalid="ignore"):
-        out = (flat < q1 - 3 * iqr) | (flat > q3 + 3 * iqr)
-    return out.reshape(temp.shape)
