@@ -55,11 +55,12 @@ latitude, lambda longitude, d the arc length and theta the azimuth:
 Using a sphere rather than an ellipsoid gives errors of up to about 0.5% in
 distance; this matches the MATLAB code being ported.
 
-Known limitation, kept for agreement with MATLAB (see ``docs/quirks.md``):
-
-- **Q4** ``haversine`` of points within about 1e-7 degrees of exactly
-  antipodal can give NaN: rounding makes a slightly greater than 1, so
-  sqrt(1 - a) is undefined (MATLAB stops with an error there instead).
+In ``haversine``, the intermediate value a is clipped to [0, 1] (NaN kept),
+as in ``nph_haversine.m`` since 2026-11-25: for points within about 1e-7
+degrees of exactly antipodal, rounding could make a slightly greater than 1,
+so sqrt(1 - a) was undefined (NaN here, an error in MATLAB; Q4 in
+``docs/quirks.md``). Such points now give half a great circle. Clipping
+changes no other result.
 
 Origin
 ------
@@ -96,6 +97,7 @@ Preliminary.
 Change log
 ----------
 2026/11/24 [Claude] initial version
+2026/11/25 [Claude] haversine: a clipped to [0, 1], as nph_haversine.m (Q4)
 
 How to cite
 -----------
@@ -119,6 +121,7 @@ def haversine(lat1, lon1, lat2, lon2):
         np.sin(delta_lat / 2) ** 2
         + np.cos(lat1) * np.cos(lat2) * np.sin(delta_lon / 2) ** 2
     )
+    a = np.clip(a, 0, 1)  # rounding can push a above 1 near antipodes (Q4)
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
     return _scalar(EARTH_RADIUS_KM * c)
 
