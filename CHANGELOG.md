@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders(verbose=True)` now prints a line as each variable is
+  interpolated, so long loads are not silent. [Claude]
+- `load_limb_sounders`: the source indices are no longer interpolated when
+  `file_source` is False (they were discarded afterwards), cutting
+  interpolation time by about 2/7; results unchanged, bit for bit. [Claude]
 - `profiles.interpolate_profiles`: linear, nearest, next and previous
   interpolation now handle all profiles at once (results unchanged, bit for
   bit); `load_limb_sounders` is now faster than the MATLAB original in every
