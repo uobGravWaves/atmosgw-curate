@@ -311,8 +311,9 @@ own branches, so it can run alongside the limb-loader work.
   already applies `scale_factor` and `add_offset`, so either form reads the
   same way, and nothing downstream may depend on the 1 K steps. The
   characterisation package records the precision of the files in use.
-- Applying the format spec to `load_limb_sounders` output (attributes, state
-  flags and `availability`; values unchanged): a separate change, after the
+- *Agreed:* applying the format spec to `load_limb_sounders` output
+  (attributes, state flags and `availability`; values unchanged) is a separate
+  change, after the
   limb work in progress is merged.
 
 ## 13. MATLAB -> Python names
