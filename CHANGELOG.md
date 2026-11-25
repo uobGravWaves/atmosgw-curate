@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-11-25
 - `load_limb_sounders`: pressure is now interpolated to the height scale in
   log(pressure), not linearly in height (Q6, fixed the same way in the MATLAB
   `get_limbsounders`). Linear interpolation overestimated pressure between
