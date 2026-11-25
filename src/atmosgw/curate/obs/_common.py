@@ -53,6 +53,7 @@ Change log
 2026/11/25 [Claude] shared helpers moved here from _limb_tools.py, limb.py, nadir.py
 2026/11/25 [Claude] warn_multiple_matches (moved from limb.py)
 2026/11/25 [Claude] record_attrs (from limb; now also used by nadir)
+2026/11/25 [Claude] outside_physical_range: floor_is_bad (IASI's 100 K lower bound)
 """
 
 import json
@@ -270,18 +271,20 @@ def choose_file(found, inst_info, label, prefer=None):
 # range check
 
 
-def outside_physical_range(temp, alt=None):
+def outside_physical_range(temp, alt=None, floor_is_bad=False):
     """
     True where a temperature is physically implausible: below 100 K, or above
     400 K (only below 100 km if heights alt are given, as the MATLAB limb
-    loader). NaN is not flagged. alt broadcasts against temp.
+    loader). With floor_is_bad, exactly 100 K too (a retrieval's lower bound,
+    e.g. IASI). NaN is not flagged. alt broadcasts against temp.
     """
     temp = np.asarray(temp)
     with np.errstate(invalid="ignore"):
         hot = temp > 400
         if alt is not None:
             hot = hot & (np.asarray(alt) < 100)
-        return (temp < 100) | hot
+        cold = temp <= 100 if floor_is_bad else temp < 100
+        return cold | hot
 
 
 # the output

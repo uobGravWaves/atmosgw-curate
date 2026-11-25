@@ -168,6 +168,20 @@ def test_flags_do_not_depend_on_the_request(tmp_path):
     assert one.attrs["files_not_found"] == ""  # padding granules are not requests
 
 
+def test_exactly_100k_is_outside_physical_range(tmp_path):
+    # IASI's retrieval floor: removed whatever the screen; 100.001 K is kept
+    temp = np.broadcast_to(220 + Z, (270, 60, Z.size)).astype(np.float32).copy()
+    temp[50, 10, :] = 100.0           # a whole profile at the floor
+    temp[70, 20, 12] = np.float32(100.001)
+    write_orbit(tmp_path, DAY_SECONDS, 270, temp)
+    ds = load_nadir_sounders(None, "IASI", granules=[("2007-11-07", 1)],
+                             file_path=tmp_path, original_grid=True, screen="none")
+    bad = states.has_state(ds.temperature_flag.values, "outside_physical_range")
+    assert bad[50, 10, :].all() and bad.sum() == Z.size
+    assert np.all(np.isnan(ds.temperature.values[50, 10, :]))
+    assert ds.temperature.values[70, 20, 12] == np.float32(100.001)
+
+
 def test_screen_is_swappable(tmp_path):
     write_orbit(tmp_path, DAY_SECONDS, 900)
     args = dict(granules=[("2007-11-07", 2)], file_path=tmp_path, original_grid=True)

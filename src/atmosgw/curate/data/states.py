@@ -105,7 +105,8 @@ STATES = (
           "latitude or longitude out of range (nadir: also NaN; limb: out "
           "of range only, as MATLAB)"),
     State("outside_physical_range", 16, True, "removed as bad",
-          "temperature < 100 K, or > 400 K below 100 km"),
+          "temperature < 100 K (IASI: <= 100 K, its retrieval's lower bound), "
+          "or > 400 K below 100 km"),
     State("statistical_outlier", 32, True, "removed as bad",
           "marked by the instrument's statistical screen (obs._screen)"),
     State("instrument_flag", 64, True, "removed as bad",

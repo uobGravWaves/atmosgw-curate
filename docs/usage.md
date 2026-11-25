@@ -144,7 +144,7 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `missing` | NaN | a gap inside what was measured: a fill value at a scanned point, or between a profile's first and last value |
 | `outside_requested_range` | NaN | outside the heights asked for |
 | `bad_geolocation` | NaN | position out of range (nadir: also NaN; limb: out of range only, as MATLAB) |
-| `outside_physical_range` | NaN | temperature < 100 K, or > 400 K below 100 km |
+| `outside_physical_range` | NaN | temperature < 100 K (IASI: also exactly 100 K, the retrieval's lower bound), or > 400 K below 100 km |
 | `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
