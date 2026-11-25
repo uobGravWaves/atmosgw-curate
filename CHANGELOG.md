@@ -5,6 +5,52 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Faster nadir regridding: `swath.regrid` finds cells and weights once per axis
+  and applies them to every field, level and flag (in blocks), replacing
+  scipy's interpolator; vertical interpolation onto shared heights is one
+  array operation; data states are carried by OR-ing the flags of the points
+  used (new `flags=` in `swath.regrid`, `swath.interpolate_level_flags`)
+  instead of interpolating an indicator per state. A regridded day: AIRS
+  27 s -> 12 s, IASI 96 s -> 23 s and 4.6 -> 2.8 GB peak. Results identical
+  except times, which differ by up to 31 microseconds (datenum rounding).
+  [Claude]
+- `load_nadir_sounders`: AIRS 2-D (`product="2d"`): L. Hoffmann's granule files,
+  brightness temperature in four channel groups (`channels=` to choose), with
+  the files' perturbations and variances as derived variables. Readers and
+  data folders can now differ by product. [Claude]
+- `load_nadir_sounders`: 2-D products (brightness temperature, no levels,
+  one or several channels) handled by the core; no 2-D reader yet. [Claude]
+- New `data.to_profiles`: a 3-D swath as profiles (profile format), with
+  pressure estimated from altitude and marked derived. [Claude]
+- New `data` package (proposal, format version 1): the common "swath" and
+  "profile" formats, a registry of data states (why a value is absent, or
+  what kind of value it is) recorded per variable as CF flags, an
+  `availability` record for variables that do not exist in a Dataset, and
+  `data.validate`. See `docs/design/data_formats.md`. [Claude]
+- New `swath` module: distances across and along a swath, regridding onto a
+  regular distance grid (with the dateline unwrap) and the regular vertical
+  grid; port of the regridding in the MATLAB `prep_airs_3d`, matching it on
+  synthetic swaths (within 1e-9). [Claude]
+- New `solar` module: solar zenith angle and the AIRS day/night retrieval
+  switch (port of `which_airs_retrieval.m`). [Claude]
+- New `obs.load_nadir_sounders` (preliminary; AIRS 3-D): nadir-sounder swaths
+  in the swath format, port of the MATLAB `prep_airs_3d` without its
+  detrending; continuous swath with granule and segment tracking, data states,
+  optional day/night, native geolocation and file source. Matches the MATLAB
+  reference outputs for every AIRS case (within 3e-11 degrees, 1e-12 K,
+  4e-10 days; load-only bit-identical). AIRS added to `datasets.toml`.
+  [Claude]
+- `obs.load_nadir_sounders`: IASI 3-D (orbit files, 6-min pseudo-granules,
+  every file overlapping a granule; files without temperature skipped and
+  recorded). Outlier screens are swappable (`screen=`: a name, settings or a
+  function; recorded in the `screen` attribute): IASI uses a rolling 10-min
+  window, day and night separately, 5 x IQR, with data padded so flags do not
+  depend on the request; AIRS has none; MATLAB's pooled screen is kept.
+  Screened points are NaN and flagged, never refilled. Matches the MATLAB
+  reference (with the pooled screen) wherever Python has a value. IASI added
+  to `datasets.toml`. [Claude]
+- Design notes for the nadir-sounder loader and the data formats
+  (`docs/design/`). [Claude]
 - `tests/matlab/sweep/`: a by-hand check of `load_limb_sounders` against the
   MATLAB `get_limbsounders` on many dates (every instrument and year with
   data; first run 2026-11-25: 1420 calls, all identical or within stated

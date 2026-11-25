@@ -76,10 +76,14 @@ src/atmosgw/curate/
     atmosphere.py             height <-> pressure (approximate)
     geodesy.py                great-circle distance, azimuth, reckon
     profiles.py               join, select, interpolate, clip and mask profiles
+    swath.py                  distances, regridding and vertical grids of swaths
+    solar.py                  solar zenith angle; AIRS/IASI day-night switch
     readers.py                find files; read .mat, HDF5 and netCDF files
-    data/         shared data formats
+    data/         shared data formats: swath and profile formats, data
+                  states, validate, to_profiles (proposal)
     obs/          instrument loaders: load_limb_sounders (port of the MATLAB
-                  get_limbsounders)
+                  get_limbsounders); load_nadir_sounders (AIRS, IASI; port
+                  of prep_airs_3d; preliminary)
     instrument/   instrument characterisations (CPs)
     context/      global context (GC) interface
     analysis/     detrending, Stockwell wrappers
