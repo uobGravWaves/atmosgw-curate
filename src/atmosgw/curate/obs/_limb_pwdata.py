@@ -72,10 +72,13 @@ def load(settings, inst_info, var_names):
         file_count = len(file_list)
 
         store = {}
+        estimated = "Pres" not in inst_data
         for name in var_names:
-            if name == "Pres" and "Pres" not in inst_data:
+            if name == "Pres" and estimated:
                 inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
-                note_estimated_pres(inst_info, path)
+                note_estimated_pres(inst_info)
+            if name == "PresEstimated":  # (for the output's data states)
+                inst_data[name] = np.full(np.shape(inst_data["Alt"]), float(estimated))
             if name == "SourceProf":
                 n_prof, n_lev = np.shape(inst_data["Lat"])[:2]
                 profile = np.arange(1, n_prof + 1, dtype=float)  # 1-based

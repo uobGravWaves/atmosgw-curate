@@ -89,7 +89,8 @@ This is the `load_limb_sounders` output since 2026-11-25 (values unchanged by
 the format; data variables may be float32 or float64). States it sets:
 `bad_geolocation`, `outside_physical_range`, `outside_requested_range` (with
 `original_z`),
-`no_observation` (every other NaN), `derived` (estimated pressure,
+`no_observation` (every other NaN), `extrapolated` (with `extrapolate`),
+`derived` (estimated pressure, point by point;
 planetary-wave data, Sampler data). *Proposals:* `product` "temperature" and
 `characterisation` `<instrument>-TEMPERATURE-placeholder/0` for every limb
 instrument; `origin` "retrieved" for limb temperatures and pressures.

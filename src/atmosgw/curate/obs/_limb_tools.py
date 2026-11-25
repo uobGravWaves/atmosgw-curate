@@ -7,7 +7,7 @@ Internal helpers for the limb-sounder loader (``load_limb_sounders``).
 - ``newest_mls_version``: of several MLS files for a day, the newest version
   (new, not in the MATLAB).
 - ``ESTIMATED_PRES``, ``note_estimated_pres``: the note recorded for pressure
-  computed from height, and the record of the files it was computed for.
+  computed from height.
 
 Helpers shared with the nadir loader (time rules, the load record, file
 choice) are in ``obs/_common.py``.
@@ -20,6 +20,7 @@ times; see ``limb.py``.
 Change log:
 2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
 2026/11/25 [Claude] note_estimated_pres: files with estimated pressure recorded
+2026/11/25 [Claude] note_estimated_pres: which points is now the readers' PresEstimated
 """
 
 import math
@@ -145,11 +146,8 @@ ESTIMATED_PRES = ("estimated from height with atmosphere.height_to_pressure "
                   "(U.S. Standard Atmosphere 1976 [R1])")
 
 
-def note_estimated_pres(inst_info, path):
-    """Record that the file at path had no pressure, so it was estimated from
-    height: the note for Pres, and the file in the record's
-    ``estimated_pres_files`` (so the output can say whether all or only some
-    pressures are estimated)."""
+def note_estimated_pres(inst_info):
+    """Record that a file had no pressure, so it was estimated from height.
+    Which points: the reader's ``PresEstimated`` (1 estimated, 0 read), asked
+    for by the core when it loads Pres from ACE/GNSS/Misc or PW files."""
     note(inst_info, "Pres", ESTIMATED_PRES + ", for files without Pres")
-    record(inst_info).setdefault("estimated_pres_files", []).append(
-        os.path.basename(path))

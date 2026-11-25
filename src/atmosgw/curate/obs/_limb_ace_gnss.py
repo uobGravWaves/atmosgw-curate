@@ -56,9 +56,14 @@ def load(settings, inst_info, var_names):
 
     def read_file(path, file_count, day):
         inst_data = read_mat(path)
-        if "Pres" not in inst_data:
+        estimated = "Pres" not in inst_data
+        if estimated:
             inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
-            note_estimated_pres(inst_info, path)
+            note_estimated_pres(inst_info)
+        # which points have estimated pressure (asked for by the core, for the
+        # output's data states; not in the MATLAB)
+        inst_data["PresEstimated"] = np.full(np.shape(inst_data["Pres"]),
+                                             float(estimated))
 
         store = {}
         for name in var_names:

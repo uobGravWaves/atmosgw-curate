@@ -119,10 +119,13 @@ MATLAB, a point removed for one variable is removed (and flagged) in all of
 them. With ``keep_outliers`` the values are kept and the states still set.
 Every other NaN is ``no_observation``: above or below a profile, padding
 between profiles of different lengths, or NaN in the file (the loader cannot
-tell these apart). ``origin``: "retrieved", except "derived" for planetary-wave
-data, for Sampler data (from a model) and for pressure estimated from height
-in every file read (each value then also has the ``derived`` state), and
-"mixed" when only some files had no pressure (which points is not recorded).
+tell these apart). With ``extrapolate``, points outside a profile's own
+heights are ``extrapolated`` (where they have a value). ``origin``:
+"retrieved", except "derived" for planetary-wave data, for Sampler data (from
+a model) and for pressure estimated from height, and "mixed" when only some
+of the pressures in the output are estimated (files without pressure);
+values computed this way also have the ``derived`` state. With no profiles,
+pressure counts as "retrieved".
 Data variables keep their type (float64 from most readers; the profile format
 allows float32 or float64).
 
@@ -236,6 +239,7 @@ Change log
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] output in the profile format: state flags, origins, attributes
+2026/11/25 [Claude] states: estimated pressure marked per point; extrapolated
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
@@ -410,6 +414,10 @@ def _load_limb_arrays(time_range, instrument, **options):
         var_names = [name for name in var_names
                      if name not in ("SourceProf", "SourceFile")]
     var_names = var_names + list(settings["additional_vars"])
+    # which pressures the reader estimated from height, point by point (for the
+    # output's data states; not in the MATLAB, so taken out of data at the end)
+    if "Pres" in var_names and reader in (_limb_ace_gnss, _limb_pwdata):
+        var_names = var_names + ["PresEstimated"]
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
@@ -464,8 +472,17 @@ def _load_limb_arrays(time_range, instrument, **options):
         if verbose:
             print("----> Interpolating to output z")
         extrap = True if settings["extrapolate"] else None
+        # heights outside each profile's own heights: extrapolated (data state)
+        extrapolated = None
+        if settings["extrapolate"] and np.size(data["Alt"]):
+            alt_in = np.asarray(data["Alt"], dtype=float)
+            with warnings.catch_warnings():  # (all-NaN profiles: no extrapolation)
+                warnings.simplefilter("ignore", RuntimeWarning)
+                low, high = np.nanmin(alt_in, axis=1), np.nanmax(alt_in, axis=1)
+            extrapolated = ((height_scale[None, :] < low[:, None])
+                            | (height_scale[None, :] > high[:, None]))
         # (only for progress messages: the variables interpolated below)
-        n_interp = sum(name != "Alt" and name not in skip
+        n_interp = sum(name not in ("Alt", "PresEstimated") and name not in skip
                        and not isinstance(data[name], pd.DataFrame)
                        for name in var_names)
         done = 0
@@ -479,8 +496,9 @@ def _load_limb_arrays(time_range, instrument, **options):
             elif isinstance(value, pd.DataFrame):
                 new[name] = value
             else:
-                done += 1
-                if verbose:
+                if name != "PresEstimated":
+                    done += 1
+                if verbose and name != "PresEstimated":
                     print(f"------> {name} ({done} of {n_interp})", flush=True)
                 method = settings["interp_type"]
                 if name in settings["additional_vars"] and _is_whole_numbers(value):
@@ -534,6 +552,8 @@ def _load_limb_arrays(time_range, instrument, **options):
            | masks["outside_physical_range"])
     if settings["original_z"]:  # (already NaN: clipped above)
         masks["outside_requested_range"] = outside_requested
+    elif extrapolated is not None:
+        masks["extrapolated"] = extrapolated
     if not settings["keep_outliers"]:
         data = mask_points(data, bad, skip, copy=False)  # (in place: memory)
         if verbose:
@@ -561,6 +581,9 @@ def _load_limb_arrays(time_range, instrument, **options):
             print("----> Pair distances computed")
 
     settings["state_masks"] = masks  # (for the output's data states)
+    estimated = data.pop("PresEstimated", None)
+    settings["pres_estimated"] = (None if estimated is None else
+                                  np.asarray(estimated, dtype=float) > 0.5)
     return data, settings
 
 
@@ -704,37 +727,50 @@ def _state_flags(value, lat_shape, masks):
     profile's heights, padding between profiles of different lengths, or NaN
     in the file: the loader cannot tell these apart).
     """
+    def over_value(x):  # [profiles x levels] -> shape of value
+        return np.broadcast_to(x.reshape(x.shape + (1,) * (value.ndim - 2)),
+                               value.shape)
+
     flag = states.new_flags(lat_shape)
     for name, mask in masks.items():
         if np.shape(mask) != tuple(lat_shape):  # (a bug, not a data problem)
             raise ValueError(f"state mask {name} has shape {np.shape(mask)}, "
                              f"not that of the data {tuple(lat_shape)}")
-        states.set_state(flag, mask, name)
-    if value.ndim > 2:
-        flag = np.broadcast_to(flag.reshape(flag.shape + (1,) * (value.ndim - 2)),
-                               value.shape).copy()
+        if states.state(name).no_value:
+            states.set_state(flag, mask, name)
+    flag = over_value(flag).copy()
+    # qualified states (e.g. extrapolated) only where there is a value
+    for name, mask in masks.items():
+        if not states.state(name).no_value:
+            states.set_state(flag, over_value(mask) & np.isfinite(value), name)
     states.set_state(flag, np.isnan(value) & ~states.no_value_mask(flag),
                      "no_observation")
     return flag
 
 
-def _origin(out, settings):
-    """(origin attribute, whether every finite value is marked derived) of a
-    data variable. Proposal: limb temperatures and pressures count as
-    retrieved, except values computed by the loader or a model (Sampler)."""
+def _origin(out, value, settings):
+    """
+    (origin attribute, points to mark derived or None) of a data variable.
+    Proposal: limb temperatures and pressures count as retrieved, except
+    values computed by the loader or a model (Sampler). Pressure estimated
+    from height: "derived" if every value present is, "mixed" if some are
+    (those points marked), by the profiles in the output.
+    """
+    finite = np.isfinite(value)
     if out in ("temperature_residual", "temperature_pw"):
-        return "derived", True  # planetary-wave filtering
+        return "derived", finite  # planetary-wave filtering
     if settings["instrument_name"] == "Sampler":
-        return "derived", True  # sampled from a model
+        return "derived", finite  # sampled from a model
     if out == "pressure":
-        rec = settings["record"]
-        estimated = set(rec.get("estimated_pres_files", []))
-        if rec["notes"].get("Pres") == ESTIMATED_PRES or (
-                estimated and estimated >= set(settings["files_read"])):
-            return "derived", True  # (every file read)
-        if estimated:  # some files only: which points is not recorded
-            return "mixed", False
-    return "retrieved", False
+        if settings["record"]["notes"].get("Pres") == ESTIMATED_PRES:
+            return "derived", finite  # every file (ALOMAR)
+        estimated = settings.get("pres_estimated")
+        if estimated is not None and np.shape(estimated) == value.shape:
+            estimated = estimated & finite
+            if estimated.any():
+                return ("derived" if estimated.sum() == finite.sum() else "mixed",
+                        estimated)
+    return "retrieved", None
 
 
 def _to_dataset(data, settings, call=None):
@@ -771,9 +807,9 @@ def _to_dataset(data, settings, call=None):
             continue
         dims, value, var_attrs = variables[out]
         flag = _state_flags(value, lat_shape, settings.get("state_masks", {}))
-        origin, derived = _origin(out, settings)
-        if derived:
-            states.set_state(flag, np.isfinite(value), "derived")
+        origin, derived = _origin(out, value, settings)
+        if derived is not None:
+            states.set_state(flag, derived, "derived")
         var_attrs.update(origin=origin, ancillary_variables=f"{out}_flag")
         variables[f"{out}_flag"] = (dims, flag, states.flag_attrs())
         found = states.state_counts(flag)
