@@ -24,7 +24,10 @@ Inputs and outputs
 ``time_range``: one time (that day) or two (start and end), as
 ``numpy.datetime64``, ISO strings or ``datetime`` objects. (Numbers are
 refused: convert MATLAB datenums with
-``atmosgw.curate.matlab_time.datenum_to_datetime``.)
+``atmosgw.curate.matlab_time.datenum_to_datetime``.) Strings must be real
+dates: MATLAB-style carry-over such as "2022-01-34" is refused, with the date
+it would mean in MATLAB (use ``matlab_time.make_datetime(2022, 1, 34)`` for
+that).
 
 ``instrument``: ``"ACE"``, ``"GNSS"``, ``"HIRDLS"``, ``"MIPAS"``, ``"MLS"``,
 ``"SABER"``, ``"SOFIE"``, ``"ALOMAR"``, ``"Sampler"`` or ``"Misc"`` (any case).
@@ -149,9 +152,11 @@ Science
   nearest-neighbour instead. Longitudes are unwrapped along each profile
   before interpolating and wrapped back afterwards, so profiles crossing the
   dateline interpolate correctly. Pressure is interpolated in log(pressure)
-  [R3] (exact for an isothermal layer), except with ``nearest``, ``next`` or
-  ``previous``; pressures <= 0 become NaN. (Linear interpolation, as before
-  2026-11-25, overestimated it between levels: Q6 in ``docs/quirks.md``.)
+  [R3] (exact for an isothermal layer in geopotential height; in geometric
+  height within about 5e-6 relative for 1 km levels), except with
+  ``nearest``, ``next`` or ``previous``; pressures <= 0 become NaN. (Linear
+  interpolation, as before 2026-11-25, overestimated it between levels: Q6
+  in ``docs/quirks.md``.)
 - Outliers (unless ``keep_outliers``) are set to NaN at that point in every
   variable: latitude outside [-90, 90] or longitude outside [-180, 180];
   height outside ``height_scale`` (when interpolating); temperature below
@@ -206,6 +211,7 @@ Change log
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
 2026/11/25 [Claude] attributes: version, options, files read/not found, variable sources
+2026/11/25 [Claude] clearer error for dates that do not exist (e.g. "2022-01-34")
 
 How to cite
 -----------
@@ -213,6 +219,7 @@ Cite the package (see ``CITATION.cff``).
 """
 
 import json
+import re
 import warnings
 
 import numpy as np
@@ -226,6 +233,7 @@ from atmosgw.curate.matlab_time import (
     datenum,
     datenum_to_datetime,
     datetime_to_datenum,
+    make_datetime,
 )
 from atmosgw.curate.obs import (
     _limb_ace_gnss,
@@ -586,8 +594,29 @@ def _to_datenums(time_range):
             "datetime), not numbers. Convert MATLAB datenums with "
             "atmosgw.curate.matlab_time.datenum_to_datetime."
         )
-    times = np.array([np.datetime64(v, "us") for v in values])
+    times = np.array([_to_datetime64(v) for v in values])
     return np.atleast_1d(datetime_to_datenum(times))
+
+
+def _to_datetime64(value):
+    """One time as datetime64[us]; a clear error for strings that are not real
+    dates, e.g. MATLAB-style carry-over such as '2022-01-34'."""
+    try:
+        return np.datetime64(value, "us")
+    except ValueError as error:
+        message = f"time_range value {value!r} is not a valid date or time ({error})."
+        parts = re.fullmatch(r"\s*(\d{4})-(\d{1,2})-(\d{1,3})\s*", str(value))
+        if parts:
+            year, month, day = (int(p) for p in parts.groups())
+            if month >= 1 and day >= 1:
+                meant = str(make_datetime(year, month, day))[:10]
+                message += (
+                    f" Days or months beyond the end of the month do not carry "
+                    f"over as in MATLAB's datenum: for that, use {meant!r}, or "
+                    f"atmosgw.curate.matlab_time.make_datetime({year}, {month}, "
+                    f"{day})."
+                )
+        raise ValueError(message) from error
 
 
 def _nanmean_rows(x):

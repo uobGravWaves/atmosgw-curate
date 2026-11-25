@@ -661,3 +661,34 @@ def test_attributes_written_to_netcdf(syn, tmp_path):
     with xr.open_dataset(tmp_path / "out.nc") as back:
         assert back.attrs["options"] == ds.attrs["options"]
         assert back.pressure.attrs["comment"] == ds.pressure.attrs["comment"]
+
+
+def test_dates_that_do_not_exist_explained(syn):
+    # MATLAB datenum carries day 34 of January into February; ISO dates do not
+    with pytest.raises(ValueError, match=r"'2022-02-03'.*make_datetime\(2022, 1, 34\)"):
+        misc(syn, "synlin", "2022-01-34")
+    with pytest.raises(ValueError, match=r"'2023-01-01'"):
+        misc(syn, "synlin", ["2022-12-01", "2022-13-01"])
+    with pytest.raises(ValueError, match="not a valid date") as info:
+        misc(syn, "synlin", "nonsense")
+    assert "carry" not in str(info.value)  # no suggestion when it is not a date
+
+
+def test_sofie_time_ut_is_hours():
+    # SOFIE Time_UT is in hours since the start of the day, although the files'
+    # units attribute says "msec" (checked 2007-06-01: 0.87-23.4). If it were ms,
+    # all values would be far above 24 (one day = 8.64e7 ms).
+    _data_or_skip("SOFIE")
+    from atmosgw.curate.paths import dataset_dir
+    from atmosgw.curate.readers import find_files, read_netcdf
+
+    day = "2007-06-01"
+    path = find_files(dataset_dir("SOFIE"), "Level2_2007152")[0]
+    hours = read_netcdf(path, ["Time_UT"])["Time_UT"]
+    finite = hours[np.isfinite(hours)]
+    assert finite.size > 10 and finite.min() >= 0 and finite.max() < 24
+    ds = load_limb_sounders(day, "SOFIE", original_z=True, keep_outliers=True)
+    times = ds.time.values[~np.isnat(ds.time.values)]
+    assert times.min() >= np.datetime64(day)
+    assert times.max() < np.datetime64(day) + np.timedelta64(1, "D")
+    assert "hours" in ds.time.attrs["comment"]

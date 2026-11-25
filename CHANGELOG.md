@@ -5,6 +5,16 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders`: a clear error for `time_range` strings that are not
+  real dates, e.g. "2022-01-34" (MATLAB's datenum would carry it over to
+  2022-02-03): the message gives that date and `matlab_time.make_datetime`.
+  [Claude]
+- Test that SOFIE `Time_UT` is in hours (its files say "msec"). [Claude]
+- Documentation: R3 (log-pressure interpolation) now cites eq (33b) of the
+  U.S. Standard Atmosphere 1976, checked against the document, instead of
+  an unchecked textbook reference; notes the small error from interpolating
+  in geometric rather than geopotential height (about 5e-6 for 1 km
+  levels). [Claude]
 - `load_limb_sounders`, MLS: when several files match a day (e.g. v05-04
   and v06-04, as for 155 days of 2026 in the group's MLS folder), the newest
   version is now used, not the first in name order (Q8; the same change in
