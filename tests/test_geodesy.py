@@ -111,15 +111,24 @@ def test_haversine_matches_vector_method_and_matlab_example():
     assert haversine(63.2, -30, 13.95, 150) == pytest.approx(11436.398, abs=5e-4)
 
 
-def test_q4_near_antipodal_can_be_nan():
-    # Q4: rounding pushes a above 1 for some nearly antipodal pairs
+def test_q4_near_antipodal_gives_half_circle():
+    # Q4 (fixed): rounding pushed a above 1 for some nearly antipodal pairs,
+    # giving NaN; a is now clipped, so they give half a great circle.
+    # Tolerance 1e-3 km: the formula is ill-conditioned near antipodes (a
+    # rounding error of ~1e-16 in a becomes ~1e-8 rad, about 0.1 m), plus the
+    # 1e-7 degree offsets; largest difference seen 1.9e-4 km (2026-11-25)
     rng = np.random.default_rng(3)
     lat = rng.uniform(-80, 80, 20000)
     lon = rng.uniform(-180, 180, 20000)
     eps = rng.uniform(-1e-7, 1e-7, (2, 20000))
-    with np.errstate(invalid="ignore"):
-        got = haversine(lat, lon, -lat + eps[0], lon - 180 + eps[1])
-    assert np.isnan(got).any()
+    got = haversine(lat, lon, -lat + eps[0], lon - 180 + eps[1])
+    assert np.all(np.isfinite(got))
+    np.testing.assert_allclose(got, np.pi * 6371, rtol=0, atol=1e-3)
+
+
+def test_haversine_nan_input_stays_nan():
+    assert np.isnan(haversine(np.nan, 0, 10, 10))
+    assert np.isnan(haversine(0, 0, 10, np.nan))
 
 
 def test_km2deg_one_degree():
