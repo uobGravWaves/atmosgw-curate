@@ -120,8 +120,8 @@ units). With interpolation, ``altitude`` is the height scale, and its
 comment names the file heights the data were interpolated from.
 
 Files: where more than one file matches a day, the first in name order is
-used, as in MATLAB, except for MLS, where the newest data version is used
-(Q8 in ``docs/quirks.md``).
+used, as in MATLAB, except for MLS, where the newest data version is used,
+as now also in MATLAB (Q8 in ``docs/quirks.md``).
 
 MATLAB -> Python names: ``Lat`` latitude, ``Lon`` longitude, ``Time`` time,
 ``Temp`` temperature, ``Pres`` pressure, ``Alt`` altitude, ``Temp_Residual``

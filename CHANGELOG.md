@@ -7,8 +7,9 @@ reference outputs.
 ## [Unreleased]
 - `load_limb_sounders`, MLS: when several files match a day (e.g. v05-04
   and v06-04, as for 155 days of 2026 in the group's MLS folder), the newest
-  version is now used, not the first in name order (Q8; the MATLAB loader is
-  unchanged). Results for days with one file are unchanged, bit for bit.
+  version is now used, not the first in name order (Q8; the same change in
+  the MATLAB `module_load_MLS`). Results for days with one file are
+  unchanged, bit for bit.
   [Claude]
 - `load_limb_sounders`: a warning, and the output attribute
   `multiple_matches`, when more than one file matches a day (any

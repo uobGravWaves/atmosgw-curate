@@ -603,8 +603,8 @@ def _write_mls(path, temperature):
 
 
 def test_q8_mls_newest_version_used_and_recorded(tmp_path):
-    # Q8 (fixed in Python only): with v05-04 and v06-04 files for the same day,
-    # MATLAB takes the first in name order (v05-04); the newest is used here
+    # Q8 (fixed 2026-11-25, MATLAB and Python): with v05-04 and v06-04 files for
+    # the same day, the first in name order (v05-04) was used; now the newest
     (tmp_path / "2026").mkdir()
     old = "MLS-Aura_L2GP-Temperature_v05-04-c01_2026d001.he5"
     new = "MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5"

@@ -8,8 +8,9 @@ Files: one per day, the file below the MLS folder whose path contains
 ``_<yyyy>d<ddd>``. If several match (e.g. v05-04 and v06-04 of the same day,
 as for many days of 2026 in the group's MLS folder), the newest version is
 used (``_limb_tools.newest_mls_version``), and the day is listed in the
-output's ``multiple_matches`` attribute. The MATLAB loader takes the first
-match in name order, there the older version (Q8 in ``docs/quirks.md``).
+output's ``multiple_matches`` attribute. The MATLAB loader does the same
+since 2026-11-25; before, both took the first match in name order, there the
+older version (Q8 in ``docs/quirks.md``).
 
 The fields ``get_MLS`` reads are available: data fields
 ``L2gpValue`` (temperature), ``L2gpPrecision``, ``Quality``, ``Status``,
