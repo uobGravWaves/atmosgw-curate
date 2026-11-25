@@ -21,6 +21,7 @@
 %change log:
 %  2026/11/24 [Claude] created
 %  2026/11/24 [Claude] machine name no longer stored in the output
+%  2026/11/25 [Claude] h2p/p2h inputs for the U.S. Standard Atmosphere 1976 rewrite
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -95,23 +96,35 @@ RadToDeg = rad2deg(RadIn);
 %% h2p and p2h
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%altitudes (km): negative, layer bases and either side of them, random, very high, NaN
-Bases = [0 11 20 32 47 51 71];
-H2pIn = [-1, -1e-9, Bases, Bases + 1e-9, Bases(2:end) - 1e-9, 130.*rand(1,100) - 5, 150, 200, NaN];
+%altitudes (km): U.S. Standard Atmosphere 1976 layer bases (geometric) and either side of them, the
+%lower limit and below it, 86 km (start of the table), random, the table top and above it, NaN.
+%(The rand calls are unchanged from the earlier version, so the other fixtures are unchanged.)
+%(layer bases and their pressures, and the Table I pressures, as computed by the 2026/11/25 h2p.m/p2h.m
+%constants; written out so this script needs only h2p and p2h)
+Bases = [0, 11.019067832000108, 20.06312368170136, 32.1619032229809, 47.35009222212044, 51.41247962579011, 71.80197067469582, 85.99995290624202];
+BasePres = [1013.25, 226.3206397346292, 54.74888669677777, 8.680186847552283, 1.1090630555496597, 0.6693887311868731, 0.03956420428040728];
+TablePres = [0.0037338, 0.0034163, 0.0031259, 0.0028602, 0.0026173, 0.0023951, ...
+             0.0021919, 0.002006, 0.0018359, 0.0016804, 0.0015381, 0.0014078, ...
+             0.0012887, 0.0011798, 0.0010801, 0.00098896, 0.0009056, 0.00082937, ...
+             0.00075966, 0.00069592, 0.00063765, 0.00058439, 0.00053571, 0.00049122, ...
+             0.00045057, 0.00041342, 0.00037948, 0.00034846, 0.00032011, 0.00027192, ...
+             0.00023144, 0.00019742, 0.00016882, 0.00014477, 0.00012454, 0.00010751, ...
+             9.3188e-05, 8.1142e-05, 7.1042e-05, 6.2614e-05, 5.5547e-05, 4.957e-05, ...
+             4.4473e-05, 4.0096e-05, 3.6312e-05, 3.3022e-05, 3.0144e-05, 2.7615e-05, ...
+             2.5382e-05, 2.3401e-05, 2.1635e-05, 2.0055e-05, 1.8635e-05, 1.7354e-05, ...
+             1.6194e-05, 1.5141e-05, 1.4183e-05, 1.3307e-05, 1.2505e-05, 1.1769e-05, ...
+             1.1092e-05, 1.0468e-05, 9.8907e-06, 9.3568e-06, 8.8617e-06, 8.4018e-06, ...
+             7.9739e-06, 7.5751e-06, 7.2028e-06, 6.855e-06, 6.5294e-06, 6.2243e-06, ...
+             5.938e-06, 5.6691e-06, 5.4162e-06, 5.1781e-06, 4.9538e-06, 4.7421e-06];
+H2pIn = [-5, -5-1e-9, -1, -1e-9, Bases, Bases + 1e-9, Bases(2:end) - 1e-9, 130.*rand(1,100) - 5, 86, 100, 149, 150, 200, NaN];
 H2pOut = h2p(H2pIn);
 H2pMatrix = 60.*rand(4,5); H2pMatrixOut = h2p(H2pMatrix);   %shape kept
 
-%pressures (hPa): layer-base pressures, random log-uniform, very low, NaN,
-%and a pressure above 1013.25 hPa after a valid one (p2h reuses the previous
-%element's layer constants there)
-BaseP = [1013.25, 226.3210, 54.7489, 8.6802, 1.1091, 0.6694, 0.0396];
-P2hIn = [BaseP, BaseP.*(1+1e-9), BaseP.*(1-1e-9), 10.^(6.*rand(1,100) - 3), 1e-5, NaN, 500, 1050];
+%pressures (hPa): layer-base pressures and either side of them, Table I pressures, random log-uniform,
+%the limits and beyond them, above 1013.25 hPa, zero, negative, NaN
+P2hIn = [BasePres, BasePres.*(1+1e-9), BasePres.*(1-1e-9), 10.^(6.*rand(1,100) - 3), TablePres, 1777.6, 1800, 1050, 4.7e-6, 0, -1, NaN];
 P2hOut = p2h(P2hIn);
 P2hMatrix = 10.^(3.*rand(3,4)); P2hMatrixOut = p2h(P2hMatrix);
-%a pressure above 1013.25 hPa as the first element: record whether MATLAB stops with an error
-try;   p2h([1050, 500]); P2hFirstHighErrors = false;
-catch; P2hFirstHighErrors = true;
-end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% geodesy: nph_haversine, azimuth, reckon, km2deg
@@ -162,7 +175,7 @@ Meta = struct('Created',datestr(now,'yyyy-mm-dd HH:MM:SS'),'Matlab',version, ...
               'MatlabFunctionsCommit',MatlabFunctionsCommit,'Seed',20261124);
 save(OutFile,'Meta','Interp','Methods','Unwrap','UnwrapOut','WrapIn','WrapOut', ...
      'DegIn','DegToRad','RadIn','RadToDeg', ...
-     'H2pIn','H2pOut','H2pMatrix','H2pMatrixOut','P2hIn','P2hOut','P2hMatrix','P2hMatrixOut','P2hFirstHighErrors', ...
+     'H2pIn','H2pOut','H2pMatrix','H2pMatrixOut','P2hIn','P2hOut','P2hMatrix','P2hMatrixOut', ...
      'GeoA','GeoB','Haversine','Azimuth', ...
      'ReckonLat','ReckonLon','ReckonArc','ReckonAz','ReckonLatOut','ReckonLonOut','ReckonMatrix', ...
      'KmIn','KmToDeg','-v7');

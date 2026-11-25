@@ -135,7 +135,7 @@ Science
   height outside ``height_scale`` (when interpolating); temperature below
   100 K, or above 400 K below 100 km.
 - Pressure, where a file has none, is estimated from height with
-  ``atmosphere.height_to_pressure`` [R1] (approximate; Q1-Q3).
+  ``atmosphere.height_to_pressure`` (U.S. Standard Atmosphere 1976 [R1]).
 
 Origin
 ------
@@ -181,6 +181,7 @@ Change log
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
+2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 
 How to cite
 -----------
