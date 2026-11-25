@@ -5,6 +5,10 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `tests/matlab/sweep/`: a by-hand check of `load_limb_sounders` against the
+  MATLAB `get_limbsounders` on many dates (every instrument and year with
+  data; first run 2026-11-25: 1420 calls, all identical or within stated
+  last-bit tolerances). Not run by `pytest` or CI. [Claude]
 
 ## [0.3.4] - 2026-11-25
 - `load_limb_sounders` needs about a third less memory at its peak (e.g.
