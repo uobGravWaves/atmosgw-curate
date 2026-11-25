@@ -1,10 +1,13 @@
 """Regression tests: load_limb_sounders against the MATLAB get_limbsounders.
 
-Reference: <reference_dir>/get_limbsounders_reference.mat, made 2026-11-22 by
-MatlabFunctions/Tests/test_get_limbsounders.m with MATLAB R2024b Update 6, from
-uobGravWaves/MultiInstrumentFunctions@78eef78 and corwin365/MatlabFunctions@c943399
-(confirmed 2026-11-24 by re-running that test: all cases identical). Its SHA-256
-is pinned below; a different file fails the test rather than being used.
+Reference: <reference_dir>/get_limbsounders_reference.mat, made 2026-11-25 by
+corwin365/MatlabFunctions-Tests@cc972c9 (test_get_limbsounders.m) with MATLAB
+R2024b Update 6, from uobGravWaves/MultiInstrumentFunctions@9eb6bde (Q6 fix:
+pressure interpolated in log(pressure)) and corwin365/MatlabFunctions@edc9aa3.
+It differs from the previous reference (made 2026-11-22 from
+MultiInstrumentFunctions@78eef78, kept as get_limbsounders_reference_78eef78.mat)
+only in Pres, in the 25 cases that interpolate heights. Its SHA-256 is pinned
+below; a different file fails the test rather than being used.
 
 Synthetic inputs: <reference_dir>/get_limbsounders_synthetic, written by
 tests/matlab/make_limb_synthetic_inputs.m (checked 2026-11-24 to reproduce all
@@ -18,6 +21,9 @@ Tolerances: bit-identical, except:
 - pressure computed from height (Misc and PW files have no pressure): 1e-15
   relative, because exp() and log() round differently in the last bit (see
   tests/test_atmosphere.py); largest seen 4.9e-16;
+- pressure when interpolating to the height scale: 1e-14 relative, because it
+  is interpolated in log(pressure) (Q6 fix) and log() and exp() round
+  differently in the last bit; largest seen 2.0e-15 (2026-11-25);
 - HIRDLS latitude and longitude: 1e-12 degrees absolute, because the
   geolocation correction uses azimuth and reckon, whose trig functions round
   differently in the last bits (see tests/test_geodesy.py); largest seen
@@ -41,10 +47,11 @@ from atmosgw.curate.obs.limb import _load_limb_arrays
 from atmosgw.curate.paths import DataDirNotSetError, dataset_dir, reference_dir
 from atmosgw.curate.readers import read_mat
 
-REFERENCE_SHA256 = "17680d6940317b2fffa1c2ad43d530f61c225fe0ddf0608c91f9a0a1ec9e9cda"
+REFERENCE_SHA256 = "3a9d7c3e21b63c9821d3332ff2c5770adceb81299ee0a3a6675036f0a609c4ab"
 PRESSURE_RTOL = 1e-15
 POSITION_ATOL = 1e-12  # degrees
 DX_RTOL = 1e-12
+LOG_PRESSURE_RTOL = 1e-14  # interpolated pressure (log/exp)
 
 
 def _folder():
@@ -116,7 +123,7 @@ def test_synthetic_against_matlab(reference, syn_dir, case):
     got, _ = _load_limb_arrays(*args, **_defaults(options))
     # Sampler files hold pressure, so only the others compute it from height
     tol = {} if case == "Syn_sampler" else {"Pres": ("rtol", PRESSURE_RTOL)}
-    assert_same_as_matlab(got, reference[case], tol)
+    assert_same_as_matlab(got, reference[case], _interp_pressure_tol(tol, options))
 
 
 # real data: (dataset, kind, args, options), as in the MATLAB test
@@ -176,7 +183,14 @@ def test_real_data_against_matlab(reference, case):
     if not dataset_dir(dataset, kind, must_exist=False).is_dir():
         pytest.skip(f"no {dataset} {kind} data")
     got, _ = _load_limb_arrays(*args, **_defaults(options))
-    assert_same_as_matlab(got, reference[case], tol)
+    assert_same_as_matlab(got, reference[case], _interp_pressure_tol(tol, options))
+
+
+def _interp_pressure_tol(tol, options):
+    """tol, with the log-pressure tolerance for Pres when heights are interpolated."""
+    if options.get("original_z"):
+        return tol
+    return {**tol, "Pres": ("rtol", LOG_PRESSURE_RTOL)}
 
 
 def assert_same_as_matlab(got, want, tol=None):

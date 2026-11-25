@@ -5,6 +5,15 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders`: pressure is now interpolated to the height scale in
+  log(pressure), not linearly in height (Q6, fixed the same way in the MATLAB
+  `get_limbsounders`). Linear interpolation overestimated pressure between
+  levels: on the MATLAB test dates by up to 11% for MIPAS (median 1.2%), 1.9%
+  for MLS, 0.5% for ACE, 0.12% for HIRDLS, 0.09% for SABER and 0.02% or less
+  for SOFIE, GNSS and ALOMAR. Only `pressure` changes, and only when
+  interpolating (not with `original_z`, nor with `nearest`, `next` or
+  `previous`). The MATLAB reference outputs were regenerated from the fixed
+  MATLAB. [Claude]
 
 ## [0.1.0] - 2026-11-25
 - `load_limb_sounders` checked by C. Wright, by comparing its outputs with

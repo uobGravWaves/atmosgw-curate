@@ -139,19 +139,30 @@ def test_column_height_scale_and_lower_case_name(syn):
                               misc_identifier="synlin").identical(ds)
 
 
-def test_q6_pressure_linear_in_height(syn):
-    # Q6: pressure is interpolated linearly in height, not in log-pressure
+def test_q6_pressure_interpolated_in_log_pressure(syn):
+    # Q6 (fixed): pressure is interpolated in log(pressure), so between two
+    # levels it is the exponential through them. Tolerance 1e-14 relative:
+    # a few roundings in log, the interpolation and exp
     ds = misc(syn, "synlin")
     alt = 0.3 * 1 + LEV  # profile 1's original heights
     p = height_to_pressure(alt)
     h = 19.0  # between profile 1's levels at 18.3 and 20.3 km
     j = np.searchsorted(alt, h) - 1
     t = (h - alt[j]) / (alt[j + 1] - alt[j])
-    linear = (1 - t) * p[j] + t * p[j + 1]
-    got = ds.pressure.values[0, np.flatnonzero(HS == h)[0]]
-    assert got == pytest.approx(linear, rel=1e-14)
     log_interp = np.exp((1 - t) * np.log(p[j]) + t * np.log(p[j + 1]))
-    assert got > log_interp  # linear lies above the exponential
+    got = ds.pressure.values[0, np.flatnonzero(HS == h)[0]]
+    assert got == pytest.approx(log_interp, rel=1e-14)
+    linear = (1 - t) * p[j] + t * p[j + 1]
+    assert linear > got * (1 + 5e-4)  # the old (linear) value was ~0.1% higher
+
+
+def test_q6_nearest_keeps_pressure_values(syn):
+    # with 'nearest', pressure is not put through log/exp: values are exactly
+    # those of the data
+    ds = misc(syn, "synlin", interp_type="nearest")
+    p = height_to_pressure(0.3 * 1 + LEV)
+    got = ds.pressure.values[0]
+    assert np.all(np.isin(got[np.isfinite(got)], p))
 
 
 # time handling (profile k of each day is at (k - 0.5)/8 of the day)
