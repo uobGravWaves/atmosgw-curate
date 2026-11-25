@@ -3,10 +3,12 @@
 Python tools for loading, standardising and analysing observations of
 **atmospheric gravity waves** from satellites and other instruments.
 
-> **Status: pre-alpha (0.0.x).** Ports of the group's MATLAB tools are being
+> **Status: pre-alpha (0.x).** Ports of the group's MATLAB tools are being
 > added one at a time, and nothing should be treated as validated until it
 > matches the MATLAB reference outputs. The first, `obs.load_limb_sounders`
-> (from `get_limbsounders`), matches them but has not yet been reviewed.
+> (from `get_limbsounders`), matches them, and was checked by C. Wright on
+> 2026-11-25 by comparing its outputs with the MATLAB function's (SABER,
+> HIRDLS).
 
 ## The AtmosGW family
 

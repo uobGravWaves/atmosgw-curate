@@ -156,7 +156,9 @@ synthetic files and real data. Tolerances are stated in the tests.
 
 AI involvement
 --------------
-AI-ported (Claude) from the MATLAB, to be reviewed by C. Wright.
+AI-ported (Claude) from the MATLAB. Checked by C. Wright on 2026-11-25 by
+comparing its outputs with the MATLAB function's (SABER, HIRDLS); the code
+has not been reviewed line by line.
 
 Usage
 -----
@@ -166,7 +168,8 @@ Usage
 
 Status
 ------
-Preliminary: matches the MATLAB reference; to be reviewed by C. Wright.
+Matches the MATLAB reference outputs (see Validation); checked by C. Wright
+(see AI involvement). First released in 0.1.0.
 
 Change log
 ----------
@@ -174,6 +177,7 @@ Change log
 2026/11/24 [Claude] added HIRDLS, SABER, MLS, MIPAS, SOFIE and ALOMAR readers
 2026/11/25 [Claude] verbose: a progress line for each variable interpolated
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
+2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
 
 How to cite
 -----------
