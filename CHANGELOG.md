@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.4] - 2026-11-25
 - `load_limb_sounders` needs about a third less memory at its peak (e.g.
   30 days of HIRDLS: 3.05 GB -> 1.97 GB, for 0.65 GB of output): source
   indices are made only when `file_source=True`; no copy when the time
