@@ -8,7 +8,7 @@ sounders and return them in the common **swath** format
 (``docs/design/data_formats.md``), on a regular grid in distance by default.
 Port of the MATLAB ``prep_airs_3d`` (corwin365/MatlabFunctions, commit
 f1a78c0), without its detrending and smoothing, which are analysis steps
-(``docs/design/nadir_loader.md``). Implemented: AIRS 3-D. IASI and 2-D
+(``docs/design/nadir_loader.md``). Implemented: AIRS and IASI 3-D. 2-D
 products follow.
 
 Inputs and outputs
@@ -20,7 +20,7 @@ strings or datetimes), with the same ``time_handling`` rules. Whole granules
 whose mean time lies in the range are loaded. May be None if ``granules`` is
 given.
 
-``instrument``: ``"AIRS"`` (any case).
+``instrument``: ``"AIRS"`` or ``"IASI"`` (any case).
 
 Options (type, default; MATLAB name):
 
@@ -86,7 +86,10 @@ Science
   ``bad_geolocation``; temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (proposal: MATLAB applies this only to IASI;
   for AIRS it changes nothing where no such values exist, as in the test
-  granules). Unless ``keep_outliers``, bad values are NaN before regridding,
+  granules); for IASI, values more than 3 interquartile ranges from the
+  quartiles of their height level, over all points loaded, are
+  ``statistical_outlier`` (the reader's ``screen``). Unless ``keep_outliers``,
+  bad values are NaN before regridding,
   so a regridded point is NaN if any input it uses is; regridded points take
   the states of the inputs they use (each state is regridded as an
   indicator); NaN points with no other state (outside the input) are
@@ -103,7 +106,10 @@ Validation
 ----------
 ``tests/test_nadir_matlab.py``: the private layer against the MATLAB
 reference outputs of ``test_prep_airs_3d.m`` (AIRS 2007-01-01 cases).
-``tests/test_nadir_known.py``: known answers and format checks.
+``tests/test_nadir_known.py``, ``tests/test_nadir_iasi.py``: known answers and
+format checks on synthetic files. IASI against MATLAB: identical wherever
+Python has a value (MATLAB refills screened points; Python leaves them NaN with
+their state).
 
 AI involvement
 --------------
@@ -117,11 +123,12 @@ Usage
 
 Status
 ------
-Preliminary: AIRS 3-D only.
+Preliminary: AIRS and IASI 3-D.
 
 Change log
 ----------
 2026/11/25 [Claude] initial version (AIRS 3-D)
+2026/11/25 [Claude] IASI 3-D: orbit files, pseudo-granules, outlier screen (no refill)
 
 How to cite
 -----------
@@ -137,7 +144,7 @@ from atmosgw.curate import __version__, swath
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs import _nadir_airs
+from atmosgw.curate.obs import _nadir_airs, _nadir_iasi
 from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range, record
 from atmosgw.curate.obs.limb import _options_json, _to_datenums
 from atmosgw.curate.paths import dataset_dir
@@ -157,7 +164,15 @@ INSTRUMENTS = {
                               "view_azimuth_angle")},
 }
 
-_FLAGS = ("missing", "bad_geolocation", "outside_physical_range")
+# IASI: n_cross and rows_per_granule are the regridding defaults (MATLAB NXT 90,
+# NAT 135 per granule, as for AIRS), not the native 60 x 90 (proposal: as MATLAB)
+INSTRUMENTS["IASI"] = {
+    "time_range": (datenum(2007, 5, 29), _FAR), "reader": _nadir_iasi,
+    "dataset": "IASI", "n_cross": 90, "rows_per_granule": 135,
+    "row_seconds": 4.0, "max_row_gap_seconds": 180.0, "products": ("3d",),
+    "characterisation": {"3d": "IASI-3D-placeholder/0"},
+    "not_in_files": INSTRUMENTS["AIRS"]["not_in_files"],
+}
 
 
 def load_nadir_sounders(
@@ -229,6 +244,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
                 & (np.abs(lon) <= 180))
     states.set_state(flags, np.broadcast_to(bad_geo[..., None], temp.shape),
                      "bad_geolocation")
+    # instrument screen (IASI: per height, 3 IQR), before the range check, as MATLAB
+    if hasattr(info["reader"], "screen"):
+        states.set_state(flags, info["reader"].screen(temp), "statistical_outlier")
     with np.errstate(invalid="ignore"):
         states.set_state(flags, (temp < 100) | (temp > 400), "outside_physical_range")
     if not settings["keep_outliers"]:

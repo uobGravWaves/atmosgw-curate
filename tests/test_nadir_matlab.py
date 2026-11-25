@@ -103,3 +103,59 @@ def test_against_matlab(reference, case):
         assert_close(data["Spacing"], np.ravel(ref["Spacing"]), KM, "spacing")
     if case == "AIRS_daynight":
         np.testing.assert_array_equal(data["DayNight"], want["DayNightFlag"])
+
+
+# ------------------------------------------------------------------- IASI
+#
+# MATLAB refills screened IASI points from the nearest along-track value;
+# Python leaves them NaN, with their state (agreed design). So: identical
+# (within the tolerances above) wherever Python has a value; every Python NaN
+# has a "no value" state; and NaN is rare (below 1 % in these granules).
+
+DI, DIP = "2007-11-07", "2007-11-06"
+IASI_CASES = {
+    "IASI_full": dict(granules=[(DI, 100), (DI, 101)], day_night=True),
+    "IASI_loadonly": dict(granules=[(DI, 1)], original_grid=True),
+    "IASI_midnight": dict(granules=[(DIP, 240), (DI, 1)]),
+}
+
+
+@pytest.fixture(scope="module")
+def iasi_reference(reference):
+    try:
+        folder = dataset_dir("IASI")
+    except (DataDirNotSetError, FileNotFoundError) as error:
+        pytest.skip(f"no IASI data: {error}")
+    if not (folder / "2007" / "311").is_dir():
+        pytest.skip("IASI 2007-11-07 not found")
+    return reference
+
+
+@pytest.mark.parametrize("case", list(IASI_CASES))
+def test_iasi_against_matlab(iasi_reference, case):
+    from atmosgw.curate.data import states
+
+    ref = iasi_reference[case]
+    want = ref["Data"]
+    data, _ = _load_nadir_arrays(None, "IASI", **{**DEFAULTS, **IASI_CASES[case]})
+    exact = case == "IASI_loadonly"
+    temp = want["ret_temp"]
+    if exact:
+        temp = np.transpose(temp, (1, 2, 0))
+    assert_close(data["Lat"], want["l1_lat"], 0 if exact else DEG, "latitude")
+    dlon = np.mod(data["Lon"] - want["l1_lon"] + 180, 360) - 180
+    assert_close(dlon, np.zeros_like(dlon), 0 if exact else DEG, "longitude")
+    assert_close(data["Time"], want["l1_time"], 0 if exact else DAYS, "time")
+    got = np.asarray(data["Temp"], dtype=float)
+    assert got.shape == temp.shape
+    finite = np.isfinite(got)
+    np.testing.assert_allclose(got[finite], temp[finite], rtol=0,
+                               atol=0 if exact else KELVIN)
+    flags = data["Flags"]["Temp"]
+    assert np.all(states.no_value_mask(flags)[~finite])
+    assert np.mean(~finite) < 0.01
+    np.testing.assert_array_equal(np.ravel(data["Alt"]), np.ravel(want["ret_z"]))
+    if not exact:
+        assert_close(data["Spacing"], np.ravel(ref["Spacing"]), KM, "spacing")
+    if "DayNightFlag" in want:
+        np.testing.assert_array_equal(data["DayNight"], want["DayNightFlag"])

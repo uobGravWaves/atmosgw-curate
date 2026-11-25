@@ -290,8 +290,12 @@ own branches, so it can run alongside the limb-loader work.
 1. `data/` (format spec, flag registry, validator) and `swath.py`, solar
    zenith angle; known-answer tests. *New files only.*
 2. AIRS 3-D reader and `load_nadir_sounders`, matching the MATLAB reference.
-3. `analysis.detrend`, `analysis.smooth`, matching MATLAB `Tp`, `BG`.
-4. IASI reader.
+3. *Deferred (agreed 2026-11-25), waiting for a general Detrender:*
+   `analysis.detrend`, `analysis.smooth` (MATLAB `Tp`, `BG`). Until then the
+   loader returns temperatures only, with no perturbations.
+4. IASI reader. *Done.* Screen statistics are over all points loaded in one
+   call, as MATLAB; regridding defaults to 90 x 135 per granule, as MATLAB
+   (native 60 x 90).
 5. The 2-D path on synthetic data; `to_profiles`; docs; release.
 6. Move the shared helpers into `obs/_common.py` and use them in both loaders
    (limb outputs bit-identical). *Touches the limb loader: done after the

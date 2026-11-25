@@ -49,3 +49,6 @@ pws = "SOFIE/pws"
 
 [datasets.AIRS]
 raw = "AIRS/3d_airs"
+
+[datasets.IASI]
+raw = "IASI"

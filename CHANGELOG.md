@@ -23,6 +23,11 @@ reference outputs.
   reference outputs for every AIRS case (within 3e-11 degrees, 1e-12 K,
   4e-10 days; load-only bit-identical). AIRS added to `datasets.toml`.
   [Claude]
+- `obs.load_nadir_sounders`: IASI 3-D (orbit files, 6-min pseudo-granules,
+  every file overlapping a granule, per-height outlier screen with screened
+  points left NaN and flagged; files without temperature skipped and
+  recorded). Matches the MATLAB reference wherever Python has a value. IASI
+  added to `datasets.toml`. [Claude]
 - Design notes for the nadir-sounder loader and the data formats
   (`docs/design/`). [Claude]
 
