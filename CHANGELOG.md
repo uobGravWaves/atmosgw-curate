@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-11-25
 - `atmosphere.height_to_pressure` and `pressure_to_height` now implement the
   U.S. Standard Atmosphere 1976 (Q1-Q3), as the rewritten MATLAB `h2p` and
   `p2h`: the standard's equations up to 86 km and log-pressure interpolation
