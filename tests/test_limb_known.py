@@ -516,7 +516,9 @@ def test_airs_and_iasi_not_ported():
 
 def test_verbose_prints(syn, capsys):
     misc(syn, "synlin", verbose=True)
-    assert "Loading data" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Loading data" in out
+    assert "------> Temp (" in out  # one line per variable interpolated
     misc(syn, "synlin")
     assert capsys.readouterr().out == ""
 

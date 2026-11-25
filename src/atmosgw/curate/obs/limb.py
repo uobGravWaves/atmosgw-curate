@@ -172,6 +172,8 @@ Change log
 ----------
 2026/11/24 [Claude] initial version: core, ACE/GNSS/Misc, PW and Sampler readers
 2026/11/24 [Claude] added HIRDLS, SABER, MLS, MIPAS, SOFIE and ALOMAR readers
+2026/11/25 [Claude] verbose: a progress line for each variable interpolated
+2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 
 How to cite
 -----------
@@ -344,6 +346,13 @@ def _load_limb_arrays(time_range, instrument, **options):
             stacklevel=3,
         )
 
+    # source indices are returned only if asked for: drop them now, rather than
+    # interpolating them and then discarding them (MATLAB drops them at the end)
+    if not settings["file_source"]:
+        del data["SourceProf"], data["SourceFile"]
+        var_names = [name for name in var_names
+                     if name not in ("SourceProf", "SourceFile")]
+
     if not settings["original_z"]:
         # unwrap longitudes along each profile (finite values only), so that
         # interpolation is safe across the dateline
@@ -355,6 +364,11 @@ def _load_limb_arrays(time_range, instrument, **options):
         if verbose:
             print("----> Interpolating to output z")
         extrap = True if settings["extrapolate"] else None
+        # (only for progress messages: the variables interpolated below)
+        n_interp = sum(name != "Alt" and name not in skip
+                       and not isinstance(data[name], pd.DataFrame)
+                       for name in var_names)
+        done = 0
         new = {}
         for name in var_names:
             value = lon if name == "Lon" else data[name]
@@ -365,6 +379,9 @@ def _load_limb_arrays(time_range, instrument, **options):
             elif isinstance(value, pd.DataFrame):
                 new[name] = value
             else:
+                done += 1
+                if verbose:
+                    print(f"------> {name} ({done} of {n_interp})", flush=True)
                 method = settings["interp_type"]
                 if name in settings["additional_vars"] and _is_whole_numbers(value):
                     method = "nearest"  # flags and counts keep valid values
@@ -401,8 +418,6 @@ def _load_limb_arrays(time_range, instrument, **options):
 
     if settings["file_source"]:
         data["OriginalFiles"] = list(file_list)
-    else:
-        del data["SourceFile"], data["SourceProf"]
 
     if settings["dx"]:
         lat, lon = np.asarray(data["Lat"]), np.asarray(data["Lon"])
