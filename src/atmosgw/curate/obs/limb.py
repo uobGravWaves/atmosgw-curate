@@ -126,8 +126,10 @@ Science
   ``additional_vars`` whose values are all whole numbers (flags, counts) use
   nearest-neighbour instead. Longitudes are unwrapped along each profile
   before interpolating and wrapped back afterwards, so profiles crossing the
-  dateline interpolate correctly. Pressure is interpolated linearly in height
-  (Q6 in ``docs/quirks.md``).
+  dateline interpolate correctly. Pressure is interpolated in log(pressure)
+  [R3] (exact for an isothermal layer), except with ``nearest``, ``next`` or
+  ``previous``; pressures <= 0 become NaN. (Linear interpolation, as before
+  2026-11-25, overestimated it between levels: Q6 in ``docs/quirks.md``.)
 - Outliers (unless ``keep_outliers``) are set to NaN at that point in every
   variable: latitude outside [-90, 90] or longitude outside [-180, 180];
   height outside ``height_scale`` (when interpolating); temperature below
@@ -178,6 +180,7 @@ Change log
 2026/11/25 [Claude] verbose: a progress line for each variable interpolated
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
+2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 
 How to cite
 -----------
@@ -389,9 +392,19 @@ def _load_limb_arrays(time_range, instrument, **options):
                 method = settings["interp_type"]
                 if name in settings["additional_vars"] and _is_whole_numbers(value):
                     method = "nearest"  # flags and counts keep valid values
+                # pressure in log(pressure) [R3], except for methods that only
+                # pick existing values; pressures <= 0 have no log: NaN
+                log_pres = name == "Pres" and method.lower() not in (
+                    "nearest", "next", "previous")
+                if log_pres:
+                    value = np.asarray(value)  # (keeps float32 as MATLAB)
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        value = np.log(np.where(value > 0, value, np.nan))
                 new[name] = interpolate_profiles(
                     data["Alt"], value, height_scale, method, extrap
                 )
+                if log_pres:
+                    new[name] = np.exp(new[name])
         data = new
         data["Lon"] = np.rad2deg(wrap_to_pi(data["Lon"]))
     else:
