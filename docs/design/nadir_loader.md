@@ -299,7 +299,16 @@ own branches, so it can run alongside the limb-loader work.
    AIRS has none (its 3 x IQR flags were real variability); MATLAB's
    pooled screen is kept for comparison. Regridding defaults to 90 x 135 per
    granule, as MATLAB (native 60 x 90).
-5. The 2-D path on synthetic data; `to_profiles`; docs; release.
+5. The 2-D path, `data.to_profiles`, docs. *Done* (release left for C. Wright).
+   2-D products work in the core (tested with a stand-in reader, and on
+   L. Hoffmann's AIRS 2-D perturbation files in a throwaway reader). Those
+   files (`airs_YYYY_DDD_GGG.nc`, 135 x 90 per granule; e.g. 2020 days 20-60
+   on the group's Linux machine) hold
+   brightness temperature in channel groups `bt_4mu`, `bt_8mu`,
+   `bt_15mu_low`, `bt_15mu_high`, each with a perturbation (`_pt`) and a
+   variance (`_var`): an AIRS 2-D reader must decide which to load, the
+   channel wavenumbers, and how to label the file's own perturbations
+   (already detrended by their producer).
 6. Move the shared helpers into `obs/_common.py` and use them in both loaders
    (limb outputs bit-identical). *Touches the limb loader: done after the
    limb work in progress is merged.*

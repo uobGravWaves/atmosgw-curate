@@ -223,6 +223,9 @@ created.
   repeated over levels; flags, `granule`, `segment` and the swath indices are
   kept as per-profile variables (`swath_along`, `swath_cross`, 1-based). Lets
   the sampler, profile tools and Fuse treat swaths and profiles alike.
+  Pressure, which the profile format requires and nadir retrievals here do
+  not provide, is estimated from altitude (U.S. Standard Atmosphere 1976)
+  with `origin` "derived" and the `derived` state. Only 3-D swaths convert.
 - Others to be defined with the formats they connect.
 
 ## 9. Checking

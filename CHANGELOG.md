@@ -5,6 +5,10 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_nadir_sounders`: 2-D products (brightness temperature, no levels,
+  one or several channels) handled by the core; no 2-D reader yet. [Claude]
+- New `data.to_profiles`: a 3-D swath as profiles (profile format), with
+  pressure estimated from altitude and marked derived. [Claude]
 - New `data` package (proposal, format version 1): the common "swath" and
   "profile" formats, a registry of data states (why a value is absent, or
   what kind of value it is) recorded per variable as CF flags, an

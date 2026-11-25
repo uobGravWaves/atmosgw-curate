@@ -241,7 +241,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
     say = print if settings["verbose"] else (lambda *a, **k: None)
 
     say("--> Loading data")
-    var_names = ["Lat", "Lon", "Time", "Temp", "Alt"] + settings["additional_vars"]
+    var_names = (["Lat", "Lon", "Time", "Temp"]
+                 + (["Alt"] if settings["product"] == "3d" else [])
+                 + settings["additional_vars"])
     screen, screen_settings, screen_text, pad = _screen.resolve(settings["screen"],
                                                                info["screen"])
     settings["screen_text"] = screen_text
@@ -324,9 +326,12 @@ def _load_nadir_arrays(time_range, instrument, **options):
     settings["grid"] = "native" if settings["original_grid"] or n_rows < 2 else (
         "regular")
 
-    # vertical grid
-    z = np.asarray(data["Alt"], dtype=float).ravel()
-    if not settings["original_z"]:
+    # vertical grid (3-D products; a 2-D product's last dimension is channels)
+    z = (np.asarray(data["Alt"], dtype=float).ravel() if settings["product"] == "3d"
+         else None)
+    if z is None:
+        pass
+    elif not settings["original_z"]:
         new_z = (swath.regular_levels(z, 3.0) if settings["height_scale"] is None
                  else settings["height_scale"])
         low, high = settings["height_range"]
@@ -541,7 +546,8 @@ def _along_track_names(data):
     n = data["Lat"].shape[1]
     names = []
     for name, value in data.items():
-        if name in ("Flags", "DistCross", "Alt", "Spacing") or name.startswith(
+        skip = ("Flags", "DistCross", "Alt", "Spacing", "Channel")
+        if name in skip or name.startswith(
                 "Native") or name == "ScanPosition":
             continue
         shape = np.shape(value)
@@ -558,6 +564,10 @@ _ATTRS = {
     "temperature": {"units": "K", "standard_name": "air_temperature",
                     "origin": "retrieved", "ancillary_variables": "temperature_flag",
                     "source_variable": "ret_temp"},
+    "brightness_temperature": {"units": "K", "long_name": "brightness temperature",
+                               "origin": "measured",
+                               "ancillary_variables": "brightness_temperature_flag"},
+    "channel_wavenumber": {"units": "cm-1", "long_name": "channel centre wavenumber"},
     "distance_along": {"units": "km",
                        "long_name": "along-track distance from the segment start"},
     "distance_cross": {"units": "km",
@@ -582,6 +592,17 @@ def _to_dataset(data, settings, call=None):
     ac = ("along_track", "cross_track")
     flags = data["Flags"]["Temp"].transpose(1, 0, 2)
     regular = settings["grid"] == "regular"
+    three_d = settings["product"] == "3d"
+    # the main variable: temperature on levels (3-D), or brightness temperature
+    # (2-D), with a channel dimension unless there is one channel and no list
+    main = "temperature" if three_d else "brightness_temperature"
+    if three_d:
+        main_dims = ac + ("level",)
+    elif data["Temp"].shape[2] == 1 and "Channel" not in data:
+        main_dims = ac
+        flags = flags[..., 0]
+    else:
+        main_dims = ac + ("channel",)
 
     def t(x):  # [cross x along (x ...)] -> [along x cross (x ...)]
         x = np.asarray(x)
@@ -594,13 +615,18 @@ def _to_dataset(data, settings, call=None):
         "latitude": (ac, t(data["Lat"]).astype(np.float64)),
         "longitude": (ac, t(data["Lon"]).astype(np.float64)),
         "time": (ac, times(t(data["Time"]))),
-        "altitude": (("level",), np.asarray(data["Alt"], dtype=np.float64)),
-        "temperature": (ac + ("level",), t(data["Temp"]).astype(np.float32)),
-        "temperature_flag": (ac + ("level",), flags, states.flag_attrs()),
+        main: (main_dims, t(data["Temp"]).astype(np.float32).reshape(
+            flags.shape)),
+        f"{main}_flag": (main_dims, flags, states.flag_attrs()),
         "granule": (("along_track",), np.asarray(data["Granule"]).astype(np.int32)),
         "granule_day": (("along_track",), times(data["Day"])),
         "segment": (("along_track",), np.asarray(data["Segment"]).astype(np.int32)),
     }
+    if three_d:
+        v["altitude"] = (("level",), np.asarray(data["Alt"], dtype=np.float64))
+    elif "Channel" in data:
+        v["channel_wavenumber"] = (("channel",), np.asarray(data["Channel"],
+                                                           dtype=np.float64))
     if regular:
         v["distance_along"] = (("along_track",), np.asarray(data["DistAlong"],
                                                             dtype=np.float64))
@@ -635,7 +661,7 @@ def _to_dataset(data, settings, call=None):
     tracked = [n for n, s in FORMATS["swath"]["variables"].items() if s.get("tracked")]
     availability = {n: ("not_in_files" if n in info["not_in_files"]
                         else "not_requested") for n in tracked if n not in ds}
-    availability["temperature_uncertainty"] = "not_provided"
+    availability[f"{main}_uncertainty"] = "not_provided"
     counts = states.state_counts(flags)
     first, last = (str(datenum_to_datetime(x, "ms")) for x in settings["time_range"])
     ds.attrs = {
@@ -650,10 +676,10 @@ def _to_dataset(data, settings, call=None):
         "files_read": ", ".join(settings["files_read"]),
         "files_not_found": ", ".join(settings["record"]["files_not_found"]),
         "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
-        "state_counts": "temperature: " + (", ".join(f"{k} {n}"
+        "state_counts": f"{main}: " + (", ".join(f"{k} {n}"
                                                       for k, n in counts.items())
                                             or "none"),
-        "spatial_dims": "along_track cross_track level",
+        "spatial_dims": "along_track cross_track" + (" level" if three_d else ""),
         "grid_spacing_km": [float(data["Spacing"][1]), float(data["Spacing"][0]),
                             float(data["Spacing"][2])],
         "grid": settings["grid"],
