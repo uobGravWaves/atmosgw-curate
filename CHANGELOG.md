@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-11-25
 - One set of data-state rules for both loaders and `to_profiles`
   (`docs/design/data_formats.md` section 6.3), checked by the new
   `tests/test_states_conformance.py`. Limb: a NaN between a profile's first

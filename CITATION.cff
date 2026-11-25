@@ -8,7 +8,7 @@ authors:
     affiliation: University of Bath
 repository-code: "https://github.com/uobGravWaves/atmosgw-curate"
 license: BSD-3-Clause
-version: 0.3.6
+version: 0.4.0
 keywords:
   - atmospheric gravity waves
   - remote sensing
