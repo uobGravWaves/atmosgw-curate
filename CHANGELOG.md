@@ -5,6 +5,19 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New `data` package (proposal, format version 1): the common "swath" and
+  "profile" formats, a registry of data states (why a value is absent, or
+  what kind of value it is) recorded per variable as CF flags, an
+  `availability` record for variables that do not exist in a Dataset, and
+  `data.validate`. See `docs/design/data_formats.md`. [Claude]
+- New `swath` module: distances across and along a swath, regridding onto a
+  regular distance grid (with the dateline unwrap) and the regular vertical
+  grid; port of the regridding in the MATLAB `prep_airs_3d`, matching it on
+  synthetic swaths (within 1e-9). [Claude]
+- New `solar` module: solar zenith angle and the AIRS day/night retrieval
+  switch (port of `which_airs_retrieval.m`). [Claude]
+- Design notes for the nadir-sounder loader and the data formats
+  (`docs/design/`). [Claude]
 
 ## [0.3.3] - 2026-11-25
 - `load_limb_sounders`: a clear error for `time_range` strings that are not

@@ -176,7 +176,7 @@ defaults (`time_handling`, `lat_range`, `lon_range`, `original_z`,
 | `lat_range`, `lon_range` | Keep rows of the swath that enter the box (whole rows, so the grid stays rectangular) | — |
 | `original_grid` | Return the native geometry, no horizontal regridding | `LoadOnly` (also skips vertical) |
 | `n_cross`, `n_along` / `dx_cross`, `dx_along` | Regular grid: number of points, or spacing in km (spacing overrides number) | `NXT`, `NAT`, `dXT`, `dAT` |
-| `original_z`, `height_scale`, `height_range` | Vertical grid; default: regular 3 km grid centred on the middle native level, as MATLAB | `VerticallyInterpolate`, `VerticalSpacing` |
+| `original_z`, `height_scale`, `height_range` | Vertical grid; default: regular 3 km grid from the lowest native level, as MATLAB (its comment says "from the middle outwards", but the code starts at the bottom) | `VerticallyInterpolate`, `VerticalSpacing` |
 | `interp_type`, `extrapolate` | Horizontal and vertical interpolation | `Interpolant`, `Extrapolant` |
 | `keep_outliers` | Do not set flagged points to NaN (flags are always returned) | — |
 | `day_night` | Add `day_retrieval` (solar zenith angle < 96 deg, the angle at which L. Hoffmann's retrieval switches between its day and night set-ups, per C. Wright) | `DayNightFlag` |
