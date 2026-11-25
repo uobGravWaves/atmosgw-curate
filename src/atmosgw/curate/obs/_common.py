@@ -51,7 +51,7 @@ AI-moved (Claude); to be reviewed by C. Wright.
 Change log
 ----------
 2026/11/25 [Claude] shared helpers moved here from _limb_tools.py, limb.py, nadir.py
-2026/11/25 [Claude] warn_multiple_matches (now also for nadir loads)
+2026/11/25 [Claude] warn_multiple_matches (moved from limb.py)
 2026/11/25 [Claude] record_attrs (from limb; now also used by nadir)
 """
 

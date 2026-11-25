@@ -36,6 +36,8 @@ def limb_files(tmp_path_factory):
     temp = 200 + 1.5 * alt
     temp[GAP_PROF, GAP_LEV] = np.nan
     temp[BAD_PROF, BAD_LEV] = 50.0
+    temp[1, -1] = 50.0     # removed at the top of profile 1 ...
+    temp[1, -2] = np.nan   # ... so the gap below it is still inside: missing
     savemat(folder / "conf_2007d001.mat", {
         "Alt": alt, "Temp": temp,
         "Lat": np.tile(np.linspace(-60, 60, n_prof)[:, None], (1, LEV.size)),
@@ -93,7 +95,8 @@ def all_outputs(limb_files, nadir_files):
 def test_gap_inside_measured_is_missing(limb_files, nadir_files):
     ds = limb(limb_files, original_z=True)
     assert has(ds, "temperature", "missing")[GAP_PROF, GAP_LEV]
-    assert has(ds, "temperature", "missing").sum() == 1
+    assert has(ds, "temperature", "missing")[1, -2]  # next to a removed point
+    assert has(ds, "temperature", "missing").sum() == 2
     ds = limb(limb_files)  # interpolated: the heights around 30 km
     gap = has(ds, "temperature", "missing")[GAP_PROF]
     assert gap.any() and not has(ds, "temperature", "missing")[GAP_PROF - 1].any()
@@ -159,8 +162,27 @@ def test_preprocessing_attributes(limb_files, nadir_files):
         assert ds.attrs["data"] in ("raw", "preprocessed", "planetary-wave-filtered")
         assert (ds.attrs["data"] == "preprocessed") == bool(ds.attrs["preprocessing"])
         assert ds.attrs["heights"] in ("interpolated", "original", "none")
-    assert limb(limb_files).attrs["data"] == "raw"            # Misc files
-    assert nadir(nadir_files).attrs["data"] == "preprocessed"  # AIRS daily files
+    assert limb(limb_files).attrs["data"] == "raw"   # Misc files
+    assert nadir(nadir_files).attrs["data"] == "raw"  # AIRS granule files
+
+
+def test_nadir_extrapolated_only_outside_a_segments_own_coverage(tmp_path):
+    # two segments (granule 54 missing); the second is narrower across track,
+    # so the common cross axis (from the first) extends beyond it
+    write_granule(tmp_path, 53, seconds(53))
+    write_granule(tmp_path, 55, seconds(55), cross_scale=0.8)
+    granules = [(D, 53), (D, 55)]
+    plain = load_nadir_sounders(None, "AIRS", granules=granules, file_path=tmp_path)
+    ext = load_nadir_sounders(None, "AIRS", granules=granules, file_path=tmp_path,
+                              extrapolate=True)
+    assert not has(plain, "temperature", "extrapolated").any()
+    flagged = has(ext, "temperature", "extrapolated")
+    second = ext.segment.values == 2
+    assert flagged[second].any() and not flagged[~second].any()
+    assert np.all(np.isfinite(ext.temperature.values[flagged]))
+    # extrapolated points are exactly those NaN without extrapolate
+    np.testing.assert_array_equal(flagged, np.isnan(plain.temperature.values)
+                                  & np.isfinite(ext.temperature.values))
 
 
 def test_to_profiles_keeps_each_points_states(nadir_files):

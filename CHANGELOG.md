@@ -13,12 +13,11 @@ reference outputs.
   Values unchanged. [Claude]
 - New dataset attributes in both formats: `preprocessing` (what was done to
   the files before loading; `data` is then "preprocessed": the GNSS files,
-  pre-interpolated by C. Wright, and the AIRS 3-D daily files) and `heights`.
-  [Claude]
-- Both loaders: one warning per load when a day had several matching files
-  (nadir now warns too); `source_variable`/`comment` attributes from the
-  readers' record for nadir as for limb; `state_counts` covers every data
-  variable. [Claude]
+  pre-interpolated by C. Wright, and AIRS 3-D loads from the daily files, not
+  the granule files) and `heights`. Written by both loaders; not required by
+  `validate` in format version 1, so older files stay valid. [Claude]
+- Nadir: `source_variable`/`comment` attributes from the readers' record, as
+  for limb; `state_counts` covers every data variable. [Claude]
 - README: real status, both loaders, and a validation-status section;
   `docs/usage.md`: state table, "same option, different behaviour". [Claude]
 - `to_profiles` keeps the file provenance of a swath loaded with

@@ -135,8 +135,8 @@ dz]` (NaN where not regular; MATLAB's `Spacing`, reordered), `grid =
 | `product` | `"3d"` | |
 | `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
 | `data` | `"raw"` / `"preprocessed"` / `"planetary-wave-filtered"` | "preprocessed" when the files were altered before loading (values interpolated, rounded ...) |
-| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed |
-| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products) |
+| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed. Written by both loaders since 0.4.0; not required by `validate` in version 1 |
+| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products). Written since 0.4.0; not required in version 1 |
 | `time_range` | ISO times | as expanded by `time_handling` |
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
@@ -213,8 +213,8 @@ Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
 `tests/test_states_conformance.py`):
 
 - **`no_observation` vs `missing`.** A NaN inside what was measured is
-  `missing`: in a profile, between its first and last value of that variable
-  (a fill value, a gap); in a swath, a fill value at a scanned point. A NaN
+  `missing`: in a profile, between its first and last measured point of that
+  variable (a fill value, a gap; points removed as bad count as measured); in a swath, a fill value at a scanned point. A NaN
   outside it is `no_observation`: above or below a profile's values, padding
   between profiles of different lengths, outside the swath, between segments.
 - **Removed points.** A point removed as bad is removed in every data
@@ -228,7 +228,8 @@ Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
   lack positions at some levels; their values are kept, and the dataset says
   `data` "preprocessed").
 - **Not raw data.** Files altered before loading give `data` "preprocessed"
-  and a `preprocessing` text (GNSS; AIRS 3-D daily files).
+  and a `preprocessing` text (GNSS; AIRS 3-D when read from the daily files;
+  not the planetary-wave files, a separate product).
 - **Conversions keep provenance.** `to_profiles` carries `source_file` and
   `original_files`, and keeps the swath's `availability` reason for any
   variable it lists.

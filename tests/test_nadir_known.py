@@ -26,8 +26,9 @@ D = "2007-01-01"
 # ------------------------------------------------------------ synthetic files
 
 
-def write_granule(root, granule, start_seconds, temp=None):
-    """An AIRS granule file (135 along x 90 cross x 27 levels) on a curved track."""
+def write_granule(root, granule, start_seconds, temp=None, cross_scale=1.0):
+    """An AIRS granule file (135 along x 90 cross x 27 levels) on a curved track
+    (cross_scale: scale of the cross-track offsets)."""
     folder = root / "2007" / "001"
     folder.mkdir(parents=True, exist_ok=True)
     n_al, n_x, n_z = 135, 90, 27
@@ -37,7 +38,8 @@ def write_granule(root, granule, start_seconds, temp=None):
     for k in range(1, n_al):
         mid_lat[k], mid_lon[k] = reckon(mid_lat[k - 1], mid_lon[k - 1], km2deg(18),
                                         head[k - 1])
-    off = np.sign(np.arange(n_x) - 44.5) * 13.5 * np.abs(np.arange(n_x) - 44.5) ** 1.1
+    off = (cross_scale * np.sign(np.arange(n_x) - 44.5) * 13.5
+           * np.abs(np.arange(n_x) - 44.5) ** 1.1)
     lat, lon = reckon(np.broadcast_to(mid_lat[:, None], (n_al, n_x)),
                       np.broadcast_to(mid_lon[:, None], (n_al, n_x)),
                       km2deg(np.broadcast_to(off, (n_al, n_x))),
@@ -175,6 +177,13 @@ def airs():
     if not (folder / "2007" / "airs_2007d001.nc").is_file():
         pytest.skip("AIRS 2007-01-01 not found")
     return folder
+
+
+def test_real_daily_files_are_preprocessed(airs):
+    # the daily files are rounded to whole kelvin; granule files are not
+    ds = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], original_grid=True)
+    assert ds.attrs["data"] == "preprocessed"
+    assert "rounded to whole kelvin" in ds.attrs["preprocessing"]
 
 
 def test_real_midnight_is_one_segment(airs):

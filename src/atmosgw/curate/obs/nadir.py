@@ -145,8 +145,8 @@ Change log
 2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] docstring: IASI screen, segment rule, duplicate option fixed
-2026/11/25 [Claude] extrapolated state; multiple-matches warning; record-based
-  attributes; heights and preprocessing attributes
+2026/11/25 [Claude] extrapolated state; record-based attributes; heights and
+  preprocessing attributes (preprocessing as the readers record it)
 
 How to cite
 -----------
@@ -177,7 +177,6 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
-    warn_multiple_matches,
 )
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.solar import day_retrieval
@@ -192,11 +191,6 @@ INSTRUMENTS = {
              "dataset": "AIRS", "n_cross": 90, "rows_per_granule": 135,
              "row_seconds": 360 / 135, "max_row_gap_seconds": 180.0,
              "products": ("3d", "2d"),
-             # what was done to the files before this loader reads them
-             "preprocessing": {"3d": "daily files merged from L. Hoffmann's "
-                                     "granule files (merge_airs_into_daily.sh): "
-                                     "temperatures rounded to whole kelvin, times "
-                                     "stored as float32"},
              "characterisation": {"3d": "AIRS-3D-placeholder/0",
                                   "2d": "AIRS-2D-placeholder/0"},
              "screen": ("none", {}),
@@ -284,7 +278,6 @@ def _load_nadir_arrays(time_range, instrument, **options):
     data, file_list = inst_info["reader"].load(load_settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
-    warn_multiple_matches(settings, stacklevel=3)
     if padded and settings["granules"] is not None:  # padding is not a request
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}
@@ -659,6 +652,10 @@ def _to_dataset(data, settings, call=None):
         if not settings["keep_outliers"]:
             value[states.no_value_mask(flags)] = np.nan
         dflag = flags.copy()
+        # (qualified states only where this variable has a value)
+        for name in ("extrapolated", "filled"):
+            bit = states.FLAG_DTYPE(states.state(name).bit)
+            dflag[np.isnan(value)] &= ~bit
         states.set_state(dflag, np.isfinite(value), "derived")
         states.set_state(dflag, np.isnan(value) & ~states.no_value_mask(dflag),
                          "no_observation")
@@ -721,7 +718,8 @@ def _to_dataset(data, settings, call=None):
     flags_by_variable = {main: flags, **{out: v[f"{out}_flag"][1]
                                          for out in derived_outputs}}
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_nadir_sounders")
-    preprocessing = info.get("preprocessing", {}).get(settings["product"], "")
+    # what was done to the files before loading, as the readers record it
+    preprocessing = "; ".join(sorted(settings["record"].get("preprocessing", ())))
     ds.attrs = {
         "format": "swath", "format_version": FORMATS["swath"]["version"],
         "instrument": settings["instrument"], "product": settings["product"],

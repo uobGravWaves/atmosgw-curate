@@ -740,17 +740,25 @@ def _state_flags(value, lat_shape, masks):
             states.set_state(flag, over_value(mask) & np.isfinite(value), name)
     # other NaN: missing inside the profile's measured coverage (between its
     # first and last value along level), no_observation outside it
+    # (points removed as bad count as measured)
+    removed = np.zeros(flag.shape, dtype=bool)
+    for state in states.STATES:
+        if state.group == "removed as bad":
+            removed |= states.has_state(flag, state.name)
     unexplained = np.isnan(value) & ~states.no_value_mask(flag)
-    states.set_state(flag, unexplained & _inside_coverage(value), "missing")
+    states.set_state(flag, unexplained & _inside_coverage(np.isfinite(value) | removed),
+                     "missing")
     states.set_state(flag, unexplained & ~states.has_state(flag, "missing"),
                      "no_observation")
     return flag
 
 
-def _inside_coverage(value):
-    """True strictly between each profile's first and last finite value along
-    the level axis (axis 1), separately for any further dimension."""
-    finite = np.isfinite(value)
+def _inside_coverage(measured):
+    """True strictly between each profile's first and last measured point
+    (measured: bool array) along the level axis (axis 1), separately for any
+    further dimension."""
+    finite = np.asarray(measured, dtype=bool)
+    value = finite
     if value.ndim < 2 or value.shape[1] == 0:
         return np.zeros(value.shape, dtype=bool)
     n_lev = value.shape[1]
@@ -833,7 +841,9 @@ def _to_dataset(data, settings, call=None):
     availability.update({f"{out}_uncertainty": "not_provided"
                          for out in _DATA_VARIABLES if out in variables})
     instrument = settings["instrument_name"]
-    preprocessing = INSTRUMENTS[instrument].get("preprocessing", "")
+    # (the PW files are a separate product: the raw files' text does not apply)
+    preprocessing = ("" if settings["hindley_pws"]
+                     else INSTRUMENTS[instrument].get("preprocessing", ""))
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders")
     attrs = {
         "format": "profile", "format_version": FORMATS["profile"]["version"],
