@@ -5,6 +5,10 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `to_profiles` keeps the file provenance of a swath loaded with
+  `file_source=True` (`source_file` over profiles and levels, `source_row`
+  per profile, `original_files`), lists `source_profile` as `not_provided`,
+  and keeps the swath's reason for other absent variables. [Claude]
 
 ## [0.3.6] - 2026-11-25
 - `load_limb_sounders`: pressure estimated from height is marked `derived`

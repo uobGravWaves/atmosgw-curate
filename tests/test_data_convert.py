@@ -50,6 +50,47 @@ def test_pressure_is_derived(swath):
     assert states.has_state(p.pressure_flag.values, "derived").all()
 
 
+def test_file_provenance_round_trip(tmp_path):
+    for g in (53, 54):
+        write_granule(tmp_path, g, seconds(g))
+    sw = load_nadir_sounders(None, "AIRS", granules=[(D, 53), (D, 54)],
+                             file_path=tmp_path, n_cross=12, n_along=9,
+                             file_source=True)
+    p = to_profiles(sw)
+    validate(p, "profile")
+    n_x, n_lev = sw.sizes["cross_track"], sw.sizes["level"]
+    assert p.source_file.dims == ("profile", "level")
+    assert p.source_row.dims == ("profile",)
+    assert p.source_file.dtype == sw.source_file.dtype
+    assert list(p.original_files.values) == list(sw.original_files.values)
+    assert sorted(set(sw.source_file.values)) == [1, 2]  # both files used
+    for row in (0, 4, sw.sizes["along_track"] - 1):
+        for cross in (0, 7, n_x - 1):
+            k = row * n_x + cross
+            assert p.swath_along.values[k] == row + 1
+            assert np.all(p.source_file.values[k] == sw.source_file.values[row])
+            assert p.source_row.values[k] == sw.source_row.values[row]
+    np.testing.assert_array_equal(
+        p.source_file.values,
+        np.repeat(np.repeat(sw.source_file.values, n_x)[:, None], n_lev, axis=1))
+    avail = states.parse_availability(p.attrs["availability"])
+    assert avail["source_profile"] == "not_provided"
+    assert "source_file" not in avail and "original_files" not in avail
+
+
+def test_availability_inherited(swath):
+    avail = states.parse_availability(to_profiles(swath).attrs["availability"])
+    assert avail["source_file"] == "not_requested"
+    assert avail["original_files"] == "not_requested"
+    assert avail["source_profile"] == "not_provided"
+    text = swath.attrs["availability"].replace("source_file: not_requested",
+                                               "source_file: not_in_files")
+    p = to_profiles(swath.assign_attrs(availability=text))
+    validate(p, "profile")
+    avail = states.parse_availability(p.attrs["availability"])
+    assert avail["source_file"] == "not_in_files"
+
+
 def test_rejects_2d_and_other_formats(swath):
     with pytest.raises(ValueError):
         to_profiles(swath.drop_vars(["temperature", "temperature_flag", "altitude"]))
