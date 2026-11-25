@@ -1,6 +1,7 @@
 # Design: common data formats
 
 **Status:** draft for agreement, 2026-11-25. Nothing here is implemented yet.
+Points marked *agreed* were agreed with C. Wright on 2026-11-25.
 
 The Curate plan gives "common interfaces and data structures" very high
 priority: every loader's output must be usable by the same Detrender,
@@ -16,7 +17,8 @@ see `nadir_loader.md`). Later, as loaders for them are written:
 
 The specification will live in code in `atmosgw/curate/data/` (a new folder,
 already in the README's planned layout): `formats.py` (the definitions below
-as data), `flags.py` (the quality-flag registry) and `validate(ds, format)`.
+as data), `states.py` (the registry of data states, §6) and
+`validate(ds, format)`.
 
 ## 1. What every format specifies
 
@@ -32,11 +34,14 @@ as data), `flags.py` (the quality-flag registry) and `validate(ds, format)`.
 
 ## 2. Conventions common to all formats
 
-- Times: `datetime64[us]`, UTC, named `time`. Missing: NaT.
+- Times: `datetime64[us]`, UTC, named `time`. Missing: NaT. Leap seconds are
+  ignored (*agreed*: well below wave timescales).
 - Latitude: degrees north, [-90, 90]. Longitude: degrees east, [-180, 180].
 - Altitude: km (geometric, as given by each instrument's data; a variable
   `comment` says if it is geopotential). Pressure: hPa. Temperature: K.
-- Missing values: NaN (NaT for times). No fill values in outputs.
+- No value: NaN (NaT for times), always with a state saying why (§6). Bad
+  points are NaN in every loader, never refilled (*agreed*). No fill values
+  in outputs.
 - Source indices (rows, profiles, files): 1-based, as stored in the data.
 - Signs and wave conventions: as `CONTRIBUTING.md` (upward propagation
   m <= 0; wavenumbers as 1/wavelength in km^-1; bearings clockwise from
@@ -45,6 +50,19 @@ as data), `flags.py` (the quality-flag registry) and `validate(ds, format)`.
   `T`).
 - Attributes are text, numbers or lists of them, so a Dataset survives
   `to_netcdf` unchanged.
+
+### Numeric types
+
+- **Data variables: float32.** Its resolution is about 1 part in 1.7e7:
+  1.5e-5 K at 300 K, 1e-5 degrees (about 1 m) in longitude. That is far finer
+  than the data (about 1 K for nadir sounders, about 0.1 K at best for limb
+  sounders and GNSS), so nothing is lost, and memory is half of float64.
+- **Coordinates and distances: float64**; times `datetime64[us]`.
+- **Calculations: float64.** Analysis functions convert on input and return
+  float32, so rounding never accumulates in float32.
+- **State flags:** unsigned integers (§6).
+- **Packing (scale and offset):** only for files written to disk, never in
+  memory (xarray unpacks on reading). See §11.
 
 ## 3. Format "profile", version 1
 
@@ -57,16 +75,16 @@ as data), `flags.py` (the quality-flag registry) and `validate(ds, format)`.
 | `time` | (profile, level) | — | yes |
 | `altitude` | (profile, level) | km | yes |
 | `temperature` | (profile, level) | K | yes, unless PW data |
-| `pressure` | (profile, level) | hPa | yes (estimated from height if absent; `comment` says so) |
+| `pressure` | (profile, level) | hPa | yes; `origin` attribute says whether measured or derived (§6.3) |
 | `temperature_residual`, `temperature_pw` | (profile, level[, mode]) | K | PW data |
-| `quality_flag` | (profile, level) | — | yes (from version 1 of this spec; see §6) |
+| `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
 | `source_profile`, `source_file` | (profile, level) | — | optional |
 | `original_files` | (file) | — | optional |
 | `dx` | (profile, level) | km | optional |
 
-This is the current `load_limb_sounders` output, plus `quality_flag` and the
-attributes of §5. Adding these to the limb loader is a separate change; its
-values do not change.
+This is the current `load_limb_sounders` output, plus the state flags, the
+`origin` attributes and the dataset attributes of §5. Adding these to the
+limb loader is a separate change; its values do not change.
 
 ## 4. Format "swath", version 1
 
@@ -82,7 +100,7 @@ fixed. `along_track` may have length 0.
 | `temperature` | (along_track, cross_track, level) | K | 3-D |
 | `brightness_temperature` | (along_track, cross_track[, channel]) | K | 2-D |
 | `channel_wavenumber` | (channel) | cm^-1 | 2-D with channels |
-| `quality_flag` | as the data variable | — | yes |
+| `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
 | `granule`, `granule_day` | (along_track) | — | yes: the granule each row came from, and its day |
 | `segment` | (along_track) | — | yes: 1-based number of the unbroken stretch the row is in |
 | `distance_along`, `distance_cross` | (along_track), (cross_track) | km | yes on a regular grid |
@@ -90,9 +108,7 @@ fixed. `along_track` may have length 0.
 | `original_files` | (file) | — | optional |
 | `day_retrieval` | (along_track, cross_track) | — | optional |
 | native geolocation: `native_latitude`, `native_longitude`, `native_time`, `scan_position` | (native_along, native_cross) | — | optional |
-| viewing geometry: `satellite_latitude`, `satellite_longitude`, `satellite_altitude` (km), `view_zenith_angle`, `view_azimuth_angle` (degrees) | (along_track, cross_track) | — | optional, when the files hold them |
-
-Data variables are float32; coordinates float64.
+| viewing geometry: `satellite_latitude`, `satellite_longitude`, `satellite_altitude` (km), `view_zenith_angle`, `view_azimuth_angle` (degrees) | (along_track, cross_track) | — | optional; if not in the files, recorded in `availability` (§6.1) |
 
 **Dimensionality metadata** (dataset attributes): `spatial_dims =
 "along_track cross_track level"`, `grid_spacing_km = [dx_along, dx_cross,
@@ -109,71 +125,127 @@ dz]` (NaN where not regular; MATLAB's `Spacing`, reordered), `grid =
 | `characterisation` | `"AIRS-3D-Hoffmann/1"` | id and version of the instrument's characterisation package (CP) |
 | `data` | `"raw"` / `"planetary-wave-filtered"` | as limb |
 | `time_range` | ISO times | as expanded by `time_handling` |
+| `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
 | `files_read`, `files_not_found`, `multiple_matches` | | as limb |
-| `flag_counts` | `"outside_physical_range: 12; filled: 12"` | how many points carry each flag |
+| `state_counts` | `"temperature: outside_physical_range 12, missing 300"` | how many points of each variable are in each state |
 
-## 6. Quality flags
+## 6. Data states: absent, missing, bad, and qualified values
 
-One integer variable, `quality_flag`, with the same dimensions as the data,
-following the CF flag convention: attributes `flag_masks` (the bit values)
-and `flag_meanings` (their names, space-separated). Zero means no flag set.
+*Agreed:* "never existed", "missing" and "bad" are different, and Fuse and
+the Parameter Engine must be able to tell them apart, along with any other
+state that explains why a value is absent or what kind of value it is. They
+are recorded at two levels.
 
-The bits are defined once, in a registry (`data/flags.py`), shared by all
-loaders: name, bit, and description. A new flag is a new entry; nothing else
-changes, and old files remain readable because each file carries its own
-`flag_masks` and `flag_meanings`. A 32-bit integer gives 32 flags; 64-bit if
-ever needed.
+### 6.1 Whole variables: `availability`
 
-Initial registry (proposal):
+A variable defined by the format but not in the Dataset is listed in the
+dataset attribute `availability`, with one of:
 
-| Bit | Name | Meaning | Set by |
+| State | Meaning | Example |
+|---|---|---|
+| `not_measured` | the instrument cannot provide it | wind from AIRS |
+| `not_in_files` | it exists for this instrument, but not in the files read | AIRS satellite position (removed from the eepc-0184 copies) |
+| `not_requested` | not asked for in this call | `source_file` without `file_source` |
+| `not_provided` | the data supply no per-point value (the CP may describe it) | `temperature_uncertainty` |
+
+A helper, `data.availability(ds, name)`, returns `"present"` or the state, so
+users never have to parse the attribute.
+
+### 6.2 Individual points: `<variable>_flag`
+
+Each data variable has its own unsigned-integer state variable,
+`<variable>_flag`, with the same dimensions, linked by the CF
+`ancillary_variables` attribute and following the CF flag convention
+(`flag_masks`, `flag_meanings`). Per-variable flags are needed because states
+differ between variables at the same point (e.g. temperature measured,
+pressure derived). Zero means a plain, good value.
+
+The states are defined once, in a registry (`data/states.py`) shared by all
+loaders: name, bit, whether the value is NaN, and a description. A new state
+is a new entry; nothing else changes, and saved files stay readable because
+each carries its own `flag_masks` and `flag_meanings`. uint16 gives 16
+states, uint32 32 (the registry decides the type).
+
+Initial registry (proposal), in three groups:
+
+| Bit | State | Value | Meaning |
 |---|---|---|---|
-| 1 | `bad_geolocation` | latitude or longitude outside its range | both loaders (outliers) |
-| 2 | `outside_physical_range` | temperature < 100 K, or > 400 K below 100 km | both loaders |
-| 4 | `outside_height_scale` | height outside the requested height scale | limb |
-| 8 | `statistical_outlier` | outside 3 x IQR of its height level | IASI screen |
-| 16 | `filled` | value replaced by a neighbour or interpolation | IASI screen |
-| 32 | `extrapolated` | outside the source data's coverage | regridding, vertical interpolation |
-| 64 | `instrument_flag` | the instrument's own QC marks it bad | readers, where files have QC |
+| | **No value: never there** | | |
+| 1 | `no_observation` | NaN | no measurement at this point: outside the swath or profile, in a gap between segments, below the lowest or above the highest level |
+| 2 | `missing` | NaN | a measurement was expected but the file has none (fill value, missing scan) |
+| 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
+| | **No value: removed as bad** | | |
+| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range |
+| 16 | `outside_physical_range` | NaN | temperature < 100 K, or > 400 K below 100 km |
+| 32 | `statistical_outlier` | NaN | outside 3 x IQR of its height level (IASI screen) |
+| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad |
+| | **Value present, but qualified** | | |
+| 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
+| 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
+| 512 | `extrapolated` | value | outside the source data's coverage |
+| 1024 | `a_priori_dominated` | value | the retrieval has little information here (reserved: set from the CP's averaging kernels once available) |
+
+Several bits can be set together (e.g. `derived` and `extrapolated`). With
+`keep_outliers`, points in the "removed as bad" group keep their values,
+and their bits are still set.
 
 Instruments' own QC variables are passed through unchanged as their own
-variables (e.g. `airs_temperature_qc`), with a `comment` naming the bit they
-feed.
+variables (e.g. `airs_temperature_qc`), with a `comment` naming the state
+they feed.
 
-Unless `keep_outliers` is set, points with any of bits 1, 2, 4 or 8 are NaN,
-as now; the flag says why. `filled` points keep their (filled) value, as
-MATLAB.
+### 6.3 Where a variable comes from: `origin`
+
+Each data variable has an `origin` attribute: `measured`, `retrieved`,
+`derived` (with a `comment` saying how, e.g. "estimated from height with
+atmosphere.height_to_pressure (U.S. Standard Atmosphere 1976)"), or `mixed`
+when it differs between points, in which case the `derived` state marks the
+points. *Agreed:* pressure in particular must say whether it is real or
+created.
 
 ## 7. Uncertainty and provenance
 
-- **In the characterisation package (CP):** static uncertainty (noise,
-  biases, error correlations), spectral response, viewing geometry,
-  provenance and independence (e.g. 2-D and 3-D AIRS share L1 radiances).
-  The data link to it by the `characterisation` attribute.
+*Agreed:* these belong in the characterisation package (CP).
+
+- **In the CP:** static uncertainty (noise, biases, error correlations),
+  spectral response, viewing geometry, provenance and independence (e.g. 2-D
+  and 3-D AIRS share L1 radiances). The data link to it by the
+  `characterisation` attribute.
 - **In the data:** only per-point values supplied by the files, as
   `<variable>_uncertainty` with the same dimensions and units as
   `<variable>`, and a `comment` saying what kind (1-sigma random, total ...).
-  Absent when the files have none.
+  If the files have none, `availability` says `not_provided`.
 
 ## 8. Conversions
 
 - `to_profiles(swath) -> profile`: each (along_track, cross_track) point
   becomes a profile; `level` is kept; `time`, `latitude`, `longitude` are
-  repeated over levels; `granule`, `segment` and the swath indices are kept
-  as per-profile variables (`swath_along`, `swath_cross`, 1-based). Lets the
-  sampler, profile tools and Fuse treat swaths and profiles alike.
+  repeated over levels; flags, `granule`, `segment` and the swath indices are
+  kept as per-profile variables (`swath_along`, `swath_cross`, 1-based). Lets
+  the sampler, profile tools and Fuse treat swaths and profiles alike.
 - Others to be defined with the formats they connect.
 
 ## 9. Checking
 
 `data.validate(ds, format)` checks dimensions, required variables, types,
-units, value ranges of coordinates, required attributes and the flag
-attributes, and raises with a list of every problem. Every loader's tests run
-it on their outputs.
+units, value ranges of coordinates, required attributes, that every data
+variable has a flag variable, that every NaN has a "no value" state, and that
+every optional variable is either present or listed in `availability`. It
+raises with a list of every problem. Every loader's tests run it on their
+outputs.
 
 ## 10. Versioning
 
 Each format's `format_version` is raised on any incompatible change (a
 renamed or removed variable, changed units or dimensions). Adding optional
-variables or flag bits is compatible. Changes are listed in `CHANGELOG.md`.
+variables or states is compatible. Changes are listed in `CHANGELOG.md`.
+
+## 11. Saving to disk
+
+`data.to_netcdf(ds, path, pack=False)` writes the Dataset with zlib
+compression. With `pack=True`, temperatures are stored as int16 with
+`scale_factor` 0.01 K and an `add_offset` (resolution 0.01 K over a 655 K
+span; NaN stored as `_FillValue`), halving the size again. That is ten times
+finer than the best data (0.1 K), so it is safe for archives; float32 stays
+the default because packing is lossy and gains nothing in memory. State flags
+and coordinates are never packed.

@@ -40,7 +40,7 @@ What this asks of a loader, and how this design answers it:
 |---|---|
 | Common interfaces and data structures ("very high" priority) | Formats specified and checked: `data_formats.md`, `data.validate` |
 | Consistent treatment across instruments; extensible to new ones | One core shared with the limb loader; per-instrument readers behind a fixed contract (§5) |
-| Fully incorporates instrument QC | Extensible `quality_flag` bitmask; instruments' own flags passed through |
+| Fully incorporates instrument QC | Extensible per-variable state flags (`<variable>_flag`), shared registry of states; instruments' own flags passed through |
 | Uncertainties: interfaces now, implementation later | `<variable>_uncertainty` naming; static uncertainty in the CP, linked by attribute |
 | Provenance / independence for Fuse (e.g. 2-D and 3-D AIRS share radiances) | In the CP, linked by attribute |
 | Sampler and CPs need sampling and viewing geometry | Native geolocation kept on request; slots for satellite geometry (§8) |
@@ -59,6 +59,10 @@ What this asks of a loader, and how this design answers it:
 | 7 | Shared helpers | Moved out of `obs/_limb_tools.py` into `obs/_common.py`, limb outputs bit-identical (*agreed*) |
 | 8 | Selecting data | By `time_range` and `time_handling`, as limb; `granules=` as an option (*agreed*) |
 | 9 | Formats | Written down and checked (`data_formats.md`) (*agreed*) |
+| 10 | Bad points | NaN in every reader, never refilled by the loader; gaps are filled, if wanted, by a separate function before spectral analysis (*agreed*) |
+| 11 | Absent quantities | "Never available" (e.g. geometry not in the files) is recorded separately from "missing here" and "bad" (*agreed*; `data_formats.md` §6) |
+| 12 | Smoothing | Our own boxcar implementation, not a port of `smoothn` (*agreed*) |
+| 13 | Leap seconds | Ignored: well below wave timescales (*agreed*) |
 
 ## 4. Architecture
 
@@ -175,7 +179,7 @@ defaults (`time_handling`, `lat_range`, `lon_range`, `original_z`,
 | `original_z`, `height_scale`, `height_range` | Vertical grid; default: regular 3 km grid centred on the middle native level, as MATLAB | `VerticallyInterpolate`, `VerticalSpacing` |
 | `interp_type`, `extrapolate` | Horizontal and vertical interpolation | `Interpolant`, `Extrapolant` |
 | `keep_outliers` | Do not set flagged points to NaN (flags are always returned) | — |
-| `day_night` | Add `day_retrieval` (solar zenith angle < 96 deg; UNVERIFIED threshold) | `DayNightFlag` |
+| `day_night` | Add `day_retrieval` (solar zenith angle < 96 deg, the angle at which L. Hoffmann's retrieval switches between its day and night set-ups, per C. Wright) | `DayNightFlag` |
 | `keep_native_geolocation` | Also return native latitude, longitude and time before regridding (for the sampler and CPs) | `KeepOldTime` (time only) |
 | `additional_vars` | Extra file variables | — |
 | `file_source` | Also return `source_file`, `source_row` per row and `original_files` | `Source` |
@@ -215,9 +219,13 @@ contiguous.
   Method 2; Method 1 gives the same result). Works for any dimension, so the
   same function serves 1-D, 2-D and 3-D data.
 - `analysis.smooth.boxcar(ds, var, size={...})`: N-D boxcar with edge
-  replication. Port of `smoothn` (A. Gannepalli, File Exchange 725: check its
-  licence before porting; otherwise reimplement from its documented
-  behaviour).
+  replication, our own implementation (the MATLAB uses `smoothn`, File
+  Exchange 725, which is not ported). Its output is compared with MATLAB's
+  `PreSmooth` results as a check.
+- `analysis.fill.fill_missing(ds, var, dims=..., method="linear")`: fills NaN
+  points from their neighbours, for spectral methods that cannot take gaps,
+  and sets the `filled` state on every point it fills (`data_formats.md` §6).
+  The loader never calls it: filling is a visible, separate step.
 
 ## 8. Geometry hooks
 
@@ -225,9 +233,12 @@ The swath format has optional variables for viewing geometry
 (`satellite_latitude`, `satellite_longitude`, `satellite_altitude`,
 `view_zenith_angle`, `view_azimuth_angle`, `scan_position`), each
 `[cross, along]`. Readers fill those the files hold; the regridding
-interpolates them like latitude and longitude; absent variables are simply not
-in the output. The AIRS files on eepc-0184 had `l1_sat_*` removed to save
-space; re-fetching the raw files will let the AIRS reader fill them.
+interpolates them like latitude and longitude. A variable the files do not
+hold is not in the output, and the dataset's `availability` attribute says
+why (`not_in_files` here), so it can never be mistaken for a bad or missing
+value (`data_formats.md` §6). The AIRS files on eepc-0184 had `l1_sat_*`
+removed to save space; re-fetching the raw files will let the AIRS reader
+fill them.
 `scan_position` (the native cross-track index) is always available and is
 returned with `keep_native_geolocation`.
 
@@ -238,10 +249,14 @@ As MATLAB, so the step-by-step core can be compared with it:
 1. check options; expand the time range; find granules;
 2. read (reader): AIRS daily or granule files; IASI orbit files overlapping
    each pseudo-granule; time from seconds since 2000-01-01 (leap seconds
-   ignored, as MATLAB: UNVERIFIED whether the files count them);
+   ignored, as MATLAB: agreed, well below wave timescales); file fill values
+   become NaN with the `missing` state;
 3. IASI screen (per height, 3 x IQR) and the 100-400 K range check, setting
-   flags; IASI points so flagged are refilled from the nearest along-track
-   value, as MATLAB, and flagged `filled`;
+   their states; flagged points become NaN. (MATLAB refills IASI points from
+   the nearest along-track value; Python does not, by design. The MATLAB
+   comparison is therefore made on the screened values before MATLAB's
+   refill, and separately on `fill_missing` output with
+   `method="nearest"` along track.)
 4. missing heights: the AIRS fallback height grid, as MATLAB (flagged in a
    variable note);
 5. split into segments; regrid each horizontally (distance space, dateline
@@ -284,16 +299,16 @@ own branches, so it can run alongside the limb-loader work.
 
 ## 12. Open items
 
-- 96 deg solar-zenith threshold for the AIRS day/night retrieval: source not
-  found (the C excerpt in `which_airs_retrieval.m` computes only the angle).
-  UNVERIFIED.
-- Leap seconds in the files' "seconds since 2000-01-01". UNVERIFIED.
 - Start dates of AIRS and IASI data, for the registry. UNVERIFIED.
-- `smoothn` licence (File Exchange) before porting it.
-- Whether IASI points flagged by the screen should still be refilled by
-  nearest neighbour (MATLAB) or left NaN; kept as MATLAB for now, with a flag.
-- Applying the format spec to `load_limb_sounders` output (mostly attributes;
-  values unchanged): a separate change.
+- **AIRS daily files are rounded to whole kelvin.** `merge_airs_into_daily.sh`
+  stores `ret_temp` with `short()` and no scale factor. Checked on one
+  profile (2025-10-08, granule 93): granule file 279.215, 267.145, 248.637 K;
+  daily file 279, 267, 249 K (rounded to nearest, so unbiased, but with
+  about 0.29 K rms quantisation noise). The original granule files keep full
+  precision. To be decided by C. Wright; the loader reads either.
+- Applying the format spec to `load_limb_sounders` output (attributes, state
+  flags and `availability`; values unchanged): a separate change, after the
+  limb work in progress is merged.
 
 ## 13. MATLAB -> Python names
 
