@@ -21,15 +21,14 @@ import numpy as np
 
 from atmosgw.curate.geodesy import azimuth, km2deg, reckon
 from atmosgw.curate.matlab_time import datenum
-from atmosgw.curate.obs._limb_tools import (
+from atmosgw.curate.obs._common import (
     choose_file,
-    conform_vars,
     day_label,
-    loop_days,
     note,
     note_sources,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
 from atmosgw.curate.readers import find_files, read_hdf5
 
 _SWATH = "HDFEOS/SWATHS/HIRDLS"

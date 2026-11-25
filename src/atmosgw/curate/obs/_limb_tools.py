@@ -1,20 +1,22 @@
 """
 Internal helpers for the limb-sounder loader (``load_limb_sounders``).
 
-- ``expand_time_range``: the MATLAB ``TimeHandling`` rules, on datenums.
 - ``conform_vars``: put user-requested extra variables on the [profiles x
   levels] grid (port of ``module_conform_vars.m``).
 - ``loop_days``: the day loop shared by readers with one file per day.
-- ``year_and_day``: calendar year and day of year of a datenum.
-- ``choose_file``, ``newest_mls_version``: pick one file from those matching
-  a day, and record when there was more than one (new, not in the MATLAB).
-- ``record``, ``note_sources``, ``note``: what a load read, did not find, and
-  how each variable was obtained, for the output attributes (new).
+- ``newest_mls_version``: of several MLS files for a day, the newest version
+  (new, not in the MATLAB).
+- ``ESTIMATED_PRES``: the note recorded for pressure computed from height.
+
+Helpers shared with the nadir loader (time rules, the load record, file
+choice) are in ``obs/_common.py``.
 
 Ported from the MATLAB ``get_limbsounders`` and its modules
 (uobGravWaves/MultiInstrumentFunctions, commit 78eef78), the group's own code.
 Data dicts use the MATLAB variable names (``Lat``, ``Temp`` ...) and datenum
 times; see ``limb.py``.
+
+Change log: 2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
 """
 
 import math
@@ -25,51 +27,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from atmosgw.curate.matlab_time import datenum_to_datetime
+from atmosgw.curate.obs._common import day_label, record
 from atmosgw.curate.profiles import concat_profiles
-
-TIME_HANDLING = ("strict", "generous", "fuzzy")
-
-
-def expand_time_range(time_range, mode):
-    """
-    Apply the TimeHandling rules to one or two datenums.
-
-    Returns ([start, end] as a float64 array, scalar_given). Modes, as in the
-    MATLAB header (1, 2, 3 there):
-
-    - "strict": exactly as given; one value t means the instant [t, t];
-    - "generous": from the start of the first day to the end of the last day
-      touched; an end exactly at midnight includes that whole day;
-    - "fuzzy" (default): one non-integer value means its whole day; an end
-      exactly at midnight is moved to just before the next midnight.
-
-    "Just before" is 1e-8 day (about 1 ms) before midnight, as in MATLAB.
-    """
-    if mode not in TIME_HANDLING:
-        raise ValueError(f"time_handling must be one of {TIME_HANDLING}, not {mode!r}.")
-    tr = np.atleast_1d(np.asarray(time_range, dtype=float)).ravel()
-    if tr.size > 2:
-        raise ValueError(
-            "time_range must be either one value (a day of interest) or two values "
-            "(a time range)."
-        )
-    scalar = tr.size == 1
-    if scalar:
-        tr = np.array([tr[0], tr[0]])
-    tr = np.sort(tr, kind="stable")
-    if mode == "generous":
-        tr[0] = math.floor(tr[0])
-        if tr[1] % 1 == 0:
-            tr[1] = tr[1] + 1 - 1e-8
-        else:
-            tr[1] = math.ceil(tr[1]) - 1e-8
-    elif mode == "fuzzy":
-        if scalar and tr[1] % 1 != 0:
-            tr = np.array([math.floor(tr[0]), math.floor(tr[0]) + 1 - 1e-8])
-        elif tr[1] % 1 == 0:
-            tr[1] = tr[1] + 1 - 1e-8
-    return tr, scalar
 
 
 def conform_vars(store, settings):
@@ -159,68 +118,6 @@ def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
         file_list.append(os.path.basename(path))
         days.append(read_file(path, len(file_list), day))
     return concat_profiles(days, var_names, consume=True), file_list
-
-
-def year_and_day(day_number):
-    """Calendar year and day of year (1-based) of an integer datenum."""
-    t = datenum_to_datetime(day_number)
-    year = int(t.astype("datetime64[Y]").astype(int)) + 1970
-    day = int((t.astype("datetime64[D]") - t.astype("datetime64[Y]")).astype(int)) + 1
-    return year, day
-
-
-def day_label(day_number):
-    """ISO date (yyyy-mm-dd) of a datenum."""
-    return str(datenum_to_datetime(math.floor(day_number)))[:10]
-
-
-def record(inst_info):
-    """
-    The record of a load, kept in inst_info["record"] (created if absent):
-
-    - ``files_not_found``: what was looked for and not found (dates for daily
-      files, e.g. "2007-01-03"; month folders/files such as "January2007" for
-      SABER; years for ALOMAR);
-    - ``multiple_matches``: one line for each day with more than one matching
-      file, naming them and the one used;
-    - ``source_variables``: MATLAB name -> where it comes from in the file;
-    - ``notes``: MATLAB name -> how it was obtained, where that is more than
-      reading it (e.g. pressure estimated from height).
-    """
-    return inst_info.setdefault("record", {"files_not_found": [],
-                                           "multiple_matches": [],
-                                           "source_variables": {}, "notes": {}})
-
-
-def note_sources(inst_info, sources):
-    """Record where variables come from in the files (MATLAB name -> text)."""
-    record(inst_info)["source_variables"].update(sources)
-
-
-def note(inst_info, name, text):
-    """Record how a variable was obtained (the first note for it is kept)."""
-    record(inst_info)["notes"].setdefault(name, text)
-
-
-def choose_file(found, inst_info, label, prefer=None):
-    """
-    One path from those found for a day (``readers.find_files`` output).
-
-    Without ``prefer``: the first, as the MATLAB loaders do. With it:
-    ``prefer(files)`` picks one of the files found (folders excluded). Either
-    way, if more than one file matched, a line naming them and the one used
-    is added to ``record(inst_info)["multiple_matches"]``. Returns the path,
-    or None if nothing was found.
-    """
-    if not found:
-        return None
-    files = [path for path in found if os.path.isfile(path)]
-    chosen = prefer(files) if prefer is not None and files else found[0]
-    if len(files) > 1:
-        names = ", ".join(os.path.basename(path) for path in files)
-        record(inst_info)["multiple_matches"].append(
-            f"{label}: {names} -> used {os.path.basename(chosen)}")
-    return chosen
 
 
 _MLS_VERSION = re.compile(r"_v(\d+)-(\d+)-c(\d+)_", re.IGNORECASE)

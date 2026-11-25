@@ -39,7 +39,7 @@ import os
 
 import numpy as np
 
-from atmosgw.curate.obs._limb_tools import (
+from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,

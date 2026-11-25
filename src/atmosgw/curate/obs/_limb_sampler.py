@@ -14,7 +14,8 @@ import os
 
 import numpy as np
 
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, note_sources
+from atmosgw.curate.obs._common import note_sources
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
 from atmosgw.curate.readers import read_mat
 
 

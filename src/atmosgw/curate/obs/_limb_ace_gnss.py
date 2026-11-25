@@ -20,16 +20,14 @@ import os
 import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
-from atmosgw.curate.obs._limb_tools import (
-    ESTIMATED_PRES,
+from atmosgw.curate.obs._common import (
     choose_file,
-    conform_vars,
     day_label,
-    loop_days,
     note,
     note_sources,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES, conform_vars, loop_days
 from atmosgw.curate.readers import find_files, read_mat
 
 

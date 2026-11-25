@@ -45,7 +45,7 @@ import warnings
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum_to_datetime, datetime_to_datenum
-from atmosgw.curate.obs._limb_tools import (
+from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,

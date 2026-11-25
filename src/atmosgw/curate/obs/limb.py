@@ -207,6 +207,7 @@ Change log
 2026/11/25 [Claude] verbose: a progress line for each variable interpolated
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
+2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
@@ -219,23 +220,15 @@ How to cite
 Cite the package (see ``CITATION.cff``).
 """
 
-import json
-import re
 import warnings
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-from atmosgw.curate import __version__
 from atmosgw.curate.geodesy import haversine
 from atmosgw.curate.matlab_compat import unwrap, wrap_to_pi
-from atmosgw.curate.matlab_time import (
-    datenum,
-    datenum_to_datetime,
-    datetime_to_datenum,
-    make_datetime,
-)
+from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import (
     _limb_ace_gnss,
     _limb_alomar,
@@ -247,7 +240,19 @@ from atmosgw.curate.obs import (
     _limb_sampler,
     _limb_sofie,
 )
-from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range, record
+from atmosgw.curate.obs._common import (
+    COORD_ATTRS,
+    check_additional_vars,
+    check_flags,
+    check_time_handling,
+    expand_time_range,
+    find_instrument,
+    load_attrs,
+    outside_physical_range,
+    record,
+    to_datenums,
+    warn_if_no_data,
+)
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import (
     clip_to_height_range,
@@ -293,15 +298,13 @@ OUTPUT_NAMES = {
 }
 
 _ATTRS = {
-    "latitude": {"units": "degrees_north", "standard_name": "latitude"},
-    "longitude": {"units": "degrees_east", "standard_name": "longitude"},
-    "time": {"standard_name": "time"},
+    **{k: COORD_ATTRS[k] for k in ("latitude", "longitude", "time")},
     "temperature": {"units": "K", "standard_name": "air_temperature"},
     "temperature_residual": {"units": "K",
                              "long_name": "temperature minus planetary waves"},
     "temperature_pw": {"units": "K", "long_name": "planetary-wave temperature"},
     "pressure": {"units": "hPa", "standard_name": "air_pressure"},
-    "altitude": {"units": "km", "standard_name": "altitude"},
+    "altitude": COORD_ATTRS["altitude"],
     "source_profile": {"long_name": "profile number in the source file (1-based)"},
     "source_file": {"long_name": "index into original_files (1-based)"},
     "dx": {"units": "km",
@@ -513,25 +516,16 @@ def _load_limb_arrays(time_range, instrument, **options):
 
 def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
-    for flag in ("original_z", "keep_outliers", "verbose", "date_warning",
-                 "hindley_pws", "ignore_non_modal", "file_source", "dx",
-                 "extrapolate"):
-        if not isinstance(options[flag], (bool, np.bool_)):
-            raise TypeError(f"{flag} must be True or False.")
-    if options["time_handling"] not in TIME_HANDLING:
-        raise ValueError(f"time_handling must be one of {TIME_HANDLING}.")
+    check_flags(options, ("original_z", "keep_outliers", "verbose", "date_warning",
+                          "hindley_pws", "ignore_non_modal", "file_source", "dx",
+                          "extrapolate"))
+    check_time_handling(options)
+    check_additional_vars(options)
     additional = options["additional_vars"]
-    if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
-        raise TypeError("additional_vars must be a list of variable names.")
 
     # instrument: exact name, any case
-    names = {name.lower(): name for name in INSTRUMENTS}
-    if not isinstance(instrument, str) or instrument.lower() not in names:
-        raise ValueError(
-            f"Unknown instrument {instrument!r}. Choose from: "
-            f"{', '.join(INSTRUMENTS)} (AIRS and IASI are not ported)."
-        )
-    name = names[instrument.lower()]
+    name = find_instrument(instrument, INSTRUMENTS,
+                           " (AIRS and IASI are not ported)")
     info = INSTRUMENTS[name]
 
     # heights
@@ -554,15 +548,11 @@ def _prepare(time_range, instrument, options):
         raise ValueError("lon_range must be within [-180, 180].")
 
     # times: datenums inside, so the MATLAB time rules apply exactly
-    raw = _to_datenums(time_range)
+    raw = to_datenums(time_range)
     if np.any(raw < datenum(1979, 1, 1)):
         raise ValueError("time_range must be in the satellite era (1979 or later).")
-    if options["date_warning"] and (raw.min() > info["time_range"][1]
-                                    or raw.max() < info["time_range"][0]):
-        first, last = (str(datenum_to_datetime(t, "ms"))[:10]
-                       for t in info["time_range"])
-        warnings.warn(f"Data for {name} is only available from {first} to {last}",
-                      stacklevel=3)
+    if options["date_warning"]:
+        warn_if_no_data(raw, name, info["time_range"], stacklevel=3)
     expanded, scalar = expand_time_range(raw, options["time_handling"])
 
     settings = dict(options, instrument=name, instrument_name=name,
@@ -597,41 +587,6 @@ def _prepare(time_range, instrument, options):
     return settings, inst_info, reader
 
 
-def _to_datenums(time_range):
-    """Times as MATLAB datenums (float64 array of 1 or 2 values)."""
-    values = np.atleast_1d(np.asarray(time_range, dtype=object)).ravel()
-    if any(isinstance(v, (int, float, np.number)) and not isinstance(v, bool)
-           for v in values):
-        raise TypeError(
-            "time_range must be dates or times (datetime64, ISO strings or "
-            "datetime), not numbers. Convert MATLAB datenums with "
-            "atmosgw.curate.matlab_time.datenum_to_datetime."
-        )
-    times = np.array([_to_datetime64(v) for v in values])
-    return np.atleast_1d(datetime_to_datenum(times))
-
-
-def _to_datetime64(value):
-    """One time as datetime64[us]; a clear error for strings that are not real
-    dates, e.g. MATLAB-style carry-over such as '2022-01-34'."""
-    try:
-        return np.datetime64(value, "us")
-    except ValueError as error:
-        message = f"time_range value {value!r} is not a valid date or time ({error})."
-        parts = re.fullmatch(r"\s*(\d{4})-(\d{1,2})-(\d{1,3})\s*", str(value))
-        if parts:
-            year, month, day = (int(p) for p in parts.groups())
-            if month >= 1 and day >= 1:
-                meant = str(make_datetime(year, month, day))[:10]
-                message += (
-                    f" Days or months beyond the end of the month do not carry "
-                    f"over as in MATLAB's datenum: for that, use {meant!r}, or "
-                    f"atmosgw.curate.matlab_time.make_datetime({year}, {month}, "
-                    f"{day})."
-                )
-        raise ValueError(message) from error
-
-
 def _nanmean_rows(x):
     """Mean of each row ignoring NaN (NaN for rows with no finite values)."""
     x = np.asarray(x, dtype=float)
@@ -662,9 +617,7 @@ def _find_outliers(data, settings):
             scale = settings["height_scale"]
             bad |= (alt < scale.min()) | (alt > scale.max())
         if "Temp" in data:
-            temp = np.asarray(data["Temp"])
-            bad |= temp < 100
-            bad |= (temp > 400) & (alt < 100)
+            bad |= outside_physical_range(data["Temp"], alt)
     return bad
 
 
@@ -682,27 +635,6 @@ def _variable_attrs(name, out, settings):
         attrs["comment"] = "the height scale; the data were interpolated to it" + (
             f" from the file's heights ({origin})" if origin else "")
     return attrs
-
-
-def _options_json(call):
-    """The arguments of a load_limb_sounders call as a JSON string (arrays as
-    lists, non-finite numbers and other objects as text)."""
-    def plain(value):
-        if isinstance(value, dict):
-            return {k: plain(v) for k, v in value.items()}
-        if isinstance(value, (list, tuple, np.ndarray)):
-            return [plain(v) for v in np.asarray(value, dtype=object).ravel()]
-        if isinstance(value, (bool, np.bool_)):
-            return bool(value)
-        if isinstance(value, (int, np.integer)):
-            return int(value)
-        if isinstance(value, (float, np.floating)):
-            return float(value) if np.isfinite(value) else str(value)
-        if value is None or isinstance(value, str):
-            return value
-        return str(value)
-
-    return json.dumps(plain(call))
 
 
 def _to_dataset(data, settings, call=None):
@@ -731,19 +663,11 @@ def _to_dataset(data, settings, call=None):
         else:
             dims = [f"{out}_dim{d}" for d in range(value.ndim)]
         variables[out] = (dims, value, _variable_attrs(name, out, settings))
-    first, last = (str(datenum_to_datetime(t, "ms"))
-                   for t in settings["time_range"])
     attrs = {
         "instrument": settings["instrument_name"],
         "data": "planetary-wave-filtered" if settings["hindley_pws"] else "raw",
         "heights": "original" if settings["original_z"] else "interpolated",
-        "time_range": f"{first} to {last}",
-        "source": "atmosgw.curate.obs.load_limb_sounders",
-        "atmosgw_curate_version": __version__,
-        "options": _options_json(call) if call is not None else "",
-        "files_read": ", ".join(settings["files_read"]),
-        "files_not_found": ", ".join(settings["record"]["files_not_found"]),
-        "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
+        **load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders"),
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 

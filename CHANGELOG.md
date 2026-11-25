@@ -5,6 +5,9 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Shared loader helpers (time rules, load record, file choice, option checks,
+  range check, load attributes) moved into `obs/_common.py` and used by both
+  `load_limb_sounders` and `load_nadir_sounders`; outputs unchanged. [Claude]
 - Faster nadir regridding: `swath.regrid` finds cells and weights once per axis
   and applies them to every field, level and flag (in blocks), replacing
   scipy's interpolator; vertical interpolation onto shared heights is one

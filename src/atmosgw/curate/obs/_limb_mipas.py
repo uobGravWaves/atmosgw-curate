@@ -13,14 +13,8 @@ the file's day) are per profile.
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum_to_datetime
-from atmosgw.curate.obs._limb_tools import (
-    choose_file,
-    conform_vars,
-    day_label,
-    loop_days,
-    note,
-    note_sources,
-)
+from atmosgw.curate.obs._common import choose_file, day_label, note, note_sources
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
 from atmosgw.curate.readers import find_files, read_netcdf
 
 # output names -> MIPAS variable names

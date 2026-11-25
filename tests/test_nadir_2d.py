@@ -14,7 +14,7 @@ import pytest
 from atmosgw.curate.data import states, validate
 from atmosgw.curate.geodesy import km2deg, reckon
 from atmosgw.curate.obs import nadir
-from atmosgw.curate.obs._limb_tools import record
+from atmosgw.curate.obs._common import record
 
 DAY = 733043.0  # 2007-01-01
 

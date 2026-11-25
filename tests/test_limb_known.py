@@ -568,7 +568,7 @@ def test_newest_mls_version():
 
 
 def test_choose_file_records_several_files_not_folders(tmp_path):
-    from atmosgw.curate.obs._limb_tools import choose_file
+    from atmosgw.curate.obs._common import choose_file
 
     (tmp_path / "x_2007d001").mkdir()
     for name in ("a_2007d001.mat", "b_2007d001.mat"):

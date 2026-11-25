@@ -146,6 +146,7 @@ Change log
 2026/11/25 [Claude] initial version (AIRS 3-D)
 2026/11/25 [Claude] IASI 3-D: orbit files, pseudo-granules, outlier screen (no refill)
 2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
+2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 
 How to cite
 -----------
@@ -157,18 +158,25 @@ import warnings
 import numpy as np
 import xarray as xr
 
-from atmosgw.curate import __version__, swath
+from atmosgw.curate import swath
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import _nadir_airs, _nadir_airs2d, _nadir_iasi, _screen
-from atmosgw.curate.obs._limb_tools import (
-    TIME_HANDLING,
+from atmosgw.curate.obs._common import (
+    COORD_ATTRS,
+    check_additional_vars,
+    check_flags,
+    check_time_handling,
     day_label,
     expand_time_range,
+    find_instrument,
+    load_attrs,
+    outside_physical_range,
     record,
+    to_datenums,
+    warn_if_no_data,
 )
-from atmosgw.curate.obs.limb import _options_json, _to_datenums
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.solar import day_retrieval
 
@@ -290,7 +298,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
         states.set_state(flags, screen(temp, np.asarray(data["Time"], float), lat, lon,
                                        **screen_settings), "statistical_outlier")
     with np.errstate(invalid="ignore"):
-        states.set_state(flags, (temp < 100) | (temp > 400), "outside_physical_range")
+        states.set_state(flags, outside_physical_range(temp), "outside_physical_range")
     if not settings["keep_outliers"]:
         temp[states.no_value_mask(flags)] = np.nan
     data["Temp"] = temp
@@ -380,18 +388,11 @@ def _load_nadir_arrays(time_range, instrument, **options):
 
 def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, info)."""
-    for flag in ("original_grid", "original_z", "extrapolate", "keep_outliers",
-                 "day_night", "keep_native_geolocation", "file_source",
-                 "date_warning", "verbose"):
-        if not isinstance(options[flag], (bool, np.bool_)):
-            raise TypeError(f"{flag} must be True or False.")
-    if options["time_handling"] not in TIME_HANDLING:
-        raise ValueError(f"time_handling must be one of {TIME_HANDLING}.")
-    names = {name.lower(): name for name in INSTRUMENTS}
-    if not isinstance(instrument, str) or instrument.lower() not in names:
-        raise ValueError(f"Unknown instrument {instrument!r}. Choose from: "
-                         f"{', '.join(INSTRUMENTS)}.")
-    name = names[instrument.lower()]
+    check_flags(options, ("original_grid", "original_z", "extrapolate",
+                          "keep_outliers", "day_night", "keep_native_geolocation",
+                          "file_source", "date_warning", "verbose"))
+    check_time_handling(options)
+    name = find_instrument(instrument, INSTRUMENTS)
     info = INSTRUMENTS[name]
     product = str(options["product"]).lower()
     if product not in info["products"]:
@@ -404,24 +405,19 @@ def _prepare(time_range, instrument, options):
     if channels is not None and (isinstance(channels, str)
                                  or not all(isinstance(c, str) for c in channels)):
         raise TypeError("channels must be a list of channel names.")
+    check_additional_vars(options)
     additional = options["additional_vars"]
-    if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
-        raise TypeError("additional_vars must be a list of variable names.")
 
     granules = options["granules"]
     if granules is not None:
-        granules = [(int(np.floor(_to_datenums(d)[0])), int(g)) for d, g in granules]
+        granules = [(int(np.floor(to_datenums(d)[0])), int(g)) for d, g in granules]
         expanded, scalar = None, False
     else:
         if time_range is None:
             raise ValueError("Give time_range, or granules.")
-        raw = _to_datenums(time_range)
-        if options["date_warning"] and (raw.min() > info["time_range"][1]
-                                        or raw.max() < info["time_range"][0]):
-            first, last = (str(datenum_to_datetime(t, "ms"))[:10]
-                           for t in info["time_range"])
-            warnings.warn(f"Data for {name} is only available from {first} to "
-                          f"{last}", stacklevel=3)
+        raw = to_datenums(time_range)
+        if options["date_warning"]:
+            warn_if_no_data(raw, name, info["time_range"], stacklevel=3)
         expanded, scalar = expand_time_range(raw, options["time_handling"])
 
     height_scale = options["height_scale"]
@@ -566,10 +562,7 @@ def _along_track_names(data):
 
 
 _ATTRS = {
-    "latitude": {"units": "degrees_north", "standard_name": "latitude"},
-    "longitude": {"units": "degrees_east", "standard_name": "longitude"},
-    "time": {"standard_name": "time"},
-    "altitude": {"units": "km", "standard_name": "altitude"},
+    **COORD_ATTRS,
     "temperature": {"units": "K", "standard_name": "air_temperature",
                     "origin": "retrieved", "ancillary_variables": "temperature_flag",
                     "source_variable": "ret_temp"},
@@ -696,19 +689,14 @@ def _to_dataset(data, settings, call=None):
     for out in derived_outputs:
         availability[f"{out}_uncertainty"] = "not_provided"
     counts = states.state_counts(flags)
-    first, last = (str(datenum_to_datetime(x, "ms")) for x in settings["time_range"])
+    common = load_attrs(settings, call, "atmosgw.curate.obs.load_nadir_sounders")
     ds.attrs = {
         "format": "swath", "format_version": FORMATS["swath"]["version"],
         "instrument": settings["instrument"], "product": settings["product"],
         "characterisation": info["characterisation"][settings["product"]],
-        "data": "raw", "time_range": f"{first} to {last}",
+        "data": "raw", "time_range": common.pop("time_range"),
         "availability": states.format_availability(availability),
-        "source": "atmosgw.curate.obs.load_nadir_sounders",
-        "atmosgw_curate_version": __version__,
-        "options": _options_json(call) if call is not None else "",
-        "files_read": ", ".join(settings["files_read"]),
-        "files_not_found": ", ".join(settings["record"]["files_not_found"]),
-        "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
+        **common,
         "state_counts": f"{main}: " + (", ".join(f"{k} {n}"
                                                       for k, n in counts.items())
                                             or "none"),

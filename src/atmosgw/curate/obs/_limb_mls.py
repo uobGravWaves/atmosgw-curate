@@ -32,16 +32,14 @@ import numpy as np
 
 from atmosgw.curate.atmosphere import pressure_to_height
 from atmosgw.curate.matlab_time import datenum
-from atmosgw.curate.obs._limb_tools import (
+from atmosgw.curate.obs._common import (
     choose_file,
-    conform_vars,
     day_label,
-    loop_days,
-    newest_mls_version,
     note,
     note_sources,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, newest_mls_version
 from atmosgw.curate.readers import find_files
 
 _SWATH = "Temperature"
