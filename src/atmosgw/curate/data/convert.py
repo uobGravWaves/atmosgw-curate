@@ -159,11 +159,6 @@ def to_profiles(ds):
         availability["source_profile"] = "not_provided"
     availability.update({"temperature_uncertainty": "not_provided",
                          "pressure_uncertainty": "not_provided"})
-    counts = []
-    for name in ("temperature", "pressure"):
-        c = states.state_counts(result[f"{name}_flag"].values)
-        counts.append(f"{name}: " + (", ".join(f"{k} {n}" for k, n in c.items())
-                                     or "none"))
     result.attrs = dict(ds.attrs)
     for name in ("spatial_dims", "grid_spacing_km", "grid"):
         result.attrs.pop(name, None)
@@ -171,6 +166,7 @@ def to_profiles(ds):
         "format": "profile", "format_version": FORMATS["profile"]["version"],
         "converted_from": "swath",
         "availability": states.format_availability(availability),
-        "state_counts": "; ".join(counts),
+        "state_counts": states.counts_text(
+            {n: result[f"{n}_flag"].values for n in ("temperature", "pressure")}),
     })
     return result

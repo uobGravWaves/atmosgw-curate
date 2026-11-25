@@ -95,7 +95,8 @@ ORIGINS = ("measured", "retrieved", "derived", "mixed")
 
 COMMON_ATTRS = (
     "format", "format_version", "instrument", "product", "characterisation",
-    "data", "time_range", "availability", "source", "atmosgw_curate_version",
+    "data", "preprocessing", "heights", "time_range", "availability", "source",
+    "atmosgw_curate_version",
     "options", "files_read", "files_not_found", "multiple_matches",
     "state_counts",
 )

@@ -134,7 +134,9 @@ dz]` (NaN where not regular; MATLAB's `Spacing`, reordered), `grid =
 | `instrument` | `"AIRS"` | |
 | `product` | `"3d"` | |
 | `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
-| `data` | `"raw"` / `"planetary-wave-filtered"` | as limb |
+| `data` | `"raw"` / `"preprocessed"` / `"planetary-wave-filtered"` | "preprocessed" when the files were altered before loading (values interpolated, rounded ...) |
+| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed |
+| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products) |
 | `time_range` | ISO times | as expanded by `time_handling` |
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
@@ -183,7 +185,7 @@ Initial registry (proposal), in three groups:
 | Bit | State | Value | Meaning |
 |---|---|---|---|
 | | **No value: never there** | | |
-| 1 | `no_observation` | NaN | no measurement at this point: outside the swath or profile, in a gap between segments, below the lowest or above the highest level |
+| 1 | `no_observation` | NaN | nothing measured here: outside the swath, above or below a profile's measured values, padding between profiles, a gap between segments |
 | 2 | `missing` | NaN | a measurement was expected but the file has none (fill value, missing scan) |
 | 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
 | | **No value: removed as bad** | | |
@@ -205,7 +207,33 @@ Instruments' own QC variables are passed through unchanged as their own
 variables (e.g. `airs_temperature_qc`), with a `comment` naming the state
 they feed.
 
-### 6.3 Where a variable comes from: `origin`
+### 6.3 Shared rules (both formats)
+
+Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
+`tests/test_states_conformance.py`):
+
+- **`no_observation` vs `missing`.** A NaN inside what was measured is
+  `missing`: in a profile, between its first and last value of that variable
+  (a fill value, a gap); in a swath, a fill value at a scanned point. A NaN
+  outside it is `no_observation`: above or below a profile's values, padding
+  between profiles of different lengths, outside the swath, between segments.
+- **Removed points.** A point removed as bad is removed in every data
+  variable at that point, each carrying the reason (the limb loader follows
+  MATLAB here; nadir derived variables take the main variable's states).
+- **Qualified states** (`derived`, `extrapolated`, `filled`) are set only on
+  values that exist.
+- **`bad_geolocation`.** Nadir: latitude or longitude NaN or out of range.
+  Limb: out of range only, as MATLAB, because some files have values at
+  levels without a position (the GNSS files, pre-interpolated by C. Wright,
+  lack positions at some levels; their values are kept, and the dataset says
+  `data` "preprocessed").
+- **Not raw data.** Files altered before loading give `data` "preprocessed"
+  and a `preprocessing` text (GNSS; AIRS 3-D daily files).
+- **Conversions keep provenance.** `to_profiles` carries `source_file` and
+  `original_files`, and keeps the swath's `availability` reason for any
+  variable it lists.
+
+### 6.4 Where a variable comes from: `origin`
 
 Each data variable has an `origin` attribute: `measured`, `retrieved`,
 `derived` (with a `comment` saying how, e.g. "estimated from height with
@@ -237,6 +265,10 @@ created.
   Pressure, which the profile format requires and nadir retrievals here do
   not provide, is estimated from altitude (U.S. Standard Atmosphere 1976)
   with `origin` "derived" and the `derived` state. Only 3-D swaths convert.
+  With `file_source`, `source_file` (repeated over levels), `source_row` (per
+  profile) and `original_files` are kept; `source_profile` has no meaning for
+  a swath and is `not_provided`; other absent variables keep the swath's
+  `availability` reason.
 - Others to be defined with the formats they connect.
 
 ## 9. Checking

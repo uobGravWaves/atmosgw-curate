@@ -5,6 +5,22 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- One set of data-state rules for both loaders and `to_profiles`
+  (`docs/design/data_formats.md` section 6.3), checked by the new
+  `tests/test_states_conformance.py`. Limb: a NaN between a profile's first
+  and last value is now `missing`, not `no_observation`. Nadir: points
+  outside a segment's own coverage get `extrapolated` (with `extrapolate`).
+  Values unchanged. [Claude]
+- New dataset attributes in both formats: `preprocessing` (what was done to
+  the files before loading; `data` is then "preprocessed": the GNSS files,
+  pre-interpolated by C. Wright, and the AIRS 3-D daily files) and `heights`.
+  [Claude]
+- Both loaders: one warning per load when a day had several matching files
+  (nadir now warns too); `source_variable`/`comment` attributes from the
+  readers' record for nadir as for limb; `state_counts` covers every data
+  variable. [Claude]
+- README: real status, both loaders, and a validation-status section;
+  `docs/usage.md`: state table, "same option, different behaviour". [Claude]
 - `to_profiles` keeps the file provenance of a swath loaded with
   `file_source=True` (`source_file` over profiles and levels, `source_row`
   per profile, `original_files`), lists `source_profile` as `not_provided`,

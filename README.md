@@ -3,12 +3,37 @@
 Python tools for loading, standardising and analysing observations of
 **atmospheric gravity waves** from satellites and other instruments.
 
-> **Status: pre-alpha (0.x).** Ports of the group's MATLAB tools are being
-> added one at a time, and nothing should be treated as validated until it
-> matches the MATLAB reference outputs. The first, `obs.load_limb_sounders`
-> (from `get_limbsounders`), matches them, and was checked by C. Wright on
-> 2026-11-25 by comparing its outputs with the MATLAB function's (SABER,
-> HIRDLS).
+> **Status: pre-alpha (0.x), with two working loaders.**
+> - `obs.load_limb_sounders` (port of `get_limbsounders`): ACE, GNSS, HIRDLS,
+>   MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, sampler output and files of
+>   your own, as profiles.
+> - `obs.load_nadir_sounders` (port of `prep_airs_3d`, without its
+>   detrending): AIRS 3-D retrievals, AIRS 2-D brightness temperatures and
+>   IASI 3-D retrievals, as swaths (`data.to_profiles` turns them into
+>   profiles).
+>
+> Both return the common formats of `docs/design/data_formats.md` (version 1,
+> a proposal). See `docs/usage.md` to get started.
+
+## Validation status
+
+- **Values against MATLAB.** `load_limb_sounders` matches the MATLAB
+  `get_limbsounders` in its regression cases and in a 1,420-call real-data
+  sweep at 0.3.4 (`tests/matlab/sweep/README.md`); checked by C. Wright on
+  2026-11-25 (SABER, HIRDLS). `load_nadir_sounders` matches `prep_airs_3d` for
+  AIRS (dateline, midnight, native and regridded) and, for IASI, wherever
+  Python keeps a value (its default screen differs by design). Each reference
+  file is pinned to the MATLAB commits named in its test's header
+  (`tests/test_limb_matlab.py`, `tests/test_nadir_matlab.py`).
+- **Metadata (data states, `origin`, `availability`, attributes).** MATLAB has
+  none of this, so it is checked differently: by the shared rules in
+  `docs/design/data_formats.md` section 6.3, the cross-loader tests
+  `tests/test_states_conformance.py`, and real-data audits of the state counts.
+  It is newer than the value checks and still being reviewed.
+- **Scientific changes from MATLAB** (e.g. log-pressure interpolation, the
+  1976 standard atmosphere) are listed with their sizes in `CHANGELOG.md` and
+  `docs/quirks.md`; reproducing an older result needs the MATLAB baseline
+  named there.
 
 ## The AtmosGW family
 
@@ -16,7 +41,7 @@ AtmosGW is a small family of packages that share one import namespace:
 
 | Package (pip name) | Import as | Purpose | Status |
 |---|---|---|---|
-| `atmosgw-curate` | `atmosgw.curate` | Load and standardise observations; extract gravity-wave perturbations and properties; shared data formats | This repository; skeleton |
+| `atmosgw-curate` | `atmosgw.curate` | Load and standardise observations; extract gravity-wave perturbations and properties; shared data formats | This repository; loaders working, analysis to come |
 | `atmosgw-fuse` | `atmosgw.fuse` | Combine curated datasets from multiple instruments | Not started |
 
 Curate holds everything shared (data formats, instrument characterisations,

@@ -19,6 +19,8 @@ the record of a load the same way:
 - the output: ``COORD_ATTRS`` (attributes of latitude, longitude, time and
   altitude) and ``load_attrs`` (the dataset attributes recording the load),
   with ``options_json``.
+- ``warn_multiple_matches``: one warning per load when a day had several files.
+- ``record_attrs``: a variable's ``source_variable`` and ``comment`` from the record.
 
 Data dicts use the MATLAB variable names (``Lat``, ``Temp`` ...) and datenum
 times; see ``limb.py`` and ``nadir.py``.
@@ -49,6 +51,8 @@ AI-moved (Claude); to be reviewed by C. Wright.
 Change log
 ----------
 2026/11/25 [Claude] shared helpers moved here from _limb_tools.py, limb.py, nadir.py
+2026/11/25 [Claude] warn_multiple_matches (now also for nadir loads)
+2026/11/25 [Claude] record_attrs (from limb; now also used by nadir)
 """
 
 import json
@@ -321,3 +325,37 @@ def load_attrs(settings, call, source):
         "files_not_found": ", ".join(settings["record"]["files_not_found"]),
         "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
     }
+
+
+def warn_multiple_matches(settings, stacklevel):
+    """Warn once per load if any day had more than one matching file (all are
+    listed in settings["record"]["multiple_matches"] and the output attribute)."""
+    multiple = settings["record"]["multiple_matches"]
+    if multiple:
+        warnings.warn(
+            f"{len(multiple)} day(s) had more than one matching "
+            f"{settings['instrument']} file; one was used for each (e.g. "
+            f"{multiple[0]}). All are listed in "
+            "the output attribute 'multiple_matches'.",
+            stacklevel=stacklevel + 1,
+        )
+
+
+def record_attrs(name, record, interpolated=False):
+    """
+    ``source_variable`` and ``comment`` of one output variable (MATLAB name
+    name) from the load record. Heights on a new grid (name "Alt" with
+    interpolated True) have no source variable; their comment names the
+    file heights the data were interpolated from.
+    """
+    attrs = {}
+    if name in record["source_variables"]:
+        attrs["source_variable"] = record["source_variables"][name]
+    if name in record["notes"]:
+        attrs["comment"] = record["notes"][name]
+    if name == "Alt" and interpolated:
+        attrs.pop("source_variable", None)
+        origin = record["notes"].get(name) or record["source_variables"].get(name)
+        attrs["comment"] = "the height scale; the data were interpolated to it" + (
+            f" from the file's heights ({origin})" if origin else "")
+    return attrs

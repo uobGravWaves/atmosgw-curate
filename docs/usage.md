@@ -140,13 +140,25 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 
 | State | Value | Meaning |
 |---|---|---|
-| `no_observation` | NaN | nothing measured here (outside the swath or profile, above or below the data) |
-| `missing` | NaN | expected but absent in the file (fill value) |
+| `no_observation` | NaN | nothing measured here: outside the swath, above or below a profile's values, padding between profiles |
+| `missing` | NaN | a gap inside what was measured: a fill value at a scanned point, or between a profile's first and last value |
 | `outside_requested_range` | NaN | outside the heights asked for |
-| `bad_geolocation` | NaN | latitude or longitude out of range |
+| `bad_geolocation` | NaN | position out of range (nadir: also NaN; limb: out of range only, as MATLAB) |
 | `outside_physical_range` | NaN | temperature < 100 K, or > 400 K below 100 km |
 | `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
+| `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
+
+The same rules hold in both formats (`docs/design/data_formats.md` section
+6.3): a point removed as bad is removed in every data variable at that point;
+the value states (`derived`, `extrapolated`) are only on values that exist.
+Use `missing` and `no_observation` together, not `no_observation` alone, to
+judge coverage.
+
+**Not raw data.** `ds.attrs["data"]` is "preprocessed" when the files were
+altered before loading, and `ds.attrs["preprocessing"]` says how: the GNSS
+files (pre-interpolated to a fixed height grid) and the AIRS 3-D daily files
+(temperatures rounded to whole kelvin, times stored as float32).
 
 With `keep_outliers=True` the "removed as bad" values are kept, and their
 states are still set, so you can remove them later yourself. The full list
@@ -188,6 +200,20 @@ ds.to_netcdf("/path/to/output.nc")
 A day of AIRS or IASI regridded is several GB in memory; save to a disk with
 room (on the group's Linux machine, under `~/Data/<you>/`, not your home
 folder).
+
+## Same option, different behaviour
+
+| Option | `load_limb_sounders` | `load_nadir_sounders` |
+|---|---|---|
+| `lat_range`, `lon_range` | keeps profiles that enter the box at any height | keeps along-track rows with any point in the box |
+| default heights | 18-60 km every 0.5 km (as MATLAB) | a 3 km grid from the lowest file level (as MATLAB) |
+| `time_range` | whole profiles, by their mean time | whole granules, by their mean time (IASI reads a little beyond each end for its screen) |
+| `extrapolate` | vertical, beyond each profile | horizontal, in the regridding |
+| `keep_outliers` | keeps values removed as bad; states still set | the same |
+
+Combining limb profiles with `to_profiles(swath)` output mixes float64 and
+float32 data variables: both are valid profile data, but stacking them gives
+float64.
 
 ## Things to know
 
