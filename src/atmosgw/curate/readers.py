@@ -44,11 +44,12 @@ are read, which saves memory for large files.
   the first match therefore get the same file as MATLAB.
 - Symbolic links to folders are followed.
 
-Difference from MATLAB: ``regexpdir`` remembers the root folder of its first
-call in a MATLAB session, so later calls match against the full path rather
-than the path relative to their own root. ``find_files`` always uses the
-relative path. Results differ only if the root path itself matches the
-pattern (Q5 in ``docs/quirks.md``).
+Matching is against the path relative to the root. Until 2026-11-25 the
+MATLAB ``regexpdir`` remembered the root folder of its first call in a MATLAB
+session, so later calls matched against the full path instead; that could
+differ only if the root path itself matched the pattern. ``wildcardsearch.m``
+now clears it before each search, so the two agree (Q5 in
+``docs/quirks.md``).
 
 ``read_mat`` reads every MATLAB file version (including v7.3) with ``mat-io``.
 Arrays keep MATLAB's shapes (a row vector is 1 x n, a scalar 1 x 1). MATLAB
@@ -94,6 +95,7 @@ Preliminary.
 Change log
 ----------
 2026/11/24 [Claude] initial version
+2026/11/25 [Claude] docs: Q5 now fixed in the MATLAB wildcardsearch.m
 
 How to cite
 -----------
