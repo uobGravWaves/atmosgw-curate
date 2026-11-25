@@ -120,11 +120,12 @@ them. With ``keep_outliers`` the values are kept and the states still set.
 Every other NaN is ``no_observation``: above or below a profile, padding
 between profiles of different lengths, or NaN in the file (the loader cannot
 tell these apart). With ``extrapolate``, points outside a profile's own
-heights are ``extrapolated``. ``origin``: "retrieved", except "derived" for
-planetary-wave data, for Sampler data (from a model) and for pressure
-estimated from height, and "mixed" when only some of the pressures in the
-output are estimated (files without pressure); values computed this way also
-have the ``derived`` state.
+heights are ``extrapolated`` (where they have a value). ``origin``:
+"retrieved", except "derived" for planetary-wave data, for Sampler data (from
+a model) and for pressure estimated from height, and "mixed" when only some
+of the pressures in the output are estimated (files without pressure);
+values computed this way also have the ``derived`` state. With no profiles,
+pressure counts as "retrieved".
 Data variables keep their type (float64 from most readers; the profile format
 allows float32 or float64).
 
@@ -473,7 +474,7 @@ def _load_limb_arrays(time_range, instrument, **options):
         extrap = True if settings["extrapolate"] else None
         # heights outside each profile's own heights: extrapolated (data state)
         extrapolated = None
-        if settings["extrapolate"]:
+        if settings["extrapolate"] and np.size(data["Alt"]):
             alt_in = np.asarray(data["Alt"], dtype=float)
             with warnings.catch_warnings():  # (all-NaN profiles: no extrapolation)
                 warnings.simplefilter("ignore", RuntimeWarning)
@@ -726,15 +727,22 @@ def _state_flags(value, lat_shape, masks):
     profile's heights, padding between profiles of different lengths, or NaN
     in the file: the loader cannot tell these apart).
     """
+    def over_value(x):  # [profiles x levels] -> shape of value
+        return np.broadcast_to(x.reshape(x.shape + (1,) * (value.ndim - 2)),
+                               value.shape)
+
     flag = states.new_flags(lat_shape)
     for name, mask in masks.items():
         if np.shape(mask) != tuple(lat_shape):  # (a bug, not a data problem)
             raise ValueError(f"state mask {name} has shape {np.shape(mask)}, "
                              f"not that of the data {tuple(lat_shape)}")
-        states.set_state(flag, mask, name)
-    if value.ndim > 2:
-        flag = np.broadcast_to(flag.reshape(flag.shape + (1,) * (value.ndim - 2)),
-                               value.shape).copy()
+        if states.state(name).no_value:
+            states.set_state(flag, mask, name)
+    flag = over_value(flag).copy()
+    # qualified states (e.g. extrapolated) only where there is a value
+    for name, mask in masks.items():
+        if not states.state(name).no_value:
+            states.set_state(flag, over_value(mask) & np.isfinite(value), name)
     states.set_state(flag, np.isnan(value) & ~states.no_value_mask(flag),
                      "no_observation")
     return flag
