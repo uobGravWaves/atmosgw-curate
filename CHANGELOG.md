@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- IASI: temperatures of exactly 100 K, the retrieval's lower bound (the files
+  never go below it, and it fills whole bad profiles), are now
+  `outside_physical_range` and removed, whatever screen is used (2010-07-01:
+  30,805 points in 6,467 profiles). Limb and AIRS unchanged (MLS has a few
+  values at exactly 100 K, kept as MATLAB). [Claude]
 
 ## [0.4.0] - 2026-11-25
 - One set of data-state rules for both loaders and `to_profiles`

@@ -95,7 +95,8 @@ Science
 - States (``data.states``): fill values in the files are ``missing``;
   positions outside [-90, 90] / [-180, 180] or not finite are
   ``bad_geolocation``; temperatures below 100 K or above 400 K are
-  ``outside_physical_range`` (proposal: MATLAB applies this only to IASI;
+  ``outside_physical_range`` (IASI also at exactly 100 K, its retrieval's
+  lower bound; proposal: MATLAB applies this only to IASI;
   for AIRS it changes nothing where no such values exist, as in the test
   granules); values the instrument's statistical screen marks are
   ``statistical_outlier`` (IASI default ``"rolling"``: more than 5
@@ -145,6 +146,7 @@ Change log
 2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
 2026/11/25 [Claude] docstring: IASI screen, segment rule, duplicate option fixed
+2026/11/25 [Claude] IASI: exactly 100 K (retrieval lower bound) outside_physical_range
 2026/11/25 [Claude] extrapolated state; record-based attributes; heights and
   preprocessing attributes (preprocessing as the readers record it)
 
@@ -207,6 +209,11 @@ INSTRUMENTS["IASI"] = {
     "row_seconds": 4.0, "max_row_gap_seconds": 180.0, "products": ("3d",),
     "characterisation": {"3d": "IASI-3D-placeholder/0"},
     "screen": ("rolling", {}),
+    # exactly 100 K is the retrieval's lower bound, not a measurement: the
+    # files are float32 and never below 100.0 K, and 100.0 occurs in whole
+    # bad profiles (2010-07-01: 30,805 points in 6,467 profiles); removed as
+    # outside_physical_range (C. Wright, 2026-11-25; UNVERIFIED with L. Hoffmann)
+    "floor_is_bad": True,
     "not_in_files": INSTRUMENTS["AIRS"]["not_in_files"],
 }
 
@@ -299,7 +306,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
         states.set_state(flags, screen(temp, np.asarray(data["Time"], float), lat, lon,
                                        **screen_settings), "statistical_outlier")
     with np.errstate(invalid="ignore"):
-        states.set_state(flags, outside_physical_range(temp), "outside_physical_range")
+        implausible = outside_physical_range(
+            temp, floor_is_bad=info.get("floor_is_bad", False))
+        states.set_state(flags, implausible, "outside_physical_range")
     if not settings["keep_outliers"]:
         temp[states.no_value_mask(flags)] = np.nan
     data["Temp"] = temp

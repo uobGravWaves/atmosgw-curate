@@ -93,6 +93,19 @@ def test_states_outliers_and_format(tmp_path):
     assert np.nanmin(kept.temperature.values[..., 8]) < 220 + 0.5 * 24
 
 
+def test_airs_keeps_exactly_100k(tmp_path):
+    # only IASI treats 100 K as a retrieval floor; AIRS keeps it (as MATLAB)
+    temp = np.broadcast_to(220 + 0.5 * np.r_[0:61:3, 65:91:5],
+                           (135, 90, 27)).astype(np.float32).copy()
+    temp[60, 45, 8] = 100.0
+    write_granule(tmp_path, 53, seconds(53), temp)
+    ds = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=tmp_path,
+                             original_grid=True)
+    assert ds.temperature.values[60, 45, 8] == 100
+    flag = ds.temperature_flag.values
+    assert not states.has_state(flag, "outside_physical_range").any()
+
+
 def test_missing_granule_gives_two_segments(tmp_path):
     for g in (53, 55):
         write_granule(tmp_path, g, seconds(g))
