@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.1] - 2026-11-25
 - `geodesy.haversine`: nearly antipodal points (within about 1e-7 degrees)
   now give half a great circle instead of NaN (Q4); the same fix in the
   MATLAB `nph_haversine` and `nph_haversine_mars`, which stopped with an error
