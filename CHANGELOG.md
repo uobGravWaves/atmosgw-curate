@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.6] - 2026-11-25
 - `load_limb_sounders`: pressure estimated from height is marked `derived`
   point by point, and `origin` ("derived", "mixed", "retrieved") goes by the
   profiles in the output, not the files read; with `extrapolate=True`, points
