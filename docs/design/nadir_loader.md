@@ -300,6 +300,11 @@ own branches, so it can run alongside the limb-loader work.
 ## 12. Open items
 
 - Start dates of AIRS and IASI data, for the registry. UNVERIFIED.
+- **AIRS daily files store time as float32**: `l1_time` (seconds since 2000)
+  comes in steps of 16 s in 2007 and 64 s in 2025, so times are up to 8-32 s
+  off (checked 2025-10-08, granule 93: up to 32.0 s against the granule
+  file). The swath is therefore split into segments only at gaps over 180 s.
+  Like the temperature rounding, rebuilding the daily files would fix it.
 - **AIRS daily files are rounded to whole kelvin.** `merge_airs_into_daily.sh`
   stores `ret_temp` with `short()` and no scale factor. Checked on one
   profile (2025-10-08, granule 93): granule file 279.215, 267.145, 248.637 K;

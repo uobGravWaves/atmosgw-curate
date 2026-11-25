@@ -99,13 +99,15 @@ COMMON_ATTRS = (
 )
 
 _POINT = ("along_track", "cross_track")
+_NATIVE = ("native_along", "native_cross")
 _GEOMETRY = ("satellite_latitude", "satellite_longitude", "satellite_altitude",
              "view_zenith_angle", "view_azimuth_angle")
 
 FORMATS = {
     "swath": {
         "version": 1,
-        "dims": ("along_track", "cross_track", "level", "channel"),
+        "dims": ("along_track", "cross_track", "level", "channel", "native_along",
+                 "native_cross"),
         "attrs": COMMON_ATTRS + ("spatial_dims", "grid_spacing_km", "grid"),
         "variables": {
             "latitude": dict(kind="coord", dims=_POINT, units="degrees_north",
@@ -135,6 +137,12 @@ FORMATS = {
             "source_row": dict(kind="index", dims=("along_track",), tracked=True),
             "original_files": dict(kind="text", dims=("file",), tracked=True),
             "day_retrieval": dict(kind="index", dims=_POINT, tracked=True),
+            "native_latitude": dict(kind="coord", dims=_NATIVE, units="degrees_north",
+                                    tracked=True),
+            "native_longitude": dict(kind="coord", dims=_NATIVE, units="degrees_east",
+                                     tracked=True),
+            "native_time": dict(kind="time", dims=_NATIVE, tracked=True),
+            "scan_position": dict(kind="index", dims=("native_cross",), tracked=True),
             **{name: dict(kind="coord", dims=_POINT,
                           units="km" if name == "satellite_altitude" else
                           ("degrees_north" if name == "satellite_latitude" else

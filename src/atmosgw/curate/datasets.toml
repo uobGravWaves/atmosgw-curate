@@ -46,3 +46,6 @@ pws = "SABER/pws"
 [datasets.SOFIE]
 raw = "SOFIE/raw"
 pws = "SOFIE/pws"
+
+[datasets.AIRS]
+raw = "AIRS/3d_airs"

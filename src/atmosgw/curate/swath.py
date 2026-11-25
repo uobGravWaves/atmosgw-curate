@@ -51,6 +51,9 @@ dx_along=None, method="linear", extrapolate=None)``:
 - ``method``: ``"linear"`` or ``"nearest"``; ``extrapolate``: None (NaN
   outside the input), ``"linear"`` or ``"nearest"``. As MATLAB's
   ``Interpolant`` and ``Extrapolant``.
+- ``cross_axis``: a cross-track axis (km) to use instead of one built from
+  this swath, so that several segments of a swath share one (overrides
+  ``n_cross`` and ``dx_cross``).
 - Returns a dict: ``lat``, ``lon`` [n_cross x n_along]; ``fields`` (dict, same
   names); ``cross``, ``along`` (km, the regular axes); ``spacing`` ((km
   across, km along); NaN if one point).
@@ -185,7 +188,7 @@ def regular_axis(values, n=None, spacing=None):
 
 
 def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
-           dx_along=None, method="linear", extrapolate=None):
+           dx_along=None, method="linear", extrapolate=None, cross_axis=None):
     """Regrid a swath onto a regular grid in distance. See the module docstring."""
     method = method.lower()
     if method not in ("linear", "nearest"):
@@ -197,7 +200,10 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
     dist = swath_distances(lat, lon)
     basis = dist["basis"]
 
-    new_cross = regular_axis(dist["cross"], n_cross or lat.shape[0], dx_cross)
+    if cross_axis is None:
+        new_cross = regular_axis(dist["cross"], n_cross or lat.shape[0], dx_cross)
+    else:
+        new_cross = np.asarray(cross_axis, dtype=float)
     new_along = regular_axis(dist["along"], n_along or lat.shape[1], dx_along)
 
     # positions: along the basis track, then a step across at heading + 90

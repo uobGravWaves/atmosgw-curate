@@ -16,6 +16,13 @@ reference outputs.
   synthetic swaths (within 1e-9). [Claude]
 - New `solar` module: solar zenith angle and the AIRS day/night retrieval
   switch (port of `which_airs_retrieval.m`). [Claude]
+- New `obs.load_nadir_sounders` (preliminary; AIRS 3-D): nadir-sounder swaths
+  in the swath format, port of the MATLAB `prep_airs_3d` without its
+  detrending; continuous swath with granule and segment tracking, data states,
+  optional day/night, native geolocation and file source. Matches the MATLAB
+  reference outputs for every AIRS case (within 3e-11 degrees, 1e-12 K,
+  4e-10 days; load-only bit-identical). AIRS added to `datasets.toml`.
+  [Claude]
 - Design notes for the nadir-sounder loader and the data formats
   (`docs/design/`). [Claude]
 
