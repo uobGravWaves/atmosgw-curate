@@ -6,6 +6,10 @@ Internal helpers for the limb-sounder loader (``load_limb_sounders``).
   levels] grid (port of ``module_conform_vars.m``).
 - ``loop_days``: the day loop shared by readers with one file per day.
 - ``year_and_day``: calendar year and day of year of a datenum.
+- ``choose_file``, ``newest_mls_version``: pick one file from those matching
+  a day, and record when there was more than one (new, not in the MATLAB).
+- ``record``, ``note_sources``, ``note``: what a load read, did not find, and
+  how each variable was obtained, for the output attributes (new).
 
 Ported from the MATLAB ``get_limbsounders`` and its modules
 (uobGravWaves/MultiInstrumentFunctions, commit 78eef78), the group's own code.
@@ -15,6 +19,7 @@ times; see ``limb.py``.
 
 import math
 import os
+import re
 import warnings
 
 import numpy as np
@@ -128,12 +133,13 @@ def conform_vars(store, settings):
     return store
 
 
-def loop_days(settings, var_names, find_file, read_file, label):
+def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
     """
     Day loop for readers with one file per day.
 
     For each day (an integer datenum) from floor(start) to floor(end):
-    find_file(day) gives the file's path or None (skipped);
+    find_file(day) gives the file's path or None (skipped, and the date added
+    to ``record(inst_info)["files_not_found"]`` if inst_info is given);
     read_file(path, file_count, day) gives that day's variables, already
     conformed. Returns (data, file_list): the days
     stacked with ``concat_profiles``, and the file names (without folders) in
@@ -147,6 +153,8 @@ def loop_days(settings, var_names, find_file, read_file, label):
             print(f"----> Loading {label} data: day {k} of {last - first + 1}")
         path = find_file(day)
         if path is None or not os.path.isfile(path):
+            if inst_info is not None:
+                record(inst_info)["files_not_found"].append(day_label(day))
             continue
         file_list.append(os.path.basename(path))
         days.append(read_file(path, len(file_list), day))
@@ -159,3 +167,79 @@ def year_and_day(day_number):
     year = int(t.astype("datetime64[Y]").astype(int)) + 1970
     day = int((t.astype("datetime64[D]") - t.astype("datetime64[Y]")).astype(int)) + 1
     return year, day
+
+
+def day_label(day_number):
+    """ISO date (yyyy-mm-dd) of a datenum."""
+    return str(datenum_to_datetime(math.floor(day_number)))[:10]
+
+
+def record(inst_info):
+    """
+    The record of a load, kept in inst_info["record"] (created if absent):
+
+    - ``files_not_found``: what was looked for and not found (dates for daily
+      files, e.g. "2007-01-03"; month folders/files such as "January2007" for
+      SABER; years for ALOMAR);
+    - ``multiple_matches``: one line for each day with more than one matching
+      file, naming them and the one used;
+    - ``source_variables``: MATLAB name -> where it comes from in the file;
+    - ``notes``: MATLAB name -> how it was obtained, where that is more than
+      reading it (e.g. pressure estimated from height).
+    """
+    return inst_info.setdefault("record", {"files_not_found": [],
+                                           "multiple_matches": [],
+                                           "source_variables": {}, "notes": {}})
+
+
+def note_sources(inst_info, sources):
+    """Record where variables come from in the files (MATLAB name -> text)."""
+    record(inst_info)["source_variables"].update(sources)
+
+
+def note(inst_info, name, text):
+    """Record how a variable was obtained (the first note for it is kept)."""
+    record(inst_info)["notes"].setdefault(name, text)
+
+
+def choose_file(found, inst_info, label, prefer=None):
+    """
+    One path from those found for a day (``readers.find_files`` output).
+
+    Without ``prefer``: the first, as the MATLAB loaders do. With it:
+    ``prefer(files)`` picks one of the files found (folders excluded). Either
+    way, if more than one file matched, a line naming them and the one used
+    is added to ``record(inst_info)["multiple_matches"]``. Returns the path,
+    or None if nothing was found.
+    """
+    if not found:
+        return None
+    files = [path for path in found if os.path.isfile(path)]
+    chosen = prefer(files) if prefer is not None and files else found[0]
+    if len(files) > 1:
+        names = ", ".join(os.path.basename(path) for path in files)
+        record(inst_info)["multiple_matches"].append(
+            f"{label}: {names} -> used {os.path.basename(chosen)}")
+    return chosen
+
+
+_MLS_VERSION = re.compile(r"_v(\d+)-(\d+)-c(\d+)_", re.IGNORECASE)
+
+
+def newest_mls_version(files):
+    """
+    The file with the newest MLS version, from names such as
+    ``MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5``: highest version
+    (06-04 beats 06-03 beats 05-04), then highest cycle (c02 beats c01).
+    Names without a version count as oldest; of equal versions, the first.
+    """
+    def version(path):
+        found = _MLS_VERSION.search(os.path.basename(path))
+        return tuple(int(g) for g in found.groups()) if found else (-1, -1, -1)
+
+    return max(files, key=version)  # (max returns the first of equal keys)
+
+
+# note for pressure computed from height
+ESTIMATED_PRES = ("estimated from height with atmosphere.height_to_pressure "
+                  "(U.S. Standard Atmosphere 1976 [R1])")

@@ -5,6 +5,21 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders`, MLS: when several files match a day (e.g. v05-04
+  and v06-04, as for 155 days of 2026 in the group's MLS folder), the newest
+  version is now used, not the first in name order (Q8; the same change in
+  the MATLAB `module_load_MLS`). Results for days with one file are
+  unchanged, bit for bit.
+  [Claude]
+- `load_limb_sounders`: a warning, and the output attribute
+  `multiple_matches`, when more than one file matches a day (any
+  instrument). [Claude]
+- `load_limb_sounders`: new output attributes recording the load:
+  `atmosgw_curate_version`, `options` (the call's arguments, JSON),
+  `files_read` and `files_not_found`; and, on each variable,
+  `source_variable` (its name in the files) and a `comment` where values
+  are estimated or corrected (e.g. pressure from height). Data unchanged.
+  [Claude]
 
 ## [0.3.2] - 2026-11-25
 - Documentation: Q5 is now fixed on the MATLAB side (`wildcardsearch.m`

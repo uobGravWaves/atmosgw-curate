@@ -20,13 +20,26 @@ import os
 import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, year_and_day
+from atmosgw.curate.obs._limb_tools import (
+    ESTIMATED_PRES,
+    choose_file,
+    conform_vars,
+    day_label,
+    loop_days,
+    note,
+    note_sources,
+    year_and_day,
+)
 from atmosgw.curate.readers import find_files, read_mat
 
 
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
     instrument = settings["instrument"]
+    sources = {name: name for name in ("Lat", "Lon", "Temp", "Pres", "Alt", "Time")}
+    if instrument == "GNSS":
+        sources.update(Alt="MSL_alt", Time="MetaData.time")
+    note_sources(inst_info, sources)
 
     def find_file(day):
         year, doy = year_and_day(day)
@@ -42,12 +55,13 @@ def load(settings, inst_info, var_names):
             inst_info["path"],
             f"*{inst_info['identifier']}*{year:04d}d{doy:03d}*.mat",
         )
-        return found[0] if found else None
+        return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):
         inst_data = read_mat(path)
         if "Pres" not in inst_data:
             inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
+            note(inst_info, "Pres", ESTIMATED_PRES + ", for files without Pres")
 
         store = {}
         for name in var_names:
@@ -77,4 +91,4 @@ def load(settings, inst_info, var_names):
                 store[name] = inst_data[name]
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, instrument)
+    return loop_days(settings, var_names, find_file, read_file, instrument, inst_info)

@@ -29,6 +29,7 @@ import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.matlab_time import datenum_to_datetime
+from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES, note, note_sources, record
 from atmosgw.curate.profiles import concat_profiles
 
 SITE_LAT, SITE_LON = 69.38, 16.08
@@ -44,11 +45,18 @@ def load(settings, inst_info, var_names):
     first, last = (int(str(datenum_to_datetime(t))[:4])
                    for t in (min(settings["time_range"]), max(settings["time_range"])))
 
+    note_sources(inst_info, {"Temp": f"{RESOLUTION}_lidar", "Time": "time_lidar",
+                             "Alt": "z_lidar"})
+    note(inst_info, "Lat", "site latitude (fixed)")
+    note(inst_info, "Lon", "site longitude (fixed)")
+    note(inst_info, "Pres", ESTIMATED_PRES)
+
     days, file_list = [], []
     for year in range(first, last + 1):
         file_name = os.path.join(inst_info["path"],
                                  f"{year}_{DATA_VERSION}_file4juli.h5")
         if not os.path.isfile(file_name):
+            record(inst_info)["files_not_found"].append(str(year))
             continue
         file_list.append(os.path.basename(file_name))
         profiles_in_file = 0

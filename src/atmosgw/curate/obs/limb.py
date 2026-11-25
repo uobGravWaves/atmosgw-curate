@@ -101,6 +101,28 @@ passed through by ``ignore_non_modal`` have their own dimensions
 (``<name>_dim0`` ...), or none if they hold a single value. Missing values
 are NaN (NaT for times). With no profiles, ``profile`` has length 0.
 
+Attributes of the Dataset, recording the load: ``instrument``, ``data``
+("raw" or "planetary-wave-filtered"), ``heights`` ("interpolated" or
+"original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
+``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
+string; infinities as "inf"), ``files_read`` (file names, comma-separated),
+``files_not_found`` (dates, SABER months or ALOMAR years that had no file)
+and ``multiple_matches`` (each day for which more than one file matched,
+with the one used; a warning is also given). All are text, so they survive
+``to_netcdf``.
+
+Attributes of the variables: ``units`` and ``standard_name`` or
+``long_name``; ``source_variable``, the variable's name in the files; and
+``comment`` where the values are more than read from the file (e.g.
+"estimated from height with atmosphere.height_to_pressure ..." for pressure
+from files without one, the HIRDLS geolocation correction, SOFIE's time
+units). With interpolation, ``altitude`` is the height scale, and its
+comment names the file heights the data were interpolated from.
+
+Files: where more than one file matches a day, the first in name order is
+used, as in MATLAB, except for MLS, where the newest data version is used,
+as now also in MATLAB (Q8 in ``docs/quirks.md``).
+
 MATLAB -> Python names: ``Lat`` latitude, ``Lon`` longitude, ``Time`` time,
 ``Temp`` temperature, ``Pres`` pressure, ``Alt`` altitude, ``Temp_Residual``
 temperature_residual, ``Temp_PW`` temperature_pw, ``SourceProf``
@@ -182,18 +204,22 @@ Change log
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
+2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
+2026/11/25 [Claude] attributes: version, options, files read/not found, variable sources
 
 How to cite
 -----------
 Cite the package (see ``CITATION.cff``).
 """
 
+import json
 import warnings
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
+from atmosgw.curate import __version__
 from atmosgw.curate.geodesy import haversine
 from atmosgw.curate.matlab_compat import unwrap, wrap_to_pi
 from atmosgw.curate.matlab_time import (
@@ -212,7 +238,7 @@ from atmosgw.curate.obs import (
     _limb_sampler,
     _limb_sofie,
 )
-from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range
+from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range, record
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import (
     clip_to_height_range,
@@ -302,8 +328,9 @@ def load_limb_sounders(
     """Load profile data as an xarray.Dataset. See the module docstring."""
     options = {k: v for k, v in locals().items() if k not in ("time_range",
                                                               "instrument")}
+    call = {"time_range": time_range, "instrument": instrument, **options}
     data, settings = _load_limb_arrays(time_range, instrument, **options)
-    return _to_dataset(data, settings)
+    return _to_dataset(data, settings, call)
 
 
 def _load_limb_arrays(time_range, instrument, **options):
@@ -329,6 +356,17 @@ def _load_limb_arrays(time_range, instrument, **options):
                      "SourceFile"]
     var_names = var_names + list(settings["additional_vars"])
     data, file_list = reader.load(settings, inst_info, var_names)
+    settings["record"] = record(inst_info)
+    settings["files_read"] = list(file_list)
+    multiple = settings["record"]["multiple_matches"]
+    if multiple:
+        warnings.warn(
+            f"{len(multiple)} day(s) had more than one matching "
+            f"{settings['instrument']} file; one was used for each (e.g. "
+            f"{multiple[0]}). All are listed in "
+            "the output attribute 'multiple_matches'.",
+            stacklevel=3,
+        )
 
     # variables not on the [profiles x levels] grid of Lat are left untouched
     # (only if ignore_non_modal; otherwise the readers have already refused them)
@@ -588,8 +626,46 @@ def _find_outliers(data, settings):
     return bad
 
 
-def _to_dataset(data, settings):
-    """Arrange the MATLAB-named arrays as an xarray.Dataset with output names."""
+def _variable_attrs(name, out, settings):
+    """Standard attributes of one output variable, plus where it came from."""
+    attrs = dict(_ATTRS.get(out, {}))
+    rec = settings["record"]
+    if name in rec["source_variables"]:
+        attrs["source_variable"] = rec["source_variables"][name]
+    if name in rec["notes"]:
+        attrs["comment"] = rec["notes"][name]
+    if name == "Alt" and not settings["original_z"]:
+        attrs.pop("source_variable", None)
+        origin = rec["notes"].get(name) or rec["source_variables"].get(name)
+        attrs["comment"] = "the height scale; the data were interpolated to it" + (
+            f" from the file's heights ({origin})" if origin else "")
+    return attrs
+
+
+def _options_json(call):
+    """The arguments of a load_limb_sounders call as a JSON string (arrays as
+    lists, non-finite numbers and other objects as text)."""
+    def plain(value):
+        if isinstance(value, dict):
+            return {k: plain(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, np.ndarray)):
+            return [plain(v) for v in np.asarray(value, dtype=object).ravel()]
+        if isinstance(value, (bool, np.bool_)):
+            return bool(value)
+        if isinstance(value, (int, np.integer)):
+            return int(value)
+        if isinstance(value, (float, np.floating)):
+            return float(value) if np.isfinite(value) else str(value)
+        if value is None or isinstance(value, str):
+            return value
+        return str(value)
+
+    return json.dumps(plain(call))
+
+
+def _to_dataset(data, settings, call=None):
+    """Arrange the MATLAB-named arrays as an xarray.Dataset with output names.
+    call: the arguments of the public call, recorded in the attributes."""
     lat_shape = np.shape(data["Lat"])
     variables, coords = {}, {}
     for name, value in data.items():
@@ -612,7 +688,7 @@ def _to_dataset(data, settings):
             value, dims = value.reshape(()), []
         else:
             dims = [f"{out}_dim{d}" for d in range(value.ndim)]
-        variables[out] = (dims, value, _ATTRS.get(out, {}))
+        variables[out] = (dims, value, _variable_attrs(name, out, settings))
     first, last = (str(datenum_to_datetime(t, "ms"))
                    for t in settings["time_range"])
     attrs = {
@@ -621,6 +697,11 @@ def _to_dataset(data, settings):
         "heights": "original" if settings["original_z"] else "interpolated",
         "time_range": f"{first} to {last}",
         "source": "atmosgw.curate.obs.load_limb_sounders",
+        "atmosgw_curate_version": __version__,
+        "options": _options_json(call) if call is not None else "",
+        "files_read": ", ".join(settings["files_read"]),
+        "files_not_found": ", ".join(settings["record"]["files_not_found"]),
+        "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
