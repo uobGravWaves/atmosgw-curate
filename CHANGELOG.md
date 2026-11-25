@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.3] - 2026-11-25
 - `load_limb_sounders`: a clear error for `time_range` strings that are not
   real dates, e.g. "2022-01-34" (MATLAB's datenum would carry it over to
   2022-02-03): the message gives that date and `matlab_time.make_datetime`.
