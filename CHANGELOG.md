@@ -51,6 +51,27 @@ reference outputs.
   to `datasets.toml`. [Claude]
 - Design notes for the nadir-sounder loader and the data formats
   (`docs/design/`). [Claude]
+- `tests/matlab/sweep/`: a by-hand check of `load_limb_sounders` against the
+  MATLAB `get_limbsounders` on many dates (every instrument and year with
+  data; first run 2026-11-25: 1420 calls, all identical or within stated
+  last-bit tolerances). Not run by `pytest` or CI. [Claude]
+- `tests/test_limb_matlab.py`: four more MATLAB reference cases found by the
+  sweep (MLS heights kept, ALOMAR heights to 120 km, SABER `dx`, an MLS day
+  with v05 and v06 files), with their stated tolerances; new reference file
+  (the 33 earlier cases bit-identical). [Claude]
+
+## [0.3.4] - 2026-11-25
+- `load_limb_sounders` needs about a third less memory at its peak (e.g.
+  30 days of HIRDLS: 3.05 GB -> 1.97 GB, for 0.65 GB of output): source
+  indices are made only when `file_source=True`; no copy when the time
+  selection keeps every profile; days are freed as they are stacked;
+  inputs are freed once interpolated; outliers and the height range are
+  masked in place. Outputs unchanged (identical in 16 real-data cases and
+  the MATLAB reference tests). [Claude]
+- `profiles.concat_profiles` takes `consume`, and `clip_to_height_range`
+  and `mask_points` take `copy`, to allow this; defaults unchanged. [Claude]
+- HIRDLS: an unknown `additional_vars` name now raises `KeyError` (it gave
+  a misleading size error, or NaN with `ignore_non_modal`). [Claude]
 
 ## [0.3.3] - 2026-11-25
 - `load_limb_sounders`: a clear error for `time_range` strings that are not

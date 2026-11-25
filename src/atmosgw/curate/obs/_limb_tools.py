@@ -158,7 +158,7 @@ def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
             continue
         file_list.append(os.path.basename(path))
         days.append(read_file(path, len(file_list), day))
-    return concat_profiles(days, var_names), file_list
+    return concat_profiles(days, var_names, consume=True), file_list
 
 
 def year_and_day(day_number):

@@ -119,3 +119,41 @@ def test_profiles_in_box_any_height():
                                   [True, True, True])
     np.testing.assert_array_equal(profiles_in_box(lat, lon, (15, 90), (-180, 180)),
                                   [False, True, True])
+
+
+def test_clip_and_mask_in_place_give_the_same_result():
+    # copy=False (used by load_limb_sounders to save memory) must give exactly
+    # the results of the default; it may change the input arrays
+    from atmosgw.curate.profiles import clip_to_height_range, mask_points
+
+    rng = np.random.default_rng(1)
+
+    def data():
+        alt = np.tile(np.arange(0.0, 10.0), (4, 1)) + rng.uniform(0, 0.5, (4, 1))
+        return {"Alt": alt, "T": np.where(alt > 8, np.nan, 200 + alt),
+                "T32": (200 + alt).astype(np.float32),
+                "PW": np.stack([alt, 2 * alt], axis=2),
+                "Flag": np.ones((4, 10), dtype=int),
+                "Meta": np.array([[3.0]])}
+
+    mask = np.zeros((4, 10), dtype=bool)
+    mask[1, 3] = mask[3, 9] = True
+    for height_range in ((2.0, 7.0), (-1.0, 99.0)):  # some levels kept / all kept
+        rng = np.random.default_rng(1)
+        a = clip_to_height_range(data(), data()["Alt"], height_range, skip=["Meta"])
+        rng = np.random.default_rng(1)
+        d = data()
+        b = clip_to_height_range(d, d["Alt"], height_range, skip=["Meta"],
+                                 copy=False)
+        for name in a:
+            np.testing.assert_array_equal(a[name], b[name])
+            assert a[name].dtype == b[name].dtype
+    rng = np.random.default_rng(1)
+    a = mask_points(data(), mask, skip=["Meta"])
+    rng = np.random.default_rng(1)
+    b = mask_points(data(), mask, skip=["Meta"], copy=False)
+    for name in a:
+        np.testing.assert_array_equal(a[name], b[name])
+        assert a[name].dtype == b[name].dtype
+    assert np.isnan(b["T32"][1, 3]) and np.isnan(b["PW"][3, 9]).all()
+    assert np.isnan(b["Flag"][1, 3]) and b["Flag"].dtype == np.float64
