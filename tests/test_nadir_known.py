@@ -154,7 +154,7 @@ def test_no_files(tmp_path):
 
 def test_rejects():
     with pytest.raises(NotImplementedError):
-        load_nadir_sounders(D, "AIRS", product="2d", file_path="/nonexistent")
+        load_nadir_sounders(D, "IASI", product="2d", file_path="/nonexistent")
     with pytest.raises(ValueError):
         load_nadir_sounders(D, "AIRS", interp_type="natural", file_path="/nonexistent")
     with pytest.raises(ValueError):

@@ -100,6 +100,8 @@ fixed. `along_track` may have length 0.
 | `temperature` | (along_track, cross_track, level) | K | 3-D |
 | `brightness_temperature` | (along_track, cross_track[, channel]) | K | 2-D |
 | `channel_wavenumber` | (channel) | cm^-1 | 2-D with channels |
+| `channel_name` | (channel) | — | 2-D with channels: the channel or channel group |
+| `brightness_temperature_perturbation`, `brightness_temperature_variance` | as `brightness_temperature` | K, K2 | optional: values derived by the files' producer (`origin` "derived") |
 | `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
 | `granule`, `granule_day` | (along_track) | — | yes: the granule each row came from, and its day |
 | `segment` | (along_track) | — | yes: 1-based number of the unbroken stretch the row is in |

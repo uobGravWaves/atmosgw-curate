@@ -309,6 +309,14 @@ own branches, so it can run alongside the limb-loader work.
    variance (`_var`): an AIRS 2-D reader must decide which to load, the
    channel wavenumbers, and how to label the file's own perturbations
    (already detrended by their producer).
+   *AIRS 2-D reader done* (`obs/_nadir_airs2d.py`), with these choices
+   (proposals): all four channel groups by default (`channels=` to choose);
+   nominal wavenumbers 10^4 / wavelength (UNVERIFIED) and a `channel_name`
+   label, as both 15 micron groups share one; the files' perturbations and
+   variances returned as `brightness_temperature_perturbation` and
+   `brightness_temperature_variance`, `origin` "derived" (NaN for 8.1 micron,
+   which has none); files in `YYYY/DDD/` or `DDD/`; data folder `AIRS` `2d`
+   in `datasets.toml`.
 6. Move the shared helpers into `obs/_common.py` and use them in both loaders
    (limb outputs bit-identical). *Touches the limb loader: done after the
    limb work in progress is merged.*

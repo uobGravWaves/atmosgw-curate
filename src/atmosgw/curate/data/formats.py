@@ -126,6 +126,13 @@ FORMATS = {
                 required="2d"),
             "channel_wavenumber": dict(kind="coord", dims=("channel",),
                                        units="cm-1", required=False),
+            "channel_name": dict(kind="text", dims=("channel",), required=False),
+            "brightness_temperature_perturbation": dict(
+                kind="data", dims=[_POINT, _POINT + ("channel",)], units="K",
+                required=False),
+            "brightness_temperature_variance": dict(
+                kind="data", dims=[_POINT, _POINT + ("channel",)], units="K2",
+                required=False),
             "granule": dict(kind="index", dims=("along_track",), required=True),
             "granule_day": dict(kind="time", dims=("along_track",), required=True),
             "segment": dict(kind="index", dims=("along_track",), required=True),

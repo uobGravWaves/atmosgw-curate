@@ -24,7 +24,8 @@ given.
 
 Options (type, default; MATLAB name):
 
-- ``product`` (str, "3d"): "3d" retrieval; "2d" not yet implemented.
+- ``product`` (str, "3d"): "3d" retrieval; "2d" brightness temperature (AIRS:
+  L. Hoffmann's granule files, ``obs._nadir_airs2d``).
 - ``time_handling`` (str, "fuzzy"): as ``load_limb_sounders``.
 - ``granules`` (list of (date, number), None): load exactly these granules
   (``DateNum``, ``GranuleId``); dates as for ``time_range``.
@@ -46,6 +47,9 @@ Options (type, default; MATLAB name):
   only.
 - ``keep_outliers`` (bool, False): keep values whose state marks them bad
   (the states are recorded either way).
+- ``channels`` (list of str, None): 2-D products: which channels or channel
+  groups, in that order (AIRS: "4mu", "8mu", "15mu_low", "15mu_high"; default
+  all).
 - ``screen`` (None): the statistical outlier screen; None uses the
   instrument's default (IASI ``"rolling"``, AIRS ``"none"``). A name, a
   ``(name, settings)`` pair, a function ``screen(temp, time, lat, lon,
@@ -141,6 +145,7 @@ Change log
 ----------
 2026/11/25 [Claude] initial version (AIRS 3-D)
 2026/11/25 [Claude] IASI 3-D: orbit files, pseudo-granules, outlier screen (no refill)
+2026/11/25 [Claude] swappable screens; 2-D products; AIRS 2-D reader; channels option
 
 How to cite
 -----------
@@ -156,7 +161,7 @@ from atmosgw.curate import __version__, swath
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs import _nadir_airs, _nadir_iasi, _screen
+from atmosgw.curate.obs import _nadir_airs, _nadir_airs2d, _nadir_iasi, _screen
 from atmosgw.curate.obs._limb_tools import (
     TIME_HANDLING,
     day_label,
@@ -171,11 +176,14 @@ _FAR = datenum(9999, 999, 999)
 
 # instruments: dates covered (UNVERIFIED start dates), reader and geometry
 INSTRUMENTS = {
-    "AIRS": {"time_range": (datenum(2002, 8, 30), _FAR), "reader": _nadir_airs,
+    "AIRS": {"time_range": (datenum(2002, 8, 30), _FAR),
+             "reader": {"3d": _nadir_airs, "2d": _nadir_airs2d},
+             "dataset_kind": {"3d": "raw", "2d": "2d"},
              "dataset": "AIRS", "n_cross": 90, "rows_per_granule": 135,
              "row_seconds": 360 / 135, "max_row_gap_seconds": 180.0,
-             "products": ("3d",),
-             "characterisation": {"3d": "AIRS-3D-placeholder/0"},
+             "products": ("3d", "2d"),
+             "characterisation": {"3d": "AIRS-3D-placeholder/0",
+                                  "2d": "AIRS-2D-placeholder/0"},
              "screen": ("none", {}),
              "not_in_files": ("satellite_latitude", "satellite_longitude",
                               "satellite_altitude", "view_zenith_angle",
@@ -215,6 +223,7 @@ def load_nadir_sounders(
     extrapolate=False,
     keep_outliers=False,
     screen=None,
+    channels=None,
     day_night=False,
     keep_native_geolocation=False,
     additional_vars=(),
@@ -257,7 +266,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
         else:
             t0, t1 = settings["time_range"]
             load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
-    data, file_list = info["reader"].load(load_settings, inst_info, var_names)
+    data, file_list = inst_info["reader"].load(load_settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     if padded and settings["granules"] is not None:  # padding is not a request
@@ -391,6 +400,10 @@ def _prepare(time_range, instrument, options):
     if options["interp_type"].lower() not in ("linear", "nearest"):
         raise ValueError("interp_type must be 'linear' or 'nearest'.")
     _screen.resolve(options["screen"], info["screen"])  # (checks the choice)
+    channels = options["channels"]
+    if channels is not None and (isinstance(channels, str)
+                                 or not all(isinstance(c, str) for c in channels)):
+        raise TypeError("channels must be a list of channel names.")
     additional = options["additional_vars"]
     if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
         raise TypeError("additional_vars must be a list of variable names.")
@@ -424,9 +437,13 @@ def _prepare(time_range, instrument, options):
                     interp_type=options["interp_type"].lower())
     if settings["original_grid"]:
         settings["original_z"] = True  # as MATLAB LoadOnly
-    inst_info = {"inst": name}
+    reader = info["reader"]
+    if isinstance(reader, dict):  # a reader per product
+        reader = reader[product]
+    kind = info.get("dataset_kind", {}).get(product, "raw")
+    inst_info = {"inst": name, "reader": reader}
     inst_info["path"] = (str(options["file_path"]) if options["file_path"] is not None
-                         else str(dataset_dir(info["dataset"], "raw",
+                         else str(dataset_dir(info["dataset"], kind,
                                               must_exist=False)))
     return settings, inst_info, info
 
@@ -440,7 +457,7 @@ def _regrid(data, flags, settings, info):
     cross_axis = swath.regular_axis(d0["cross"],
                                     settings["n_cross"] or info["n_cross"],
                                     settings["dx_cross"])
-    extra = [n for n in settings["additional_vars"]
+    extra = [n for n in settings["additional_vars"] + list(data.get("DerivedVars", {}))
              if np.ndim(data[n]) >= 2 and np.shape(data[n])[:2] == lat.shape]
     present = [s for s in states.STATES if states.has_state(flags, s.name).any()]
     parts, spacing = [], (np.nan, np.nan)
@@ -546,7 +563,8 @@ def _along_track_names(data):
     n = data["Lat"].shape[1]
     names = []
     for name, value in data.items():
-        skip = ("Flags", "DistCross", "Alt", "Spacing", "Channel")
+        skip = ("Flags", "DistCross", "Alt", "Spacing", "Channel", "ChannelName",
+                "DerivedVars")
         if name in skip or name.startswith(
                 "Native") or name == "ScanPosition":
             continue
@@ -622,6 +640,28 @@ def _to_dataset(data, settings, call=None):
         "granule_day": (("along_track",), times(data["Day"])),
         "segment": (("along_track",), np.asarray(data["Segment"]).astype(np.int32)),
     }
+    if not three_d and "ChannelName" in data and main_dims[-1] == "channel":
+        v["channel_name"] = (("channel",), np.asarray(data["ChannelName"], dtype=str),
+                             {"long_name": "channel or channel group"})
+    # variables the files provide already derived (e.g. a producer's
+    # perturbation): the main variable's states, plus "derived"
+    derived_outputs = []
+    for key, spec in data.get("DerivedVars", {}).items():
+        out = spec["output"]
+        value = t(data[key]).astype(np.float32).reshape(flags.shape)
+        if not settings["keep_outliers"]:
+            value[states.no_value_mask(flags)] = np.nan
+        dflag = flags.copy()
+        states.set_state(dflag, np.isfinite(value), "derived")
+        states.set_state(dflag, np.isnan(value) & ~states.no_value_mask(dflag),
+                         "no_observation")
+        v[out] = (main_dims, value, {"units": spec["units"],
+                                     "long_name": spec["long_name"],
+                                     "origin": "derived",
+                                     "ancillary_variables": f"{out}_flag",
+                                     "comment": spec["comment"]})
+        v[f"{out}_flag"] = (main_dims, dflag, states.flag_attrs())
+        derived_outputs.append(out)
     if three_d:
         v["altitude"] = (("level",), np.asarray(data["Alt"], dtype=np.float64))
     elif "Channel" in data:
@@ -662,6 +702,8 @@ def _to_dataset(data, settings, call=None):
     availability = {n: ("not_in_files" if n in info["not_in_files"]
                         else "not_requested") for n in tracked if n not in ds}
     availability[f"{main}_uncertainty"] = "not_provided"
+    for out in derived_outputs:
+        availability[f"{out}_uncertainty"] = "not_provided"
     counts = states.state_counts(flags)
     first, last = (str(datenum_to_datetime(x, "ms")) for x in settings["time_range"])
     ds.attrs = {
