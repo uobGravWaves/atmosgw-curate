@@ -192,3 +192,30 @@ def synthetic_swath(lat0, lon0, heading, n_cross=31, n_along=40, step=18.0):
                       km2deg(np.broadcast_to(offsets[:, None], (n_cross, n_along))),
                       np.broadcast_to(head + 90, (n_cross, n_along)))
     return np.asarray(lat), np.asarray(lon)
+
+
+def test_regrid_flags_follow_the_points_used():
+    """A flag on one input point reaches exactly the output points that use it."""
+    lat, lon = synthetic_swath(30, 0, 20)
+    dist = swath.swath_distances(lat, lon)
+    flags = np.zeros(lat.shape, dtype=np.uint16)
+    flags[5, 5] = 4
+    out = swath.regrid(lat, lon, {"f": np.zeros(lat.shape)}, n_cross=13, n_along=17,
+                       flags=flags)
+    gx, ga = np.meshgrid(out["cross"], out["along"], indexing="ij")
+    near = ((gx > dist["cross"][4]) & (gx < dist["cross"][6])
+            & (ga > dist["along"][4]) & (ga < dist["along"][6]))
+    np.testing.assert_array_equal(out["flags"] == 4, near)
+    nearest = swath.regrid(lat, lon, {}, n_cross=13, n_along=17, flags=flags,
+                           method="nearest")
+    assert (nearest["flags"] == 4).sum() <= near.sum()
+
+
+def test_level_flags_follow_the_levels_used():
+    z = np.array([0.0, 3, 6, 9, 12])
+    flags = np.zeros((2, 5), dtype=np.uint16)
+    flags[0, 2] = 8
+    out = swath.interpolate_level_flags(z, flags, np.array([-1.0, 4.5, 6.0, 7.5, 13]))
+    # 4.5 and 7.5 use level 6 km; 6.0 is exactly on it; outside: none
+    np.testing.assert_array_equal(out[0], [0, 8, 8, 8, 0])
+    assert not out[1].any()

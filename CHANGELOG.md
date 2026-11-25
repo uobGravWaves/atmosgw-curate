@@ -5,6 +5,15 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Faster nadir regridding: `swath.regrid` finds cells and weights once per axis
+  and applies them to every field, level and flag (in blocks), replacing
+  scipy's interpolator; vertical interpolation onto shared heights is one
+  array operation; data states are carried by OR-ing the flags of the points
+  used (new `flags=` in `swath.regrid`, `swath.interpolate_level_flags`)
+  instead of interpolating an indicator per state. A regridded day: AIRS
+  27 s -> 12 s, IASI 96 s -> 23 s and 4.6 -> 2.8 GB peak. Results identical
+  except times, which differ by up to 31 microseconds (datenum rounding).
+  [Claude]
 - `load_nadir_sounders`: AIRS 2-D (`product="2d"`): L. Hoffmann's granule files,
   brightness temperature in four channel groups (`channels=` to choose), with
   the files' perturbations and variances as derived variables. Readers and

@@ -107,8 +107,8 @@ Science
   ``statistical_outlier`` (the reader's ``screen``). Unless ``keep_outliers``,
   bad values are NaN before regridding,
   so a regridded point is NaN if any input it uses is; regridded points take
-  the states of the inputs they use (each state is regridded as an
-  indicator); NaN points with no other state (outside the input) are
+  the states of the inputs they use (the OR of the flags of every input point
+  with a non-zero weight); NaN points with no other state (outside the input) are
   ``no_observation``.
 - Day/night: ``solar.day_retrieval`` (solar zenith angle < 96 degrees, where
   L. Hoffmann's retrieval switches).
@@ -459,7 +459,6 @@ def _regrid(data, flags, settings, info):
                                     settings["dx_cross"])
     extra = [n for n in settings["additional_vars"] + list(data.get("DerivedVars", {}))
              if np.ndim(data[n]) >= 2 and np.shape(data[n])[:2] == lat.shape]
-    present = [s for s in states.STATES if states.has_state(flags, s.name).any()]
     parts, spacing = [], (np.nan, np.nan)
     for seg in np.unique(segment):
         rows = np.flatnonzero(segment == seg)
@@ -470,19 +469,15 @@ def _regrid(data, flags, settings, info):
         n_along = (None if settings["dx_along"] is not None
                    else (settings["n_along"] or info["rows_per_granule"]) * n_gran)
         fields = {"Temp": data["Temp"][:, rows], "Time": data["Time"][:, rows],
-                  **{n: data[n][:, rows] for n in extra},
-                  **{f"state:{s.name}":
-                     states.has_state(flags[:, rows], s.name).astype(float)
-                     for s in present}}
+                  **{n: data[n][:, rows] for n in extra}}
         out = swath.regrid(lat[:, rows], lon[:, rows], fields, n_along=n_along,
                            dx_along=settings["dx_along"],
                            method=settings["interp_type"],
                            extrapolate="linear" if settings["extrapolate"] else None,
-                           cross_axis=cross_axis)
-        new_flags = states.new_flags(out["fields"]["Temp"].shape)
-        for s in present:
-            indicator = out["fields"][f"state:{s.name}"]
-            states.set_state(new_flags, np.nan_to_num(indicator) > 0, s.name)
+                           cross_axis=cross_axis, flags=flags[:, rows])
+        # states: those of every input point used (swath.regrid), and
+        # no_observation for NaN points outside the input
+        new_flags = out["flags"]
         unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
         states.set_state(new_flags, unexplained, "no_observation")
         # per-row information: from the nearest input row along track
@@ -512,14 +507,10 @@ def _regrid(data, flags, settings, info):
 
 
 def _interpolate_with_states(z, values, flags, new_z):
-    """Linear interpolation to new_z, carrying each state as an indicator."""
+    """Linear interpolation to new_z; each new level takes the states of the
+    levels used (swath.interpolate_level_flags)."""
     out = swath.interpolate_levels(z, values, new_z)
-    new_flags = states.new_flags(out.shape)
-    for s in states.STATES:
-        has = states.has_state(flags, s.name)
-        if has.any():
-            indicator = swath.interpolate_levels(z, has.astype(float), new_z)
-            states.set_state(new_flags, np.nan_to_num(indicator) > 0, s.name)
+    new_flags = swath.interpolate_level_flags(z, flags, new_z)
     unexplained = np.isnan(out) & ~states.no_value_mask(new_flags)
     states.set_state(new_flags, unexplained, "no_observation")
     return out, new_flags

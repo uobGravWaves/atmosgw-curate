@@ -51,6 +51,9 @@ dx_along=None, method="linear", extrapolate=None)``:
 - ``method``: ``"linear"`` or ``"nearest"``; ``extrapolate``: None (NaN
   outside the input), ``"linear"`` or ``"nearest"``. As MATLAB's
   ``Interpolant`` and ``Extrapolant``.
+- ``flags``: optional data-state flags [cross x along (x ...)] (integers),
+  returned in ``flags``: each output point gets the OR of the flags of every
+  input point that contributes to it with a non-zero weight.
 - ``cross_axis``: a cross-track axis (km) to use instead of one built from
   this swath, so that several segments of a swath share one (overrides
   ``n_cross`` and ``dx_cross``).
@@ -132,7 +135,6 @@ Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np
-from scipy.interpolate import RegularGridInterpolator
 
 from atmosgw.curate.geodesy import EARTH_RADIUS_KM, azimuth, km2deg, reckon
 from atmosgw.curate.matlab_compat import interp1
@@ -188,7 +190,8 @@ def regular_axis(values, n=None, spacing=None):
 
 
 def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
-           dx_along=None, method="linear", extrapolate=None, cross_axis=None):
+           dx_along=None, method="linear", extrapolate=None, cross_axis=None,
+           flags=None):
     """Regrid a swath onto a regular grid in distance. See the module docstring."""
     method = method.lower()
     if method not in ("linear", "nearest"):
@@ -219,29 +222,25 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
                               km2deg(np.broadcast_to(new_cross[:, None], (n_x, n_a))),
                               np.broadcast_to(heading + 90, (n_x, n_a)))
 
-    # fields: interpolation in distance space
-    query = np.stack(np.meshgrid(new_cross, new_along, indexing="ij"), axis=-1)
+    # fields: interpolation in distance space. The grid is rectilinear in
+    # distance, so cells and weights are found once per axis and applied to
+    # every field, level and flag (the arithmetic of scipy's
+    # RegularGridInterpolator, which this replaced for speed)
+    q_cross, q_along = new_cross, new_along
     if extrapolate == "nearest":
-        query = np.stack([np.clip(query[..., 0], dist["cross"][0], dist["cross"][-1]),
-                          np.clip(query[..., 1], dist["along"][0], dist["along"][-1])],
-                         axis=-1)
-    fill = None if extrapolate == "linear" else np.nan
-    new_fields = {}
-    for name, value in fields.items():
-        value = np.asarray(value, dtype=float)
-        flat = value.reshape(value.shape[0], value.shape[1], -1)
-        out = np.empty((n_x, n_a, flat.shape[2]))
-        for k in range(flat.shape[2]):
-            f = RegularGridInterpolator((dist["cross"], dist["along"]), flat[:, :, k],
-                                        method=method, bounds_error=False,
-                                        fill_value=fill)
-            out[:, :, k] = f(query)
-        new_fields[name] = out.reshape((n_x, n_a) + value.shape[2:])
+        q_cross = np.clip(q_cross, dist["cross"][0], dist["cross"][-1])
+        q_along = np.clip(q_along, dist["along"][0], dist["along"][-1])
+    axes = (_axis_weights(dist["cross"], q_cross, method, extrapolate == "linear"),
+            _axis_weights(dist["along"], q_along, method, extrapolate == "linear"))
+    new_fields = {name: _apply_weights(np.asarray(value, dtype=float), axes)
+                  for name, value in fields.items()}
+    new_flags = None if flags is None else _apply_flags(np.asarray(flags), axes)
 
     spacing = (abs(new_cross[1] - new_cross[0]) if n_x > 1 else np.nan,
                abs(new_along[1] - new_along[0]) if n_a > 1 else np.nan)
     return {"lat": np.asarray(new_lat), "lon": np.asarray(new_lon),
-            "fields": new_fields, "cross": new_cross, "along": new_along,
+            "fields": new_fields, "flags": new_flags, "cross": new_cross,
+            "along": new_along,
             "spacing": spacing}
 
 
@@ -258,13 +257,128 @@ def regular_levels(z, spacing=3.0):
 def interpolate_levels(z, values, new_z):
     """Values [..., level] on levels z (km), linearly onto new_z; NaN outside."""
     values = np.asarray(values, dtype=float)
-    z = np.asarray(z, dtype=float).ravel()
+    plan = _level_plan(z, new_z)
+    if plan is None:  # heights not finite and distinct: the general route
+        z = np.asarray(z, dtype=float).ravel()
+        flat = values.reshape(-1, values.shape[-1])
+        out = interpolate_profiles(np.broadcast_to(z, flat.shape), flat, new_z)
+        return out.reshape(values.shape[:-1] + (np.size(new_z),))
+    j, t, q, x0, x1, outside, enough = plan[:7]
     flat = values.reshape(-1, values.shape[-1])
-    out = interpolate_profiles(np.broadcast_to(z, flat.shape), flat, new_z)
-    return out.reshape(values.shape[:-1] + (np.size(new_z),))
+    if len(plan) > 7:
+        flat = flat[:, plan[7]]
+    out = np.empty((flat.shape[0], q.size))
+    block = 200_000  # columns at a time, to bound temporary memory
+    for start in range(0, flat.shape[0], block):
+        v = flat[start:start + block]
+        v0, v1 = v[:, j], v[:, j + 1]
+        with np.errstate(invalid="ignore"):
+            r = (1 - t) * v0 + t * v1
+        r = np.where(v0 == v1, v0, r)
+        r = np.where(q == x0, v0, np.where(q == x1, v1, r))
+        r[:, outside] = np.nan
+        if not enough:
+            r[...] = np.nan
+        out[start:start + block] = r
+    return out.reshape(values.shape[:-1] + (q.size,))
 
 
-# supporting functions
+def interpolate_level_flags(z, flags, new_z):
+    """
+    Data-state flags [..., level] carried to new_z with interpolate_levels:
+    each new level takes the flags of the levels that contribute to it with a
+    non-zero weight (OR); none outside the input levels.
+    """
+    flags = np.asarray(flags)
+    plan = _level_plan(z, new_z)
+    if plan is None:
+        raise ValueError("Flags need finite, distinct heights.")
+    j, t, q, x0, x1, outside, enough = plan[:7]
+    flat = flags.reshape(-1, flags.shape[-1])
+    if len(plan) > 7:
+        flat = flat[:, plan[7]]
+    use0 = (t != 1) & ~outside
+    use1 = (t != 0) & ~outside
+    out = (np.where(use0, flat[:, j], 0) | np.where(use1, flat[:, j + 1], 0))
+    return out.astype(flags.dtype).reshape(flags.shape[:-1] + (q.size,))
+
+
+def _level_plan(z, new_z):
+    """Intervals and weights for interpolating from levels z to new_z, with the
+    arithmetic and rules of matlab_compat.interp1 (linear, no extrapolation),
+    once for all columns. None if the heights are not finite and distinct."""
+    z = np.asarray(z, dtype=float).ravel()
+    q = np.asarray(new_z, dtype=float).ravel()
+    if not np.all(np.isfinite(z)) or np.unique(z).size != z.size:
+        return None
+    order = np.argsort(z, kind="stable")
+    x = z[order]
+    n = x.size
+    m = max(n, 2)
+    j = np.clip((x[:, None] <= q[None, :]).sum(axis=0) - 1, 0, m - 2)
+    x0, x1 = x[j], x[j + 1]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        t = (q - x0) / (x1 - x0)
+    outside = (q < x[0]) | (q > x[-1]) | np.isnan(q)
+    plan = (j, t, q, x0, x1, outside, n > 2)
+    if not np.array_equal(order, np.arange(n)):
+        plan = plan + (order,)
+    return plan
+
+
+def _axis_weights(grid, q, method, extrapolate):
+    """Cell index and weights along one axis, as RegularGridInterpolator."""
+    i = np.clip(np.searchsorted(grid, q) - 1, 0, grid.size - 2)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        y = (q - grid[i]) / (grid[i + 1] - grid[i])
+    outside = (q < grid[0]) | (q > grid[-1])
+    if method == "nearest":
+        i = np.where(y <= 0.5, i, i + 1)
+        w = [np.ones_like(y)]
+        idx = [i]
+    else:
+        w = [1 - y, y]
+        idx = [i, i + 1]
+    if not extrapolate:
+        w = [np.where(outside, np.nan, wk) for wk in w]
+    return idx, w
+
+
+def _apply_weights(value, axes, block=1024):
+    """Interpolate value [cross x along (x ...)] with per-axis cells and weights,
+    in blocks of output along-track rows (to bound temporary memory)."""
+    (ix, wx), (iy, wy) = axes
+    extra = (None,) * (value.ndim - 2)
+    n_a = iy[0].size
+    out = np.empty((ix[0].size, n_a) + value.shape[2:])
+    for start in range(0, n_a, block):
+        part = slice(start, start + block)
+        acc = None
+        for a, wxa in zip(ix, wx, strict=True):
+            for b, wyb in zip(iy, wy, strict=True):
+                weight = (wxa[:, None] * wyb[None, part])[(...,) + extra]
+                term = value[np.ix_(a, b[part])] * weight
+                acc = term if acc is None else acc + term
+        out[:, part] = acc
+    return out
+
+
+def _apply_flags(flags, axes, block=1024):
+    """OR of the flags of every input point with a non-zero weight (in blocks)."""
+    (ix, wx), (iy, wy) = axes
+    extra = (None,) * (flags.ndim - 2)
+    n_a = iy[0].size
+    out = np.zeros((ix[0].size, n_a) + flags.shape[2:], dtype=flags.dtype)
+    for start in range(0, n_a, block):
+        part = slice(start, start + block)
+        for a, wxa in zip(ix, wx, strict=True):
+            for b, wyb in zip(iy, wy, strict=True):
+                used = ((np.nan_to_num(wxa[:, None]) != 0)
+                        & (np.nan_to_num(wyb[None, part]) != 0))
+                picked = flags[np.ix_(a, b[part])]
+                out[:, part] |= np.where(used[(...,) + extra], picked, 0).astype(
+                    flags.dtype)
+    return out
 
 
 def _deg2km(deg):
