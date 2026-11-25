@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-25
+- `load_limb_sounders` checked by C. Wright, by comparing its outputs with
+  the MATLAB `get_limbsounders` (SABER, HIRDLS); README and docstring
+  updated to say so. [Claude]
 - `load_limb_sounders(verbose=True)` now prints a line as each variable is
   interpolated, so long loads are not silent. [Claude]
 - `load_limb_sounders`: the source indices are no longer interpolated when
