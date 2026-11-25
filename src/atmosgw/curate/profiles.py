@@ -20,7 +20,7 @@ metadata that is not per profile).
 ==============================================================  ====================
 Function                                                        Returns
 ==============================================================  ====================
-``concat_profiles(days, names)``                                dict, profiles of
+``concat_profiles(days, names, consume=False)``                 dict, profiles of
                                                                 all days stacked
 ``select_profiles(data, keep, skip=())``                        dict, chosen
                                                                 profiles only
@@ -34,7 +34,10 @@ Function                                                        Returns
   ``names``, the arrays are padded with NaN to the largest size in every
   dimension but the first, converted to float64, and stacked along the first
   dimension (as the MATLAB ``cat_struct``). DataFrames are stacked by row.
-  With no days, every variable is a 0 x 0 float64 array.
+  With no days, every variable is a 0 x 0 float64 array. With
+  ``consume=True``, each variable is removed from the day dicts once it has
+  been stacked, so its memory can be freed during the stacking (for callers
+  that do not need the days afterwards); the result is the same.
 - ``select_profiles``: ``keep`` is an index array or boolean mask over
   profiles (as the MATLAB ``reduce_struct`` along dimension 1).
 - ``interpolate_profiles``: each profile of ``values`` (and each trailing
@@ -46,6 +49,11 @@ Function                                                        Returns
 - ``clip_to_height_range``: points with ``alt`` outside ``height_range`` are
   set to NaN in every variable shaped like ``alt`` (all trailing slices), then
   levels with no finite in-range height are removed from every variable.
+- ``clip_to_height_range`` and ``mask_points`` take ``copy`` (default
+  True). With ``copy=False``, floating-point arrays of the [profiles x
+  levels] shape are changed in place (so the input dict's arrays change too)
+  instead of copied, which halves the memory needed; the results are the
+  same. ``load_limb_sounders`` uses this on its own arrays.
 - ``mask_points``: ``mask`` is a boolean [profiles x levels] array; masked
   points become NaN in every variable (all trailing slices). A 2-D variable of
   a different shape is masked through MATLAB-style linear indices (column-
@@ -104,7 +112,7 @@ import pandas as pd
 from atmosgw.curate.matlab_compat import interp1
 
 
-def concat_profiles(days, names):
+def concat_profiles(days, names, consume=False):
     """Stack the days' variables along profiles, padding with NaN."""
     out = {}
     for name in names:
@@ -115,6 +123,10 @@ def concat_profiles(days, names):
             out[name] = pd.concat(parts, ignore_index=True)
         else:
             out[name] = _concat_padded([np.asarray(p) for p in parts])
+        if consume:
+            del parts
+            for day in days:
+                day.pop(name, None)
     return out
 
 
@@ -156,11 +168,12 @@ def interpolate_profiles(alt, values, new_alt, method="linear", extrap=None):
     return out.reshape((values.shape[0], new_alt.size) + values.shape[2:])
 
 
-def clip_to_height_range(data, alt, height_range, skip=()):
+def clip_to_height_range(data, alt, height_range, skip=(), copy=True):
     """NaN outside the height range, then drop levels with nothing in range."""
     alt = np.asarray(alt)
     bad = (alt < min(height_range)) | (alt > max(height_range))
     levels = np.flatnonzero(np.any(np.isfinite(alt) & ~bad, axis=0))
+    all_levels = levels.size == bad.shape[1]
     out = {}
     for name, value in data.items():
         if name in skip or isinstance(value, pd.DataFrame):
@@ -168,12 +181,12 @@ def clip_to_height_range(data, alt, height_range, skip=()):
             continue
         value = np.asarray(value)
         if value.shape[:2] == bad.shape:
-            value = _set_nan(value, bad)
-        out[name] = value[:, levels]
+            value = _set_nan(value, bad, copy)
+        out[name] = value if all_levels and not copy else value[:, levels]
     return out
 
 
-def mask_points(data, mask, skip=()):
+def mask_points(data, mask, skip=(), copy=True):
     """Set masked [profiles x levels] points to NaN in every variable."""
     mask = np.asarray(mask, dtype=bool)
     out = {}
@@ -182,8 +195,9 @@ def mask_points(data, mask, skip=()):
             out[name] = value
             continue
         value = np.asarray(value)
-        if value.ndim > 2 and value.shape[:2] == mask.shape:
-            out[name] = _set_nan(value, mask)
+        if value.shape[:2] == mask.shape and (value.ndim > 2 or not copy):
+            # (2-D of the mask's shape: the same points as the linear indices)
+            out[name] = _set_nan(value, mask, copy)
         else:
             out[name] = _set_nan_linear(value, mask)
     return out
@@ -217,12 +231,15 @@ def _concat_padded(parts):
     ndim = max(p.ndim for p in parts)
     parts = [p.reshape(p.shape + (1,) * (ndim - p.ndim)) for p in parts]
     other = [max(p.shape[d] for p in parts) for d in range(1, ndim)]
-    padded = []
+    # filled in place (no padded copy of each part): the same values as padding
+    # each part and concatenating
+    out = np.full((sum(p.shape[0] for p in parts), *other), np.nan)
+    start = 0
     for p in parts:
-        q = np.full((p.shape[0], *other), np.nan)
-        q[tuple(slice(0, s) for s in p.shape)] = p
-        padded.append(q)
-    return np.concatenate(padded, axis=0)
+        out[(slice(start, start + p.shape[0]),)
+            + tuple(slice(0, s) for s in p.shape[1:])] = p
+        start += p.shape[0]
+    return out
 
 
 _PIECEWISE = ("linear", "nearest", "next", "previous")
@@ -311,9 +328,14 @@ def _usable_levels(alt_row):
     return np.intersect1d(np.flatnonzero(np.isfinite(alt_row)), first)
 
 
-def _set_nan(value, mask):
-    """NaN where a [profiles x levels] mask is set, on every trailing slice."""
-    value = value.astype(float, copy=True) if value.dtype.kind != "f" else value.copy()
+def _set_nan(value, mask, copy=True):
+    """NaN where a [profiles x levels] mask is set, on every trailing slice.
+    copy=False changes a floating-point array in place (others are converted
+    to float64, i.e. copied, either way)."""
+    if value.dtype.kind != "f":
+        value = value.astype(float, copy=True)
+    elif copy or not value.flags.writeable:
+        value = value.copy()
     value[mask] = np.nan
     return value
 

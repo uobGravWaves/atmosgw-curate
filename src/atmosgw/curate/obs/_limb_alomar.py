@@ -80,7 +80,7 @@ def load(settings, inst_info, var_names):
     if not days:  # no file for the years asked for: no profiles
         return {name: np.empty((0, 0)) for name in var_names}, file_list
 
-    store = concat_profiles(days, [k for k in days[0]])
+    store = concat_profiles(days, list(days[0]), consume=True)
     time = store["time_lidar"][:, 0]
     keep = np.flatnonzero((time >= settings["time_range"][0])
                           & (time <= settings["time_range"][1]))

@@ -106,4 +106,4 @@ def load(settings, inst_info, var_names):
 
         days.append(conform_vars(store, settings))
 
-    return concat_profiles(days, var_names), file_list
+    return concat_profiles(days, var_names, consume=True), file_list

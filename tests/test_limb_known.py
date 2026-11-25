@@ -692,3 +692,33 @@ def test_sofie_time_ut_is_hours():
     assert times.min() >= np.datetime64(day)
     assert times.max() < np.datetime64(day) + np.timedelta64(1, "D")
     assert "hours" in ds.time.attrs["comment"]
+
+
+def test_hirdls_unknown_additional_var_is_refused():
+    # was a misleading size error, or NaN passed through with ignore_non_modal
+    _hirdls_or_skip()
+    for ignore in (False, True):
+        with pytest.raises(KeyError, match="Nope not found.*not a HIRDLS variable"):
+            load_limb_sounders(D1, "HIRDLS", additional_vars=["Nope"],
+                               ignore_non_modal=ignore)
+
+
+def test_concat_profiles_consume_gives_the_same_result():
+    from atmosgw.curate.profiles import concat_profiles
+
+    def days():  # different numbers of levels and modes, float32, int, bool
+        return [{"a": np.arange(6, dtype=np.float32).reshape(2, 3),
+                 "b": np.ones((2, 3, 2), dtype=int)},
+                {"a": np.full((1, 5), 7.0), "b": np.zeros((1, 3, 4), dtype=bool)}]
+
+    kept = days()
+    plain = concat_profiles(kept, ["a", "b"])
+    used = days()
+    consumed = concat_profiles(used, ["a", "b"], consume=True)
+    assert all(set(day) == {"a", "b"} for day in kept)  # default: days untouched
+    assert all(day == {} for day in used)
+    for name in ("a", "b"):
+        np.testing.assert_array_equal(plain[name], consumed[name])  # exact
+        assert plain[name].dtype == np.float64
+    np.testing.assert_array_equal(plain["a"][2], [7, 7, 7, 7, 7])
+    assert np.isnan(plain["a"][0, 3]) and plain["b"].shape == (3, 3, 4)

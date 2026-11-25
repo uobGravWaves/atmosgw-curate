@@ -104,6 +104,8 @@ def load(settings, inst_info, var_names):
         # per-profile and per-level variables onto [profiles x levels]
         n_prof, n_lev = store["Temp"].shape
         for name in ("Lat", "Lon", "Time", "SourceProf", "SourceFile"):
+            if name not in store:  # (source indices only if asked for)
+                continue
             store[name] = np.tile(store[name], (1, n_lev))
         store["Pres"] = np.tile(store["Pres"].T, (n_prof, 1))
         if "ScanUpFlag" in store:
@@ -130,15 +132,18 @@ def load(settings, inst_info, var_names):
 
 
 def _get_hirdls(path, name):
-    """One variable as float64, fill values (-999) as NaN; 1-D as a column, and
-    NaN (1 x 1) for a name that is not a HIRDLS variable, as get_HIRDLS."""
+    """One variable as float64, fill values (-999) as NaN; 1-D as a column.
+    A name that is not a HIRDLS variable raises KeyError (get_HIRDLS prints a
+    message and returns NaN, which then failed later with a misleading size
+    error, or passed through as NaN with ignore_non_modal)."""
     if name in GEOLOCATION_FIELDS:
         group = "Geolocation Fields"
     elif name in DATA_FIELDS:
         group = "Data Fields"
     else:
-        print(f"Error: '{name}' is not present in this file format")
-        return np.array([[np.nan]])
+        raise KeyError(f"Variable {name} not found in {path} (not a HIRDLS "
+                       "variable: see GEOLOCATION_FIELDS and DATA_FIELDS in "
+                       "atmosgw.curate.obs._limb_hirdls)")
     value = read_hdf5(path, f"{_SWATH}/{group}/{name}")
     value[value == -999] = np.nan
     return value[:, None] if value.ndim == 1 else value

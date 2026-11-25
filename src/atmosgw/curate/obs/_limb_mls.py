@@ -96,6 +96,8 @@ def load(settings, inst_info, var_names):
         # per-profile and per-level variables onto [profiles x levels]
         n_prof, n_lev = store["Temp"].shape
         for name in ("Lat", "Lon", "Time", "SourceProf", "SourceFile"):
+            if name not in store:  # (source indices only if asked for)
+                continue
             store[name] = np.tile(store[name], (1, n_lev))
         store["Pres"] = np.tile(store["Pres"].T, (n_prof, 1))
         store["Alt"] = np.tile(store["Alt"].T, (n_prof, 1))

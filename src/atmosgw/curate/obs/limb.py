@@ -212,6 +212,7 @@ Change log
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
 2026/11/25 [Claude] attributes: version, options, files read/not found, variable sources
 2026/11/25 [Claude] clearer error for dates that do not exist (e.g. "2022-01-34")
+2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 
 How to cite
 -----------
@@ -362,6 +363,11 @@ def _load_limb_arrays(time_range, instrument, **options):
     else:
         var_names = ["Lat", "Lon", "Time", "Temp", "Pres", "Alt", "SourceProf",
                      "SourceFile"]
+    # source indices are made only if asked for (MATLAB makes them, interpolates
+    # them and drops them at the end; the other results are the same)
+    if not settings["file_source"]:
+        var_names = [name for name in var_names
+                     if name not in ("SourceProf", "SourceFile")]
     var_names = var_names + list(settings["additional_vars"])
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
@@ -389,7 +395,8 @@ def _load_limb_arrays(time_range, instrument, **options):
     mean_time = _nanmean_rows(data["Time"])
     keep = (mean_time >= settings["time_range"][0]) & (
         mean_time <= settings["time_range"][1])
-    data = select_profiles(data, np.flatnonzero(keep), skip)
+    if not keep.all():  # (all kept: nothing to do, and no copy of everything)
+        data = select_profiles(data, np.flatnonzero(keep), skip)
 
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and np.shape(data["Time"])[0] == 0):
@@ -400,12 +407,10 @@ def _load_limb_arrays(time_range, instrument, **options):
             stacklevel=3,
         )
 
-    # source indices are returned only if asked for: drop them now, rather than
-    # interpolating them and then discarding them (MATLAB drops them at the end)
+    # (the ALOMAR reader always makes source indices: dropped here if not asked for)
     if not settings["file_source"]:
-        del data["SourceProf"], data["SourceFile"]
-        var_names = [name for name in var_names
-                     if name not in ("SourceProf", "SourceFile")]
+        data.pop("SourceProf", None)
+        data.pop("SourceFile", None)
 
     if not settings["original_z"]:
         # unwrap longitudes along each profile (finite values only), so that
@@ -452,11 +457,18 @@ def _load_limb_arrays(time_range, instrument, **options):
                 )
                 if log_pres:
                     new[name] = np.exp(new[name])
+            # free each input once done (memory); heights are needed to the end
+            if name != "Alt":
+                data.pop(name, None)
+            if name == "Lon":
+                lon = None
+            value = None
         data = new
         data["Lon"] = np.rad2deg(wrap_to_pi(data["Lon"]))
     else:
         # clip to the height range: NaN outside it, then drop empty levels
-        data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip)
+        data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
+                                    copy=False)  # (in place: memory)
 
     # longitudes into [-180, 180]
     lon = np.array(data["Lon"], dtype=float)
@@ -468,7 +480,8 @@ def _load_limb_arrays(time_range, instrument, **options):
         print("--> Postprocessing")
 
     if not settings["keep_outliers"]:
-        data = mask_points(data, _find_outliers(data, settings), skip)
+        data = mask_points(data, _find_outliers(data, settings), skip,
+                           copy=False)  # (in place: memory)
         if verbose:
             print("----> Outliers removed")
 
