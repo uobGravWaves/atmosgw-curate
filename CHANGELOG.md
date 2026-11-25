@@ -6,6 +6,12 @@ reference outputs.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-25
+- Documentation: Q5 is now fixed on the MATLAB side (`wildcardsearch.m`
+  clears `regexpdir`'s persistent root before each search), so MATLAB and
+  `readers.find_files` agree. No change to this package's code or results.
+  [Claude]
+
 ## [0.3.1] - 2026-11-25
 - `geodesy.haversine`: nearly antipodal points (within about 1e-7 degrees)
   now give half a great circle instead of NaN (Q4); the same fix in the
