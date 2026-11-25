@@ -24,6 +24,7 @@ import pytest
 from scipy.io import savemat
 
 from atmosgw.curate.atmosphere import height_to_pressure
+from atmosgw.curate.data import states, validate
 from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs import load_limb_sounders
 
@@ -407,6 +408,82 @@ def test_output_format(syn):
     assert np.all(np.isnan(ds.dx.values[0]))
     # neighbouring profiles: 17.14 degrees of latitude and 45 of longitude apart
     assert 1000 < np.nanmin(ds.dx.values[1:8]) < 6000
+
+
+# the profile format (data states, origins, attributes); values unchanged by it
+
+
+@pytest.mark.parametrize("options", [
+    {}, {"original_z": True}, {"file_source": True, "dx": True},
+    {"original_z": True, "height_range": (20, 40)}, {"keep_outliers": True},
+    {"lat_range": (-30, 30)},
+])
+def test_output_is_valid_profile_format(syn, options):
+    for identifier in ("synlin", "synbad"):
+        validate(misc(syn, identifier, [D1, D2], **options), "profile")
+    validate(pw(syn, original_z=True), "profile")
+    validate(pw(syn, **options), "profile")
+
+
+def test_states_of_removed_points(syn):
+    ds = misc(syn, "synbad", original_z=True)
+    for name in ("temperature", "pressure"):
+        flag = ds[f"{name}_flag"].values
+        assert states.has_state(flag[2, 4], "bad_geolocation")
+        assert states.has_state(flag[5, 6], "outside_physical_range")
+        assert np.count_nonzero(states.no_value_mask(flag)) == 2
+    # the synthetic files have no pressure: estimated from height, for all files
+    assert ds.pressure.attrs["origin"] == "derived"
+    assert ds.temperature.attrs["origin"] == "retrieved"
+    finite = np.isfinite(ds.pressure.values)
+    np.testing.assert_array_equal(
+        states.has_state(ds.pressure_flag.values, "derived"), finite)
+    assert ds.attrs["state_counts"] == (
+        "temperature: bad_geolocation 1, outside_physical_range 1; "
+        f"pressure: bad_geolocation 1, outside_physical_range 1, derived "
+        f"{int(finite.sum())}")
+
+
+def test_states_kept_with_keep_outliers(syn):
+    ds = misc(syn, "synbad", original_z=True, keep_outliers=True)
+    assert ds.temperature.values[5, 6] == 50
+    assert states.has_state(ds.temperature_flag.values[5, 6], "outside_physical_range")
+    assert states.has_state(ds.temperature_flag.values[2, 4], "bad_geolocation")
+
+
+def test_states_of_absent_points(syn):
+    # interpolated: NaN above each profile's top
+    ds = misc(syn, "synlin")
+    np.testing.assert_array_equal(
+        states.has_state(ds.temperature_flag.values, "no_observation"), ~EXP_FINITE)
+    # original heights clipped to a height range
+    ds = misc(syn, "synlin", original_z=True, height_range=(20, 40))
+    alt = ds.altitude.values
+    outside = ~((alt >= 20) & (alt <= 40))
+    np.testing.assert_array_equal(
+        states.has_state(ds.temperature_flag.values, "outside_requested_range"),
+        outside)  # (clipped points have NaN altitude too)
+    assert not np.any(states.has_state(ds.temperature_flag.values, "no_observation"))
+
+
+def test_pw_states_over_modes(syn):
+    ds = pw(syn, original_z=True)
+    flag = ds.temperature_pw_flag.values
+    assert ds.temperature_pw_flag.dims == ("profile", "level", "mode")
+    assert np.all(states.has_state(flag[2, 4, :], "bad_geolocation"))
+    assert ds.temperature_pw.attrs["origin"] == "derived"
+    assert ds.temperature_residual.attrs["origin"] == "derived"
+
+
+def test_format_attributes(syn):
+    ds = misc(syn, "synlin")
+    assert ds.attrs["format"] == "profile" and ds.attrs["format_version"] == 1
+    assert ds.attrs["product"] == "temperature"
+    assert ds.attrs["characterisation"] == "Misc-TEMPERATURE-placeholder/0"
+    listed = states.parse_availability(ds.attrs["availability"])
+    assert listed["source_profile"] == "not_requested"
+    assert listed["temperature_uncertainty"] == "not_provided"
+    assert ds.temperature.attrs["ancillary_variables"] == "temperature_flag"
 
 
 def test_no_source_fields_unless_asked(syn):

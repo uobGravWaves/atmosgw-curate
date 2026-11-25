@@ -6,7 +6,8 @@ Internal helpers for the limb-sounder loader (``load_limb_sounders``).
 - ``loop_days``: the day loop shared by readers with one file per day.
 - ``newest_mls_version``: of several MLS files for a day, the newest version
   (new, not in the MATLAB).
-- ``ESTIMATED_PRES``: the note recorded for pressure computed from height.
+- ``ESTIMATED_PRES``, ``note_estimated_pres``: the note recorded for pressure
+  computed from height, and the record of the files it was computed for.
 
 Helpers shared with the nadir loader (time rules, the load record, file
 choice) are in ``obs/_common.py``.
@@ -16,7 +17,9 @@ Ported from the MATLAB ``get_limbsounders`` and its modules
 Data dicts use the MATLAB variable names (``Lat``, ``Temp`` ...) and datenum
 times; see ``limb.py``.
 
-Change log: 2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
+Change log:
+2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
+2026/11/25 [Claude] note_estimated_pres: files with estimated pressure recorded
 """
 
 import math
@@ -27,7 +30,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from atmosgw.curate.obs._common import day_label, record
+from atmosgw.curate.obs._common import day_label, note, record
 from atmosgw.curate.profiles import concat_profiles
 
 
@@ -140,3 +143,13 @@ def newest_mls_version(files):
 # note for pressure computed from height
 ESTIMATED_PRES = ("estimated from height with atmosphere.height_to_pressure "
                   "(U.S. Standard Atmosphere 1976 [R1])")
+
+
+def note_estimated_pres(inst_info, path):
+    """Record that the file at path had no pressure, so it was estimated from
+    height: the note for Pres, and the file in the record's
+    ``estimated_pres_files`` (so the output can say whether all or only some
+    pressures are estimated)."""
+    note(inst_info, "Pres", ESTIMATED_PRES + ", for files without Pres")
+    record(inst_info).setdefault("estimated_pres_files", []).append(
+        os.path.basename(path))

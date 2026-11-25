@@ -345,7 +345,7 @@ own branches, so it can run alongside the limb-loader work.
 - *Agreed:* applying the format spec to `load_limb_sounders` output
   (attributes, state flags and `availability`; values unchanged) is a separate
   change, after the
-  limb work in progress is merged.
+  limb work in progress is merged. *Done* (2026-11-25).
 
 ## 13. MATLAB -> Python names
 

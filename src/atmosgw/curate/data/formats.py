@@ -31,7 +31,8 @@ What ``validate`` checks:
 - dimensions, and the order of each variable's dimensions;
 - required variables (some depend on ``product``, ``grid`` or the data:
   e.g. ``temperature`` for 3-D swaths, ``brightness_temperature`` for 2-D);
-- types: data variables float32; coordinates float64; ``time``
+- types: data variables float32 (profile format: float32 or float64, so the
+  limb loader's values are kept exactly); coordinates float64; ``time``
   ``datetime64[us]``; flags ``states.FLAG_DTYPE``;
 - ``units`` attributes; latitude in [-90, 90], longitude in [-180, 180];
 - required dataset attributes, and that ``characterisation`` looks like
@@ -74,6 +75,7 @@ Proposal (format version 1 is a draft for agreement).
 Change log
 ----------
 2026/11/25 [Claude] initial version
+2026/11/25 [Claude] profile format: data variables may be float64
 
 How to cite
 -----------
@@ -102,6 +104,10 @@ _POINT = ("along_track", "cross_track")
 _NATIVE = ("native_along", "native_cross")
 _GEOMETRY = ("satellite_latitude", "satellite_longitude", "satellite_altitude",
              "view_zenith_angle", "view_azimuth_angle")
+
+# profile data variables: float32 or float64 (proposal, 2026-11-25: the limb
+# loader's values stay exactly as loaded)
+_PROFILE_DATA_TYPES = ("float32", "float64")
 
 FORMATS = {
     "swath": {
@@ -173,13 +179,15 @@ FORMATS = {
             "altitude": dict(kind="coord", dims=("profile", "level"), units="km",
                              required=True),
             "temperature": dict(kind="data", dims=("profile", "level"), units="K",
-                                required="raw"),
+                                required="raw", dtypes=_PROFILE_DATA_TYPES),
             "pressure": dict(kind="data", dims=("profile", "level"), units="hPa",
-                             required=True),
+                             required=True, dtypes=_PROFILE_DATA_TYPES),
             "temperature_residual": dict(kind="data", dims=("profile", "level"),
-                                         units="K", required="pw"),
+                                         units="K", required="pw",
+                                         dtypes=_PROFILE_DATA_TYPES),
             "temperature_pw": dict(kind="data", dims=("profile", "level", "mode"),
-                                   units="K", required="pw"),
+                                   units="K", required="pw",
+                                   dtypes=_PROFILE_DATA_TYPES),
             "source_profile": dict(kind="index", dims=("profile", "level"),
                                    tracked=True),
             "source_file": dict(kind="index", dims=("profile", "level"),
@@ -313,8 +321,10 @@ def _check_variable(ds, name, var):
         out.append(f"{name!r} has dimensions {tuple(v.dims)}, expected "
                    + " or ".join(str(tuple(d)) for d in allowed))
     kind, dtype = var["kind"], v.dtype
-    if kind == "data" and dtype != np.float32:
-        out.append(f"{name!r} is {dtype}, expected float32")
+    allowed_types = [np.dtype(t) for t in var.get("dtypes", ("float32",))]
+    if kind == "data" and dtype not in allowed_types:
+        out.append(f"{name!r} is {dtype}, expected "
+                   + " or ".join(str(t) for t in allowed_types))
     elif kind == "coord" and dtype != np.float64:
         out.append(f"{name!r} is {dtype}, expected float64")
     elif kind == "time" and dtype != np.dtype("datetime64[us]"):

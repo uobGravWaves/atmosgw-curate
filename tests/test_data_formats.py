@@ -141,3 +141,14 @@ def test_availability_helper():
 def test_unknown_format():
     with pytest.raises(ValueError):
         validate(example_swath(), "image")
+
+
+def test_profile_data_may_be_float64():
+    # the limb loader keeps its values exactly (float64); swath data stay float32
+    from atmosgw.curate.data.convert import to_profiles
+
+    prof = to_profiles(example_swath())
+    validate(prof.assign(temperature=prof.temperature.astype(np.float64)), "profile")
+    found = problems(prof.assign(temperature=prof.temperature.astype(np.float16)),
+                     "profile")
+    assert any("float32 or float64" in p for p in found)

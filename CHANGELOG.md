@@ -5,6 +5,12 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders` output is now in the common "profile" format: a state
+  flag (`<variable>_flag`) and an `origin` for each data variable, and the
+  attributes `format`, `format_version`, `product`, `characterisation`,
+  `availability` and `state_counts`. Values are unchanged (checked on real
+  data for eight instruments). The profile format accepts float64 data
+  variables. [Claude]
 - Shared loader helpers (time rules, load record, file choice, option checks,
   range check, load attributes) moved into `obs/_common.py` and used by both
   `load_limb_sounders` and `load_nadir_sounders`; outputs unchanged. [Claude]

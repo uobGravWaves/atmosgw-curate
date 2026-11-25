@@ -104,7 +104,32 @@ passed through by ``ignore_non_modal`` have their own dimensions
 (``<name>_dim0`` ...), or none if they hold a single value. Missing values
 are NaN (NaT for times). With no profiles, ``profile`` has length 0.
 
-Attributes of the Dataset, recording the load: ``instrument``, ``data``
+The output is in the common "profile" format, version 1
+(``docs/design/data_formats.md``; check with ``data.validate(ds,
+"profile")``); the values are as before the format was applied. Each data
+variable (``temperature``, ``pressure``, ``temperature_residual``,
+``temperature_pw``) has a state flag ``<name>_flag`` of the same dimensions
+(``data.states``) and an ``origin`` attribute. States set: ``bad_geolocation``
+(latitude or longitude out of range), ``outside_physical_range`` (temperature
+< 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside the
+height scale, or outside ``height_range`` with ``original_z``); as in
+MATLAB, a point removed for one variable is removed (and flagged) in all of
+them. With ``keep_outliers`` the values are kept and the states still set.
+Every other NaN is ``no_observation``: above or below a profile, padding
+between profiles of different lengths, or NaN in the file (the loader cannot
+tell these apart). ``origin``: "retrieved", except "derived" for planetary-wave
+data, for Sampler data (from a model) and for pressure estimated from height
+in every file read (each value then also has the ``derived`` state), and
+"mixed" when only some files had no pressure (which points is not recorded).
+Data variables keep their type (float64 from most readers; the profile format
+allows float32 or float64).
+
+Attributes of the Dataset, recording the load: ``format`` ("profile"),
+``format_version`` (1), ``product`` ("temperature"), ``characterisation``
+(``<instrument>-TEMPERATURE-placeholder/0``, until the characterisation
+packages exist), ``availability`` (optional variables of the format not in
+the Dataset, and why), ``state_counts`` (points in each state, per
+variable), ``instrument``, ``data``
 ("raw" or "planetary-wave-filtered"), ``heights`` ("interpolated" or
 "original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
 ``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
@@ -208,6 +233,7 @@ Change log
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
 2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
+2026/11/25 [Claude] output in the profile format: state flags, origins, attributes
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
@@ -226,6 +252,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from atmosgw.curate.data import states
+from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.geodesy import haversine
 from atmosgw.curate.matlab_compat import unwrap, wrap_to_pi
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
@@ -253,6 +281,7 @@ from atmosgw.curate.obs._common import (
     to_datenums,
     warn_if_no_data,
 )
+from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import (
     clip_to_height_range,
@@ -296,6 +325,13 @@ OUTPUT_NAMES = {
     "Temp_PW": "temperature_pw", "SourceProf": "source_profile",
     "SourceFile": "source_file", "OriginalFiles": "original_files", "dx": "dx",
 }
+
+# the data variables of the profile format (each gets a state flag)
+_DATA_VARIABLES = ("temperature", "pressure", "temperature_residual",
+                   "temperature_pw")
+# product name, for the attributes (proposal: one product, temperature
+# profiles, for every limb instrument)
+_PRODUCT = "temperature"
 
 _ATTRS = {
     **{k: COORD_ATTRS[k] for k in ("latitude", "longitude", "time")},
@@ -470,6 +506,14 @@ def _load_limb_arrays(time_range, instrument, **options):
         data["Lon"] = np.rad2deg(wrap_to_pi(data["Lon"]))
     else:
         # clip to the height range: NaN outside it, then drop empty levels
+        # (the points set to NaN are recorded for the data states, on the
+        # levels kept, as clip_to_height_range chooses them)
+        alt = np.asarray(data["Alt"])
+        with np.errstate(invalid="ignore"):
+            outside = ((alt < min(settings["height_range"]))
+                       | (alt > max(settings["height_range"])))
+        levels = np.flatnonzero(np.any(np.isfinite(alt) & ~outside, axis=0))
+        outside_requested = outside[:, levels]
         data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
                                     copy=False)  # (in place: memory)
 
@@ -482,9 +526,14 @@ def _load_limb_arrays(time_range, instrument, **options):
     if verbose:
         print("--> Postprocessing")
 
+    # why points are bad (data states, recorded with keep_outliers too)
+    masks = _find_outliers(data, settings)
+    bad = (masks["bad_geolocation"] | masks["outside_requested_range"]
+           | masks["outside_physical_range"])
+    if settings["original_z"]:  # (already NaN: clipped above)
+        masks["outside_requested_range"] = outside_requested
     if not settings["keep_outliers"]:
-        data = mask_points(data, _find_outliers(data, settings), skip,
-                           copy=False)  # (in place: memory)
+        data = mask_points(data, bad, skip, copy=False)  # (in place: memory)
         if verbose:
             print("----> Outliers removed")
 
@@ -493,6 +542,7 @@ def _load_limb_arrays(time_range, instrument, **options):
             or min(lon_range) != -180 or max(lon_range) != 180):
         keep = profiles_in_box(data["Lat"], data["Lon"], lat_range, lon_range)
         data = select_profiles(data, np.flatnonzero(keep), skip)
+        masks = select_profiles(masks, np.flatnonzero(keep))
         if verbose:
             print("----> Geographically filtered")
 
@@ -508,6 +558,7 @@ def _load_limb_arrays(time_range, instrument, **options):
         if verbose:
             print("----> Pair distances computed")
 
+    settings["state_masks"] = masks  # (for the output's data states)
     return data, settings
 
 
@@ -609,16 +660,22 @@ def _is_whole_numbers(value):
 
 
 def _find_outliers(data, settings):
-    """[profiles x levels] mask of points outside physical or requested limits."""
+    """[profiles x levels] masks of points outside physical or requested
+    limits, by data state: bad_geolocation, outside_requested_range (heights
+    outside the height scale; with original_z all False here) and
+    outside_physical_range (temperature; all False without Temp)."""
     lat, lon, alt = (np.asarray(data[k]) for k in ("Lat", "Lon", "Alt"))
+    none = np.zeros(lat.shape, dtype=bool)
     with np.errstate(invalid="ignore"):
-        bad = (lat < -90) | (lat > 90) | (lon < -180) | (lon > 180)
+        masks = {"bad_geolocation": (lat < -90) | (lat > 90) | (lon < -180)
+                 | (lon > 180), "outside_requested_range": none,
+                 "outside_physical_range": none}
         if not settings["original_z"]:
             scale = settings["height_scale"]
-            bad |= (alt < scale.min()) | (alt > scale.max())
+            masks["outside_requested_range"] = (alt < scale.min()) | (alt > scale.max())
         if "Temp" in data:
-            bad |= outside_physical_range(data["Temp"], alt)
-    return bad
+            masks["outside_physical_range"] = outside_physical_range(data["Temp"], alt)
+    return masks
 
 
 def _variable_attrs(name, out, settings):
@@ -635,6 +692,45 @@ def _variable_attrs(name, out, settings):
         attrs["comment"] = "the height scale; the data were interpolated to it" + (
             f" from the file's heights ({origin})" if origin else "")
     return attrs
+
+
+def _state_flags(value, lat_shape, masks):
+    """
+    The state flag of one data variable (shape of value): the states of
+    state_masks ([profiles x levels] masks by state name, repeated over any
+    further dimension), then no_observation at every other NaN (outside a
+    profile's heights, padding between profiles of different lengths, or NaN
+    in the file: the loader cannot tell these apart).
+    """
+    flag = states.new_flags(lat_shape)
+    for name, mask in masks.items():
+        if np.shape(mask) == tuple(lat_shape):
+            states.set_state(flag, mask, name)
+    if value.ndim > 2:
+        flag = np.broadcast_to(flag.reshape(flag.shape + (1,) * (value.ndim - 2)),
+                               value.shape).copy()
+    states.set_state(flag, np.isnan(value) & ~states.no_value_mask(flag),
+                     "no_observation")
+    return flag
+
+
+def _origin(out, settings):
+    """(origin attribute, whether every finite value is marked derived) of a
+    data variable. Proposal: limb temperatures and pressures count as
+    retrieved, except values computed by the loader or a model (Sampler)."""
+    if out in ("temperature_residual", "temperature_pw"):
+        return "derived", True  # planetary-wave filtering
+    if settings["instrument_name"] == "Sampler":
+        return "derived", True  # sampled from a model
+    if out == "pressure":
+        rec = settings["record"]
+        estimated = set(rec.get("estimated_pres_files", []))
+        if rec["notes"].get("Pres") == ESTIMATED_PRES or (
+                estimated and estimated >= set(settings["files_read"])):
+            return "derived", True  # (every file read)
+        if estimated:  # some files only: which points is not recorded
+            return "mixed", False
+    return "retrieved", False
 
 
 def _to_dataset(data, settings, call=None):
@@ -663,11 +759,40 @@ def _to_dataset(data, settings, call=None):
         else:
             dims = [f"{out}_dim{d}" for d in range(value.ndim)]
         variables[out] = (dims, value, _variable_attrs(name, out, settings))
+
+    # profile format: a state flag and an origin for each data variable
+    counts = []
+    for out in _DATA_VARIABLES:
+        if out not in variables:
+            continue
+        dims, value, var_attrs = variables[out]
+        flag = _state_flags(value, lat_shape, settings.get("state_masks", {}))
+        origin, derived = _origin(out, settings)
+        if derived:
+            states.set_state(flag, np.isfinite(value), "derived")
+        var_attrs.update(origin=origin, ancillary_variables=f"{out}_flag")
+        variables[f"{out}_flag"] = (dims, flag, states.flag_attrs())
+        found = states.state_counts(flag)
+        counts.append(f"{out}: " + (", ".join(f"{k} {n}" for k, n in found.items())
+                                    or "none"))
+    tracked = [n for n, s in FORMATS["profile"]["variables"].items()
+               if s.get("tracked")]
+    availability = {n: "not_requested" for n in tracked
+                    if n not in variables and n not in coords}
+    availability.update({f"{out}_uncertainty": "not_provided"
+                         for out in _DATA_VARIABLES if out in variables})
+    instrument = settings["instrument_name"]
+    common = load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders")
     attrs = {
-        "instrument": settings["instrument_name"],
+        "format": "profile", "format_version": FORMATS["profile"]["version"],
+        "instrument": instrument, "product": _PRODUCT,
+        "characterisation": f"{instrument}-{_PRODUCT.upper()}-placeholder/0",
         "data": "planetary-wave-filtered" if settings["hindley_pws"] else "raw",
         "heights": "original" if settings["original_z"] else "interpolated",
-        **load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders"),
+        "time_range": common.pop("time_range"),
+        "availability": states.format_availability(availability),
+        **common,
+        "state_counts": "; ".join(counts),
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
