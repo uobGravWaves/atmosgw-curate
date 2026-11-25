@@ -135,7 +135,7 @@ As `INSTRUMENTS` in `limb.py`, one entry per instrument:
 | default `n_along` per granule | 135 | 90 (rows in a pseudo-granule) |
 | `time_range` | 2002-08-30 onwards (UNVERIFIED: check first file) | 2007-05-29 onwards on eepc-0184 |
 | `products` | `"3d"` (Hoffmann and Alexander retrieval); `"2d"` later | `"3d"`; `"2d"` later |
-| CP id | e.g. `AIRS-3D-Hoffmann` | e.g. `IASI-3D` |
+| CP id (placeholder, *agreed*) | `AIRS-3D-placeholder/0` | `IASI-3D-placeholder/0` |
 
 Adding an instrument means one registry entry, one reader and one
 `datasets.toml` entry. The only constraint on a reader is that it delivers a
@@ -305,7 +305,12 @@ own branches, so it can run alongside the limb-loader work.
   profile (2025-10-08, granule 93): granule file 279.215, 267.145, 248.637 K;
   daily file 279, 267, 249 K (rounded to nearest, so unbiased, but with
   about 0.29 K rms quantisation noise). The original granule files keep full
-  precision. To be decided by C. Wright; the loader reads either.
+  precision. *Agreed:* keep the option of replacing the daily files with
+  unrounded ones (about 0.01 K, e.g. int16 with `scale_factor` 0.01, or
+  float32). The reader must not assume whole kelvin: `readers.read_netcdf`
+  already applies `scale_factor` and `add_offset`, so either form reads the
+  same way, and nothing downstream may depend on the 1 K steps. The
+  characterisation package records the precision of the files in use.
 - Applying the format spec to `load_limb_sounders` output (attributes, state
   flags and `availability`; values unchanged): a separate change, after the
   limb work in progress is merged.

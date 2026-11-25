@@ -122,7 +122,7 @@ dz]` (NaN where not regular; MATLAB's `Spacing`, reordered), `grid =
 | `format`, `format_version` | `"swath"`, `1` | |
 | `instrument` | `"AIRS"` | |
 | `product` | `"3d"` | |
-| `characterisation` | `"AIRS-3D-Hoffmann/1"` | id and version of the instrument's characterisation package (CP) |
+| `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
 | `data` | `"raw"` / `"planetary-wave-filtered"` | as limb |
 | `time_range` | ISO times | as expanded by `time_handling` |
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
@@ -154,7 +154,7 @@ users never have to parse the attribute.
 
 ### 6.2 Individual points: `<variable>_flag`
 
-Each data variable has its own unsigned-integer state variable,
+*Agreed:* each data variable has its own unsigned-integer state variable,
 `<variable>_flag`, with the same dimensions, linked by the CF
 `ancillary_variables` attribute and following the CF flag convention
 (`flag_masks`, `flag_meanings`). Per-variable flags are needed because states
