@@ -25,13 +25,8 @@ import os
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs._limb_tools import (
-    choose_file,
-    conform_vars,
-    note,
-    note_sources,
-    record,
-)
+from atmosgw.curate.obs._common import choose_file, note, note_sources, record
+from atmosgw.curate.obs._limb_tools import conform_vars
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import find_files, read_netcdf
 

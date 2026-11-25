@@ -5,6 +5,20 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.3.5] - 2026-11-25
+- New usage guide, `docs/usage.md`: loading limb profiles and nadir swaths,
+  times, formats, data states, availability and saving. Loader docstrings
+  brought up to date (IASI screen, segment rule). [Claude]
+- `load_limb_sounders` output is now in the common "profile" format: a state
+  flag (`<variable>_flag`) and an `origin` for each data variable, and the
+  attributes `format`, `format_version`, `product`, `characterisation`,
+  `availability` and `state_counts`. Values are unchanged (checked on real
+  data for eight instruments). The profile format accepts float64 data
+  variables. [Claude]
+- Shared loader helpers (time rules, load record, file choice, option checks,
+  range check, load attributes) moved into `obs/_common.py` and used by both
+  `load_limb_sounders` and `load_nadir_sounders`; outputs unchanged. [Claude]
 - Faster nadir regridding: `swath.regrid` finds cells and weights once per axis
   and applies them to every field, level and flag (in blocks), replacing
   scipy's interpolator; vertical interpolation onto shared heights is one

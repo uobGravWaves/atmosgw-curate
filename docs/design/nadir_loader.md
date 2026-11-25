@@ -318,8 +318,10 @@ own branches, so it can run alongside the limb-loader work.
    which has none); files in `YYYY/DDD/` or `DDD/`; data folder `AIRS` `2d`
    in `datasets.toml`.
 6. Move the shared helpers into `obs/_common.py` and use them in both loaders
-   (limb outputs bit-identical). *Touches the limb loader: done after the
-   limb work in progress is merged.*
+   (limb outputs bit-identical). *Done* (2026-11-25): `obs/_common.py` holds the
+   time rules, the load record and file choice, the shared option checks,
+   the temperature range check and the load attributes; limb and nadir
+   outputs identical on real data (32 cases).
 
 ## 12. Open items
 
@@ -343,7 +345,7 @@ own branches, so it can run alongside the limb-loader work.
 - *Agreed:* applying the format spec to `load_limb_sounders` output
   (attributes, state flags and `availability`; values unchanged) is a separate
   change, after the
-  limb work in progress is merged.
+  limb work in progress is merged. *Done* (2026-11-25).
 
 ## 13. MATLAB -> Python names
 

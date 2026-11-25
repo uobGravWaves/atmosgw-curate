@@ -29,7 +29,8 @@ import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.matlab_time import datenum_to_datetime
-from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES, note, note_sources, record
+from atmosgw.curate.obs._common import note, note_sources, record
+from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.profiles import concat_profiles
 
 SITE_LAT, SITE_LON = 69.38, 16.08

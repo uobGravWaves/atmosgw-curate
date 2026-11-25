@@ -20,16 +20,13 @@ import os
 import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
-from atmosgw.curate.obs._limb_tools import (
-    ESTIMATED_PRES,
+from atmosgw.curate.obs._common import (
     choose_file,
-    conform_vars,
     day_label,
-    loop_days,
-    note,
     note_sources,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, note_estimated_pres
 from atmosgw.curate.readers import find_files, read_mat
 
 
@@ -61,7 +58,7 @@ def load(settings, inst_info, var_names):
         inst_data = read_mat(path)
         if "Pres" not in inst_data:
             inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
-            note(inst_info, "Pres", ESTIMATED_PRES + ", for files without Pres")
+            note_estimated_pres(inst_info, path)
 
         store = {}
         for name in var_names:

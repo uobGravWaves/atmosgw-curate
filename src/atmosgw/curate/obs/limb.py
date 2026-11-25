@@ -12,7 +12,8 @@ common height scale, with outliers removed.
 
 Port of the MATLAB ``get_limbsounders`` (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78), the group's own code. AIRS and
-IASI, which the MATLAB function can also load, are not ported.
+IASI, which the MATLAB function can also load, are loaded by
+``load_nadir_sounders`` instead.
 
 Status of the port: complete for every instrument above. It matches all 33
 cases of the MATLAB reference outputs (see Validation).
@@ -104,7 +105,33 @@ passed through by ``ignore_non_modal`` have their own dimensions
 (``<name>_dim0`` ...), or none if they hold a single value. Missing values
 are NaN (NaT for times). With no profiles, ``profile`` has length 0.
 
-Attributes of the Dataset, recording the load: ``instrument``, ``data``
+The output is in the common "profile" format, version 1
+(``docs/design/data_formats.md``; check with ``data.validate(ds,
+"profile")``); the values are as before the format was applied. Each data
+variable (``temperature``, ``pressure``, ``temperature_residual``,
+``temperature_pw``) has a state flag ``<name>_flag`` of the same dimensions
+(``data.states``) and an ``origin`` attribute. States set: ``bad_geolocation``
+(latitude or longitude out of range), ``outside_physical_range`` (temperature
+< 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
+``height_range``, with ``original_z``; interpolated data are only on the
+height scale); as in
+MATLAB, a point removed for one variable is removed (and flagged) in all of
+them. With ``keep_outliers`` the values are kept and the states still set.
+Every other NaN is ``no_observation``: above or below a profile, padding
+between profiles of different lengths, or NaN in the file (the loader cannot
+tell these apart). ``origin``: "retrieved", except "derived" for planetary-wave
+data, for Sampler data (from a model) and for pressure estimated from height
+in every file read (each value then also has the ``derived`` state), and
+"mixed" when only some files had no pressure (which points is not recorded).
+Data variables keep their type (float64 from most readers; the profile format
+allows float32 or float64).
+
+Attributes of the Dataset, recording the load: ``format`` ("profile"),
+``format_version`` (1), ``product`` ("temperature"), ``characterisation``
+(``<instrument>-TEMPERATURE-placeholder/0``, until the characterisation
+packages exist), ``availability`` (optional variables of the format not in
+the Dataset, and why), ``state_counts`` (points in each state, per
+variable), ``instrument``, ``data``
 ("raw" or "planetary-wave-filtered"), ``heights`` ("interpolated" or
 "original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
 ``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
@@ -207,6 +234,8 @@ Change log
 2026/11/25 [Claude] verbose: a progress line for each variable interpolated
 2026/11/25 [Claude] source indices not interpolated unless file_source (faster)
 2026/11/25 [Claude] status: checked by C. Wright; released in 0.1.0
+2026/11/25 [Claude] shared helpers moved to obs/_common.py (outputs unchanged)
+2026/11/25 [Claude] output in the profile format: state flags, origins, attributes
 2026/11/25 [Claude] pressure interpolated in log(pressure), not linearly (Q6)
 2026/11/25 [Claude] height <-> pressure: U.S. Standard Atmosphere 1976 (Q1-Q3)
 2026/11/25 [Claude] MLS: newest version if several match a day (Q8); warn on duplicates
@@ -219,23 +248,17 @@ How to cite
 Cite the package (see ``CITATION.cff``).
 """
 
-import json
-import re
 import warnings
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-from atmosgw.curate import __version__
+from atmosgw.curate.data import states
+from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.geodesy import haversine
 from atmosgw.curate.matlab_compat import unwrap, wrap_to_pi
-from atmosgw.curate.matlab_time import (
-    datenum,
-    datenum_to_datetime,
-    datetime_to_datenum,
-    make_datetime,
-)
+from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import (
     _limb_ace_gnss,
     _limb_alomar,
@@ -247,7 +270,20 @@ from atmosgw.curate.obs import (
     _limb_sampler,
     _limb_sofie,
 )
-from atmosgw.curate.obs._limb_tools import TIME_HANDLING, expand_time_range, record
+from atmosgw.curate.obs._common import (
+    COORD_ATTRS,
+    check_additional_vars,
+    check_flags,
+    check_time_handling,
+    expand_time_range,
+    find_instrument,
+    load_attrs,
+    outside_physical_range,
+    record,
+    to_datenums,
+    warn_if_no_data,
+)
+from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import (
     clip_to_height_range,
@@ -292,16 +328,21 @@ OUTPUT_NAMES = {
     "SourceFile": "source_file", "OriginalFiles": "original_files", "dx": "dx",
 }
 
+# the data variables of the profile format (each gets a state flag)
+_DATA_VARIABLES = ("temperature", "pressure", "temperature_residual",
+                   "temperature_pw")
+# product name, for the attributes (proposal: one product, temperature
+# profiles, for every limb instrument)
+_PRODUCT = "temperature"
+
 _ATTRS = {
-    "latitude": {"units": "degrees_north", "standard_name": "latitude"},
-    "longitude": {"units": "degrees_east", "standard_name": "longitude"},
-    "time": {"standard_name": "time"},
+    **{k: COORD_ATTRS[k] for k in ("latitude", "longitude", "time")},
     "temperature": {"units": "K", "standard_name": "air_temperature"},
     "temperature_residual": {"units": "K",
                              "long_name": "temperature minus planetary waves"},
     "temperature_pw": {"units": "K", "long_name": "planetary-wave temperature"},
     "pressure": {"units": "hPa", "standard_name": "air_pressure"},
-    "altitude": {"units": "km", "standard_name": "altitude"},
+    "altitude": COORD_ATTRS["altitude"],
     "source_profile": {"long_name": "profile number in the source file (1-based)"},
     "source_file": {"long_name": "index into original_files (1-based)"},
     "dx": {"units": "km",
@@ -467,6 +508,14 @@ def _load_limb_arrays(time_range, instrument, **options):
         data["Lon"] = np.rad2deg(wrap_to_pi(data["Lon"]))
     else:
         # clip to the height range: NaN outside it, then drop empty levels
+        # (the points set to NaN are recorded for the data states, on the
+        # levels kept, as clip_to_height_range chooses them)
+        alt = np.asarray(data["Alt"])
+        with np.errstate(invalid="ignore"):
+            outside = ((alt < min(settings["height_range"]))
+                       | (alt > max(settings["height_range"])))
+        levels = np.flatnonzero(np.any(np.isfinite(alt) & ~outside, axis=0))
+        outside_requested = outside[:, levels]
         data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
                                     copy=False)  # (in place: memory)
 
@@ -479,9 +528,14 @@ def _load_limb_arrays(time_range, instrument, **options):
     if verbose:
         print("--> Postprocessing")
 
+    # why points are bad (data states, recorded with keep_outliers too)
+    masks = _find_outliers(data, settings)
+    bad = (masks["bad_geolocation"] | masks["outside_requested_range"]
+           | masks["outside_physical_range"])
+    if settings["original_z"]:  # (already NaN: clipped above)
+        masks["outside_requested_range"] = outside_requested
     if not settings["keep_outliers"]:
-        data = mask_points(data, _find_outliers(data, settings), skip,
-                           copy=False)  # (in place: memory)
+        data = mask_points(data, bad, skip, copy=False)  # (in place: memory)
         if verbose:
             print("----> Outliers removed")
 
@@ -490,6 +544,7 @@ def _load_limb_arrays(time_range, instrument, **options):
             or min(lon_range) != -180 or max(lon_range) != 180):
         keep = profiles_in_box(data["Lat"], data["Lon"], lat_range, lon_range)
         data = select_profiles(data, np.flatnonzero(keep), skip)
+        masks = select_profiles(masks, np.flatnonzero(keep))
         if verbose:
             print("----> Geographically filtered")
 
@@ -505,6 +560,7 @@ def _load_limb_arrays(time_range, instrument, **options):
         if verbose:
             print("----> Pair distances computed")
 
+    settings["state_masks"] = masks  # (for the output's data states)
     return data, settings
 
 
@@ -513,25 +569,16 @@ def _load_limb_arrays(time_range, instrument, **options):
 
 def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
-    for flag in ("original_z", "keep_outliers", "verbose", "date_warning",
-                 "hindley_pws", "ignore_non_modal", "file_source", "dx",
-                 "extrapolate"):
-        if not isinstance(options[flag], (bool, np.bool_)):
-            raise TypeError(f"{flag} must be True or False.")
-    if options["time_handling"] not in TIME_HANDLING:
-        raise ValueError(f"time_handling must be one of {TIME_HANDLING}.")
+    check_flags(options, ("original_z", "keep_outliers", "verbose", "date_warning",
+                          "hindley_pws", "ignore_non_modal", "file_source", "dx",
+                          "extrapolate"))
+    check_time_handling(options)
+    check_additional_vars(options)
     additional = options["additional_vars"]
-    if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
-        raise TypeError("additional_vars must be a list of variable names.")
 
     # instrument: exact name, any case
-    names = {name.lower(): name for name in INSTRUMENTS}
-    if not isinstance(instrument, str) or instrument.lower() not in names:
-        raise ValueError(
-            f"Unknown instrument {instrument!r}. Choose from: "
-            f"{', '.join(INSTRUMENTS)} (AIRS and IASI are not ported)."
-        )
-    name = names[instrument.lower()]
+    name = find_instrument(instrument, INSTRUMENTS,
+                           " (for AIRS and IASI use load_nadir_sounders)")
     info = INSTRUMENTS[name]
 
     # heights
@@ -554,15 +601,11 @@ def _prepare(time_range, instrument, options):
         raise ValueError("lon_range must be within [-180, 180].")
 
     # times: datenums inside, so the MATLAB time rules apply exactly
-    raw = _to_datenums(time_range)
+    raw = to_datenums(time_range)
     if np.any(raw < datenum(1979, 1, 1)):
         raise ValueError("time_range must be in the satellite era (1979 or later).")
-    if options["date_warning"] and (raw.min() > info["time_range"][1]
-                                    or raw.max() < info["time_range"][0]):
-        first, last = (str(datenum_to_datetime(t, "ms"))[:10]
-                       for t in info["time_range"])
-        warnings.warn(f"Data for {name} is only available from {first} to {last}",
-                      stacklevel=3)
+    if options["date_warning"]:
+        warn_if_no_data(raw, name, info["time_range"], stacklevel=3)
     expanded, scalar = expand_time_range(raw, options["time_handling"])
 
     settings = dict(options, instrument=name, instrument_name=name,
@@ -597,41 +640,6 @@ def _prepare(time_range, instrument, options):
     return settings, inst_info, reader
 
 
-def _to_datenums(time_range):
-    """Times as MATLAB datenums (float64 array of 1 or 2 values)."""
-    values = np.atleast_1d(np.asarray(time_range, dtype=object)).ravel()
-    if any(isinstance(v, (int, float, np.number)) and not isinstance(v, bool)
-           for v in values):
-        raise TypeError(
-            "time_range must be dates or times (datetime64, ISO strings or "
-            "datetime), not numbers. Convert MATLAB datenums with "
-            "atmosgw.curate.matlab_time.datenum_to_datetime."
-        )
-    times = np.array([_to_datetime64(v) for v in values])
-    return np.atleast_1d(datetime_to_datenum(times))
-
-
-def _to_datetime64(value):
-    """One time as datetime64[us]; a clear error for strings that are not real
-    dates, e.g. MATLAB-style carry-over such as '2022-01-34'."""
-    try:
-        return np.datetime64(value, "us")
-    except ValueError as error:
-        message = f"time_range value {value!r} is not a valid date or time ({error})."
-        parts = re.fullmatch(r"\s*(\d{4})-(\d{1,2})-(\d{1,3})\s*", str(value))
-        if parts:
-            year, month, day = (int(p) for p in parts.groups())
-            if month >= 1 and day >= 1:
-                meant = str(make_datetime(year, month, day))[:10]
-                message += (
-                    f" Days or months beyond the end of the month do not carry "
-                    f"over as in MATLAB's datenum: for that, use {meant!r}, or "
-                    f"atmosgw.curate.matlab_time.make_datetime({year}, {month}, "
-                    f"{day})."
-                )
-        raise ValueError(message) from error
-
-
 def _nanmean_rows(x):
     """Mean of each row ignoring NaN (NaN for rows with no finite values)."""
     x = np.asarray(x, dtype=float)
@@ -654,18 +662,22 @@ def _is_whole_numbers(value):
 
 
 def _find_outliers(data, settings):
-    """[profiles x levels] mask of points outside physical or requested limits."""
+    """[profiles x levels] masks of points outside physical or requested
+    limits, by data state: bad_geolocation, outside_requested_range (heights
+    outside the height scale; with original_z all False here) and
+    outside_physical_range (temperature; all False without Temp)."""
     lat, lon, alt = (np.asarray(data[k]) for k in ("Lat", "Lon", "Alt"))
+    none = np.zeros(lat.shape, dtype=bool)
     with np.errstate(invalid="ignore"):
-        bad = (lat < -90) | (lat > 90) | (lon < -180) | (lon > 180)
+        masks = {"bad_geolocation": (lat < -90) | (lat > 90) | (lon < -180)
+                 | (lon > 180), "outside_requested_range": none,
+                 "outside_physical_range": none}
         if not settings["original_z"]:
             scale = settings["height_scale"]
-            bad |= (alt < scale.min()) | (alt > scale.max())
+            masks["outside_requested_range"] = (alt < scale.min()) | (alt > scale.max())
         if "Temp" in data:
-            temp = np.asarray(data["Temp"])
-            bad |= temp < 100
-            bad |= (temp > 400) & (alt < 100)
-    return bad
+            masks["outside_physical_range"] = outside_physical_range(data["Temp"], alt)
+    return masks
 
 
 def _variable_attrs(name, out, settings):
@@ -684,25 +696,45 @@ def _variable_attrs(name, out, settings):
     return attrs
 
 
-def _options_json(call):
-    """The arguments of a load_limb_sounders call as a JSON string (arrays as
-    lists, non-finite numbers and other objects as text)."""
-    def plain(value):
-        if isinstance(value, dict):
-            return {k: plain(v) for k, v in value.items()}
-        if isinstance(value, (list, tuple, np.ndarray)):
-            return [plain(v) for v in np.asarray(value, dtype=object).ravel()]
-        if isinstance(value, (bool, np.bool_)):
-            return bool(value)
-        if isinstance(value, (int, np.integer)):
-            return int(value)
-        if isinstance(value, (float, np.floating)):
-            return float(value) if np.isfinite(value) else str(value)
-        if value is None or isinstance(value, str):
-            return value
-        return str(value)
+def _state_flags(value, lat_shape, masks):
+    """
+    The state flag of one data variable (shape of value): the states of
+    state_masks ([profiles x levels] masks by state name, repeated over any
+    further dimension), then no_observation at every other NaN (outside a
+    profile's heights, padding between profiles of different lengths, or NaN
+    in the file: the loader cannot tell these apart).
+    """
+    flag = states.new_flags(lat_shape)
+    for name, mask in masks.items():
+        if np.shape(mask) != tuple(lat_shape):  # (a bug, not a data problem)
+            raise ValueError(f"state mask {name} has shape {np.shape(mask)}, "
+                             f"not that of the data {tuple(lat_shape)}")
+        states.set_state(flag, mask, name)
+    if value.ndim > 2:
+        flag = np.broadcast_to(flag.reshape(flag.shape + (1,) * (value.ndim - 2)),
+                               value.shape).copy()
+    states.set_state(flag, np.isnan(value) & ~states.no_value_mask(flag),
+                     "no_observation")
+    return flag
 
-    return json.dumps(plain(call))
+
+def _origin(out, settings):
+    """(origin attribute, whether every finite value is marked derived) of a
+    data variable. Proposal: limb temperatures and pressures count as
+    retrieved, except values computed by the loader or a model (Sampler)."""
+    if out in ("temperature_residual", "temperature_pw"):
+        return "derived", True  # planetary-wave filtering
+    if settings["instrument_name"] == "Sampler":
+        return "derived", True  # sampled from a model
+    if out == "pressure":
+        rec = settings["record"]
+        estimated = set(rec.get("estimated_pres_files", []))
+        if rec["notes"].get("Pres") == ESTIMATED_PRES or (
+                estimated and estimated >= set(settings["files_read"])):
+            return "derived", True  # (every file read)
+        if estimated:  # some files only: which points is not recorded
+            return "mixed", False
+    return "retrieved", False
 
 
 def _to_dataset(data, settings, call=None):
@@ -731,19 +763,40 @@ def _to_dataset(data, settings, call=None):
         else:
             dims = [f"{out}_dim{d}" for d in range(value.ndim)]
         variables[out] = (dims, value, _variable_attrs(name, out, settings))
-    first, last = (str(datenum_to_datetime(t, "ms"))
-                   for t in settings["time_range"])
+
+    # profile format: a state flag and an origin for each data variable
+    counts = []
+    for out in _DATA_VARIABLES:
+        if out not in variables:
+            continue
+        dims, value, var_attrs = variables[out]
+        flag = _state_flags(value, lat_shape, settings.get("state_masks", {}))
+        origin, derived = _origin(out, settings)
+        if derived:
+            states.set_state(flag, np.isfinite(value), "derived")
+        var_attrs.update(origin=origin, ancillary_variables=f"{out}_flag")
+        variables[f"{out}_flag"] = (dims, flag, states.flag_attrs())
+        found = states.state_counts(flag)
+        counts.append(f"{out}: " + (", ".join(f"{k} {n}" for k, n in found.items())
+                                    or "none"))
+    tracked = [n for n, s in FORMATS["profile"]["variables"].items()
+               if s.get("tracked")]
+    availability = {n: "not_requested" for n in tracked
+                    if n not in variables and n not in coords}
+    availability.update({f"{out}_uncertainty": "not_provided"
+                         for out in _DATA_VARIABLES if out in variables})
+    instrument = settings["instrument_name"]
+    common = load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders")
     attrs = {
-        "instrument": settings["instrument_name"],
+        "format": "profile", "format_version": FORMATS["profile"]["version"],
+        "instrument": instrument, "product": _PRODUCT,
+        "characterisation": f"{instrument}-{_PRODUCT.upper()}-placeholder/0",
         "data": "planetary-wave-filtered" if settings["hindley_pws"] else "raw",
         "heights": "original" if settings["original_z"] else "interpolated",
-        "time_range": f"{first} to {last}",
-        "source": "atmosgw.curate.obs.load_limb_sounders",
-        "atmosgw_curate_version": __version__,
-        "options": _options_json(call) if call is not None else "",
-        "files_read": ", ".join(settings["files_read"]),
-        "files_not_found": ", ".join(settings["record"]["files_not_found"]),
-        "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
+        "time_range": common.pop("time_range"),
+        "availability": states.format_availability(availability),
+        **common,
+        "state_counts": "; ".join(counts),
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 

@@ -57,6 +57,9 @@ as data), `states.py` (the registry of data states, §6) and
   1.5e-5 K at 300 K, 1e-5 degrees (about 1 m) in longitude. That is far finer
   than the data (about 1 K for nadir sounders, about 0.1 K at best for limb
   sounders and GNSS), so nothing is lost, and memory is half of float64.
+  *Proposal (2026-11-25):* the "profile" format also accepts float64 data
+  variables, so `load_limb_sounders` keeps its values exactly as loaded
+  (most of its readers give float64); the validator checks this per format.
 - **Coordinates and distances: float64**; times `datetime64[us]`.
 - **Calculations: float64.** Analysis functions convert on input and return
   float32, so rounding never accumulates in float32.
@@ -82,9 +85,14 @@ as data), `states.py` (the registry of data states, §6) and
 | `original_files` | (file) | — | optional |
 | `dx` | (profile, level) | km | optional |
 
-This is the current `load_limb_sounders` output, plus the state flags, the
-`origin` attributes and the dataset attributes of §5. Adding these to the
-limb loader is a separate change; its values do not change.
+This is the `load_limb_sounders` output since 2026-11-25 (values unchanged by
+the format; data variables may be float32 or float64). States it sets:
+`bad_geolocation`, `outside_physical_range`, `outside_requested_range` (with
+`original_z`),
+`no_observation` (every other NaN), `derived` (estimated pressure,
+planetary-wave data, Sampler data). *Proposals:* `product` "temperature" and
+`characterisation` `<instrument>-TEMPERATURE-placeholder/0` for every limb
+instrument; `origin` "retrieved" for limb temperatures and pressures.
 
 ## 4. Format "swath", version 1
 
