@@ -59,6 +59,8 @@ def load(settings, inst_info, var_names):
 
         n_lev = store["Alt"].shape[1]
         for name in ("Lat", "Lon", "Time", "SourceProf", "SourceFile"):
+            if name not in store:  # (source indices only if asked for)
+                continue
             store[name] = np.tile(store[name], (1, n_lev))
         return conform_vars(store, settings)
 
