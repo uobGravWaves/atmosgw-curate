@@ -55,6 +55,9 @@ def syn(tmp_path_factory):
             "Temp": 200 + 1.5 * alt,
         }
         savemat(folder / f"synlin_{tag}.mat", s)
+        # pressure in the first day's file only (the second day's is estimated)
+        savemat(folder / f"synpres_{tag}.mat",
+                {**s, "Pres": height_to_pressure(alt)} if day == 0 else s)
 
         b = {k: v.copy() for k, v in s.items()}
         if day == 0:
@@ -464,6 +467,38 @@ def test_states_of_absent_points(syn):
         states.has_state(ds.temperature_flag.values, "outside_requested_range"),
         outside)  # (clipped points have NaN altitude too)
     assert not np.any(states.has_state(ds.temperature_flag.values, "no_observation"))
+
+
+def test_estimated_pressure_marked_per_point(syn):
+    # day 1 read from the file, day 2 estimated from height: "mixed", day 2 marked
+    ds = misc(syn, "synpres", [D1, D2])
+    assert ds.pressure.attrs["origin"] == "mixed"
+    day2 = ds.time.values[:, 0] >= np.datetime64(D2)
+    derived = states.has_state(ds.pressure_flag.values, "derived")
+    finite = np.isfinite(ds.pressure.values)
+    np.testing.assert_array_equal(derived, finite & day2[:, None])
+    assert not derived[~day2].any() and derived[day2].any()
+    # by the profiles kept: day 1 only is all read, day 2 only all estimated
+    assert misc(syn, "synpres", D1).pressure.attrs["origin"] == "retrieved"
+    assert misc(syn, "synpres", D2).pressure.attrs["origin"] == "derived"
+    # original heights too
+    ds = misc(syn, "synpres", [D1, D2], original_z=True)
+    np.testing.assert_array_equal(
+        states.has_state(ds.pressure_flag.values, "derived"),
+        np.isfinite(ds.pressure.values)
+        & (ds.time.values[:, :1] >= np.datetime64(D2)))
+    validate(ds, "profile")
+
+
+def test_extrapolated_points_flagged(syn):
+    ds = misc(syn, "synlin", extrapolate=True)
+    flag = ds.temperature_flag.values
+    np.testing.assert_array_equal(states.has_state(flag, "extrapolated"), ~EXP_FINITE)
+    assert np.all(np.isfinite(ds.temperature.values))  # values kept (qualified)
+    validate(ds, "profile")
+    # without extrapolate: those points are NaN and no_observation, not extrapolated
+    flag = misc(syn, "synlin").temperature_flag.values
+    assert not states.has_state(flag, "extrapolated").any()
 
 
 def test_pw_states_over_modes(syn):

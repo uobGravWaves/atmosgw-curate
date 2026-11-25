@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_limb_sounders`: pressure estimated from height is marked `derived`
+  point by point, and `origin` ("derived", "mixed", "retrieved") goes by the
+  profiles in the output, not the files read; with `extrapolate=True`, points
+  outside a profile's own heights have the `extrapolated` state. Values
+  unchanged. [Claude]
 
 ## [0.3.5] - 2026-11-25
 - New usage guide, `docs/usage.md`: loading limb profiles and nadir swaths,
