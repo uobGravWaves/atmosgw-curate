@@ -21,7 +21,15 @@ import numpy as np
 
 from atmosgw.curate.geodesy import azimuth, km2deg, reckon
 from atmosgw.curate.matlab_time import datenum
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, year_and_day
+from atmosgw.curate.obs._limb_tools import (
+    choose_file,
+    conform_vars,
+    day_label,
+    loop_days,
+    note,
+    note_sources,
+    year_and_day,
+)
 from atmosgw.curate.readers import find_files, read_hdf5
 
 _SWATH = "HDFEOS/SWATHS/HIRDLS"
@@ -50,11 +58,19 @@ DATA_FIELDS = tuple(
 
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
+    note_sources(inst_info, {"Temp": "Temperature", "Lat": "Latitude",
+                             "Lon": "Longitude", "Alt": "Altitude",
+                             "Pres": "Pressure", "Time": "Time"})
+    note(inst_info, "Lat", "moved along track by 0.6 km per km from 30 km [R2]")
+    note(inst_info, "Lon", "moved along track by 0.6 km per km from 30 km [R2]")
+    note(inst_info, "Alt", "file Altitude (m) / 1000")
+    note(inst_info, "Time", "file Time: TAI seconds since 1993-01-01, converted "
+                            "without leap seconds")
 
     def find_file(day):
         year, doy = year_and_day(day)
         found = find_files(inst_info["path"], f"*_{year:04d}d{doy:03d}*")
-        return found[0] if found else None
+        return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):
         def get(name):
@@ -110,7 +126,7 @@ def load(settings, inst_info, var_names):
 
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, "HIRDLS")
+    return loop_days(settings, var_names, find_file, read_file, "HIRDLS", inst_info)
 
 
 def _get_hirdls(path, name):

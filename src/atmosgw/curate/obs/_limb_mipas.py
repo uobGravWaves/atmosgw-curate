@@ -13,7 +13,14 @@ the file's day) are per profile.
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum_to_datetime
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import (
+    choose_file,
+    conform_vars,
+    day_label,
+    loop_days,
+    note,
+    note_sources,
+)
 from atmosgw.curate.readers import find_files, read_netcdf
 
 # output names -> MIPAS variable names
@@ -23,11 +30,13 @@ FILE_NAMES = {"Temp": "TEM", "Lat": "latitude", "Lon": "longitude", "Alt": "hgt"
 
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
+    note_sources(inst_info, dict(FILE_NAMES))
+    note(inst_info, "Time", "file time: hours since the start of the file's day")
 
     def find_file(day):
         date = str(datenum_to_datetime(day))[:10].replace("-", "")
         found = find_files(inst_info["path"], f"_{date}_nom")
-        return found[0] if found else None
+        return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):
         names = [FILE_NAMES.get(n, n) for n in var_names
@@ -53,7 +62,7 @@ def load(settings, inst_info, var_names):
             store[name] = np.tile(store[name], (1, n_lev))
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, "MIPAS")
+    return loop_days(settings, var_names, find_file, read_file, "MIPAS", inst_info)
 
 
 def _column(value):

@@ -14,7 +14,7 @@ import os
 
 import numpy as np
 
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, note_sources
 from atmosgw.curate.readers import read_mat
 
 
@@ -23,6 +23,9 @@ def load(settings, inst_info, var_names):
     sample_path = settings["sample_path"]
     if sample_path is None or not os.path.isdir(sample_path):
         raise FileNotFoundError(f"{sample_path} does not exist")
+    note_sources(inst_info, {"Temp": "Sampled_Data.T", "Pres": "Sampled_Data.Prs",
+                             "Lat": "Sampled_Data.Lat", "Lon": "Sampled_Data.Lon",
+                             "Alt": "Sampled_Data.Alt", "Time": "Sampled_Data.Time"})
 
     def find_file(day):
         return os.path.join(str(sample_path), f"sampled_{day}.mat")
@@ -41,4 +44,4 @@ def load(settings, inst_info, var_names):
                 store[name] = np.asarray(inst_data[name]).T
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, "Sampler")
+    return loop_days(settings, var_names, find_file, read_file, "Sampler", inst_info)

@@ -4,8 +4,14 @@ Limb-sounder reader for MLS temperature (NASA Level 2 HDF-EOS5 files,
 MultiInstrumentFunctions, commit 78eef78), with the parts of ``get_MLS.m``
 (corwin365/MatlabFunctions, commit c943399) that it uses.
 
-Files: one per day, the first file below the MLS folder whose path contains
-``_<yyyy>d<ddd>``. The fields ``get_MLS`` reads are available: data fields
+Files: one per day, the file below the MLS folder whose path contains
+``_<yyyy>d<ddd>``. If several match (e.g. v05-04 and v06-04 of the same day,
+as for many days of 2026 in the group's MLS folder), the newest version is
+used (``_limb_tools.newest_mls_version``), and the day is listed in the
+output's ``multiple_matches`` attribute. The MATLAB loader takes the first
+match in name order, there the older version (Q8 in ``docs/quirks.md``).
+
+The fields ``get_MLS`` reads are available: data fields
 ``L2gpValue`` (temperature), ``L2gpPrecision``, ``Quality``, ``Status``,
 ``Convergence``; geolocation fields ``ChunkNumber``, ``Latitude``,
 ``LineOfSightAngle``, ``LocalSolarTime``, ``Longitude``, ``OrbitGeodeticAngle``,
@@ -25,7 +31,16 @@ import numpy as np
 
 from atmosgw.curate.atmosphere import pressure_to_height
 from atmosgw.curate.matlab_time import datenum
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, year_and_day
+from atmosgw.curate.obs._limb_tools import (
+    choose_file,
+    conform_vars,
+    day_label,
+    loop_days,
+    newest_mls_version,
+    note,
+    note_sources,
+    year_and_day,
+)
 from atmosgw.curate.readers import find_files
 
 _SWATH = "Temperature"
@@ -37,11 +52,19 @@ GEOLOCATION_FIELDS = ("ChunkNumber", "Latitude", "LineOfSightAngle", "LocalSolar
 
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
+    note_sources(inst_info, {"Temp": "L2gpValue", "Lat": "Latitude",
+                             "Lon": "Longitude", "Pres": "Pressure", "Time": "Time"})
+    note(inst_info, "Alt", "estimated from Pressure with "
+                           "atmosphere.pressure_to_height (U.S. Standard "
+                           "Atmosphere 1976 [R1])")
+    note(inst_info, "Time", "file Time: TAI seconds since 1993-01-01, converted "
+                            "without leap seconds")
 
     def find_file(day):
         year, doy = year_and_day(day)
         found = find_files(inst_info["path"], f"_{year:04d}d{doy:03d}")
-        return found[0] if found else None
+        # several versions of a day: the newest (Q8; MATLAB takes the first)
+        return choose_file(found, inst_info, day_label(day), newest_mls_version)
 
     def read_file(path, file_count, day):
         working = _get_mls(path)
@@ -83,7 +106,7 @@ def load(settings, inst_info, var_names):
                 store[name] = np.tile(field.reshape(-1, 1, order="F"), (1, n_lev))
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, "MLS")
+    return loop_days(settings, var_names, find_file, read_file, "MLS", inst_info)
 
 
 def _get_mls(path):

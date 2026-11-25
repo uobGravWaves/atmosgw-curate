@@ -27,7 +27,16 @@ import os
 import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
-from atmosgw.curate.obs._limb_tools import conform_vars, year_and_day
+from atmosgw.curate.obs._limb_tools import (
+    ESTIMATED_PRES,
+    choose_file,
+    conform_vars,
+    day_label,
+    note,
+    note_sources,
+    record,
+    year_and_day,
+)
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import find_files, read_mat
 
@@ -35,6 +44,8 @@ from atmosgw.curate.readers import find_files, read_mat
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
     first, last = (int(np.floor(t)) for t in settings["time_range"])
+    note_sources(inst_info, {name: name for name in var_names
+                             if name not in ("SourceProf", "SourceFile")})
     days, file_list = [], []
     for k, day in enumerate(range(first, last + 1), start=1):
         if settings["verbose"]:
@@ -53,10 +64,9 @@ def load(settings, inst_info, var_names):
                 settings["misc_path"],
                 f"*{settings['misc_identifier']}*{year:04d}d{doy:03d}*",
             )
-            if not found:
-                continue
-            path = found[0]
-        if not os.path.isfile(path):
+            path = choose_file(found, inst_info, day_label(day))
+        if path is None or not os.path.isfile(path):
+            record(inst_info)["files_not_found"].append(day_label(day))
             continue
 
         inst_data = read_mat(path)
@@ -67,6 +77,7 @@ def load(settings, inst_info, var_names):
         for name in var_names:
             if name == "Pres" and "Pres" not in inst_data:
                 inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
+                note(inst_info, "Pres", ESTIMATED_PRES + ", for files without Pres")
             if name == "SourceProf":
                 n_prof, n_lev = np.shape(inst_data["Lat"])[:2]
                 profile = np.arange(1, n_prof + 1, dtype=float)  # 1-based

@@ -133,10 +133,15 @@ def test_position_and_time_constant_within_profiles(syn):
 
 
 def test_column_height_scale_and_lower_case_name(syn):
-    ds = misc(syn, "synlin")
-    assert misc(syn, "synlin", height_scale=HS[:, None]).identical(ds)
-    assert load_limb_sounders(D1, "misc", misc_path=syn,
-                              misc_identifier="synlin").identical(ds)
+    # identical apart from the 'options' attribute, which records the call as given
+    def without_options(ds):
+        ds.attrs.pop("options")
+        return ds
+
+    ds = without_options(misc(syn, "synlin"))
+    assert without_options(misc(syn, "synlin", height_scale=HS[:, None])).identical(ds)
+    assert without_options(load_limb_sounders(D1, "misc", misc_path=syn,
+                                              misc_identifier="synlin")).identical(ds)
 
 
 def test_q6_pressure_interpolated_in_log_pressure(syn):
@@ -538,3 +543,121 @@ def test_no_warnings_in_normal_use(syn):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         misc(syn, "synlin", [D1, D2], file_source=True, dx=True)
+
+
+# which file is used when several match a day (Q8), and the output's record
+# of the load (attributes). New checks, no MATLAB counterpart.
+
+
+def test_newest_mls_version():
+    from atmosgw.curate.obs._limb_tools import newest_mls_version
+
+    def name(version):
+        return f"/x/MLS-Aura_L2GP-Temperature_{version}_2026d001.he5"
+
+    assert newest_mls_version([name("v05-04-c01"), name("v06-04-c01")]) == \
+        name("v06-04-c01")
+    assert newest_mls_version([name("v06-04-c01"), name("v06-03-c02")]) == \
+        name("v06-04-c01")
+    assert newest_mls_version([name("v06-01-c01"), name("v06-01-c02")]) == \
+        name("v06-01-c02")
+    assert newest_mls_version(["/x/odd_2026d001.he5", name("v05-04-c01")]) == \
+        name("v05-04-c01")  # no version in the name: counts as oldest
+    assert newest_mls_version(["/x/a_2026d001.he5", "/x/b_2026d001.he5"]) == \
+        "/x/a_2026d001.he5"  # equal: the first, as MATLAB
+
+
+def test_choose_file_records_several_files_not_folders(tmp_path):
+    from atmosgw.curate.obs._limb_tools import choose_file
+
+    (tmp_path / "x_2007d001").mkdir()
+    for name in ("a_2007d001.mat", "b_2007d001.mat"):
+        (tmp_path / name).write_bytes(b"")
+    folder = str(tmp_path / "x_2007d001") + "/"
+    a, b = str(tmp_path / "a_2007d001.mat"), str(tmp_path / "b_2007d001.mat")
+    info = {}
+    assert choose_file([], info, "day") is None
+    assert choose_file([folder, a], info, "day") == folder  # first, as MATLAB
+    assert "record" not in info  # only one file: nothing recorded
+    assert choose_file([a, b], info, "2007-01-01") == a
+    assert info["record"]["multiple_matches"] == [
+        "2007-01-01: a_2007d001.mat, b_2007d001.mat -> used a_2007d001.mat"]
+
+
+def _write_mls(path, temperature):
+    """A minimal MLS Level 2 temperature file: 3 profiles x 5 pressure levels."""
+    import h5py
+
+    group = "HDFEOS/SWATHS/Temperature"
+    with h5py.File(path, "w") as f:
+        f[f"{group}/Data Fields/L2gpValue"] = np.full((3, 5), temperature,
+                                                      dtype=np.float32)
+        geo = f"{group}/Geolocation Fields"
+        f[f"{geo}/Latitude"] = np.array([-10, 0, 10], dtype=np.float32)
+        f[f"{geo}/Longitude"] = np.array([0, 1, 2], dtype=np.float32)
+        f[f"{geo}/Pressure"] = np.array([100, 30, 10, 3, 1], dtype=np.float32)
+        # TAI seconds since 1993-01-01 for 2026-01-01 00:00-02:00 (no leap seconds)
+        start = (np.datetime64("2026-01-01") - np.datetime64("1993-01-01")) \
+            / np.timedelta64(1, "s")
+        f[f"{geo}/Time"] = start + np.array([0.0, 3600, 7200])
+
+
+def test_q8_mls_newest_version_used_and_recorded(tmp_path):
+    # Q8 (fixed in Python only): with v05-04 and v06-04 files for the same day,
+    # MATLAB takes the first in name order (v05-04); the newest is used here
+    (tmp_path / "2026").mkdir()
+    old = "MLS-Aura_L2GP-Temperature_v05-04-c01_2026d001.he5"
+    new = "MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5"
+    _write_mls(tmp_path / "2026" / old, 210.0)
+    _write_mls(tmp_path / "2026" / new, 230.0)
+    with pytest.warns(UserWarning, match="more than one matching MLS file"):
+        ds = load_limb_sounders("2026-01-01", "MLS", file_path=tmp_path,
+                                original_z=True)
+    assert np.all(ds.temperature.values == 230)  # exact: copied, not computed
+    assert ds.attrs["files_read"] == new
+    assert ds.attrs["multiple_matches"] == f"2026-01-01: {old}, {new} -> used {new}"
+
+
+def test_attributes_record_the_load(syn):
+    import json
+
+    from atmosgw.curate import __version__
+
+    # D1 to D2 + 1 day: no file for 2007-01-03
+    ds = misc(syn, "synlin", [D1, "2007-01-03"], lat_range=(-90, 90))
+    assert ds.attrs["atmosgw_curate_version"] == __version__
+    assert ds.attrs["files_read"] == "synlin_2007d001.mat, synlin_2007d002.mat"
+    assert ds.attrs["files_not_found"] == "2007-01-03"
+    assert ds.attrs["multiple_matches"] == ""
+    options = json.loads(ds.attrs["options"])
+    assert options["time_range"] == [D1, "2007-01-03"]
+    assert options["instrument"] == "Misc"
+    assert options["height_range"] == [0, "inf"]
+    assert options["lat_range"] == [-90, 90]
+    assert options["original_z"] is False and options["height_scale"] is None
+    # per variable: where it came from in the file, and how it was obtained
+    assert ds.temperature.attrs["source_variable"] == "Temp"
+    assert "estimated from height" in ds.pressure.attrs["comment"]  # no Pres in file
+    assert ds.altitude.attrs["comment"].startswith("the height scale")
+    assert "comment" not in ds.temperature.attrs
+
+
+def test_several_misc_files_for_a_day_warn(syn, tmp_path):
+    import shutil
+
+    for name in ("dup_a_2007d001.mat", "dup_b_2007d001.mat"):
+        shutil.copy(syn / "synlin_2007d001.mat", tmp_path / name)
+    with pytest.warns(UserWarning, match="1 day"):
+        ds = misc(tmp_path, "dup")
+    assert ds.attrs["files_read"] == "dup_a_2007d001.mat"  # the first, as MATLAB
+    assert "dup_b_2007d001.mat" in ds.attrs["multiple_matches"]
+
+
+def test_attributes_written_to_netcdf(syn, tmp_path):
+    import xarray as xr
+
+    ds = misc(syn, "synlin")
+    ds.to_netcdf(tmp_path / "out.nc")
+    with xr.open_dataset(tmp_path / "out.nc") as back:
+        assert back.attrs["options"] == ds.attrs["options"]
+        assert back.pressure.attrs["comment"] == ds.pressure.attrs["comment"]

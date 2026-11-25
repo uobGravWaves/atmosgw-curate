@@ -25,7 +25,13 @@ import os
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs._limb_tools import conform_vars
+from atmosgw.curate.obs._limb_tools import (
+    choose_file,
+    conform_vars,
+    note,
+    note_sources,
+    record,
+)
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import find_files, read_netcdf
 
@@ -41,7 +47,10 @@ def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
     first = math.floor(min(settings["time_range"])) - 1  # and the day before
     last = math.floor(max(settings["time_range"]))
+    note_sources(inst_info, {**FILE_NAMES, "Time": "date, time"})
+    note(inst_info, "Time", "file date (yyyyddd) + time (ms since midnight)")
     file_name, event_dates = "", None
+    months_seen = set()  # (each month is looked up for every day, recorded once)
     days, file_list = [], []
     for k, day in enumerate(range(first, last + 1), start=1):
         if settings["verbose"]:
@@ -50,8 +59,14 @@ def load(settings, inst_info, var_names):
         year = int(t.astype("datetime64[Y]").astype(int)) + 1970
         month = MONTHS[int(t.astype("datetime64[M]").astype(int)) % 12]
         found = find_files(inst_info["path"], f"{month}{year}")
+        first_look = f"{month}{year}" not in months_seen
+        months_seen.add(f"{month}{year}")
         if not found:
+            if first_look:
+                record(inst_info)["files_not_found"].append(f"{month}{year}")
             continue
+        if first_look:
+            choose_file(found, inst_info, f"{month}{year}")  # (records duplicates)
 
         if found[0] != file_name:  # monthly files: read only when it changes
             file_name = found[0]

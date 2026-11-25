@@ -14,7 +14,15 @@ start of the day, although the files give its units as "msec" (checked on
 
 import numpy as np
 
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, year_and_day
+from atmosgw.curate.obs._limb_tools import (
+    choose_file,
+    conform_vars,
+    day_label,
+    loop_days,
+    note,
+    note_sources,
+    year_and_day,
+)
 from atmosgw.curate.readers import find_files, read_netcdf
 
 # output names -> SOFIE variable names
@@ -24,11 +32,16 @@ FILE_NAMES = {"Temp": "Temperature", "Lat": "Latitude_83km", "Lon": "Longitude_8
 
 def load(settings, inst_info, var_names):
     """Read all days; returns (data, file_list). See limb.py for the arguments."""
+    note_sources(inst_info, dict(FILE_NAMES))
+    note(inst_info, "Time", "file Time_UT: hours since the start of the day "
+                            "(the file's units attribute says msec)")
+    note(inst_info, "Lat", "position at 83 km, used for the whole profile")
+    note(inst_info, "Lon", "position at 83 km, used for the whole profile")
 
     def find_file(day):
         year, doy = year_and_day(day)
         found = find_files(inst_info["path"], f"Level2_{year:04d}{doy:03d}")
-        return found[0] if found else None
+        return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):
         names = [FILE_NAMES.get(n, n) for n in var_names
@@ -59,4 +72,4 @@ def load(settings, inst_info, var_names):
         store["Alt"] = np.tile(store["Alt"], (n_prof, 1))
         return conform_vars(store, settings)
 
-    return loop_days(settings, var_names, find_file, read_file, "SOFIE")
+    return loop_days(settings, var_names, find_file, read_file, "SOFIE", inst_info)
