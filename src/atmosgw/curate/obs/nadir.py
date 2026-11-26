@@ -131,7 +131,13 @@ Validation
 outputs of ``test_prep_airs_3d.m`` (reference file, MATLAB commit and
 tolerances in the test's docstring): AIRS 2007-01-01 cases; IASI 2007-11-06
 and 07 cases with ``screen="pooled"``, identical wherever Python has a value
-(MATLAB refills screened points; Python leaves them NaN with their state).
+(MATLAB fills in every NaN from the nearest point along track, screened
+points and NaNs already in the files alike; Python leaves them NaN with their
+state). A by-hand sweep at 0.4.1 compared the same layer on 878 real-data
+calls (AIRS 3-D 2002-2025, IASI 3-D 2007-2018): no unexplained differences.
+Not compared with MATLAB: the AIRS granule-file reader, the default IASI
+screen, AIRS 2-D, several options, and the fill handling added after the
+sweep. Full record: ``docs/validation.md`` in the repository.
 ``tests/test_nadir_known.py``, ``tests/test_nadir_iasi.py``,
 ``tests/test_nadir_airs2d.py``, ``tests/test_nadir_2d.py`` and
 ``tests/test_nadir_fill.py``: known answers and format checks on synthetic

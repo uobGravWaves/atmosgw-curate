@@ -1,4 +1,4 @@
-# Design: `load_nadir_sounders` (port of `prep_airs_3d`)
+# Design: `load_nadir_sounders` (port of [`prep_airs_3d`](https://github.com/corwin365/MatlabFunctions/blob/master/DatasetSpecific/AIRS/prep_airs_3d.m))
 
 **Status:** draft for agreement, 2026-11-25. Nothing here is implemented yet.
 Decisions marked *agreed* were agreed with C. Wright on 2026-11-25; anything

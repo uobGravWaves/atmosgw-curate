@@ -1,6 +1,6 @@
 # MATLAB-vs-Python sweep of `load_limb_sounders`
 
-A wide check of the port against the MATLAB `get_limbsounders` on real data:
+A wide check of the port against the MATLAB [`get_limbsounders`](https://github.com/uobGravWaves/MultiInstrumentFunctions/blob/main/MultiInstrumentLoaders/get_limbsounders.m) on real data:
 many dates for every instrument, rather than the few fixed dates of
 `tests/test_limb_matlab.py`. It needs the data, MATLAB and the group's MATLAB
 code, so it is run by hand (for example before a release), not by `pytest`

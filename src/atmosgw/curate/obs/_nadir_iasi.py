@@ -32,8 +32,9 @@ Differences from MATLAB, by design:
   eepc-0184) are skipped and recorded ("<file>: no ret_temp"); MATLAB stops
   with an error;
 - the outlier screen (now the swappable ``obs._screen``, rolling by default)
-  marks points but does not refill them: MATLAB
-  refills screened points from the nearest along-track value; here they are
+  marks points but does not refill them: MATLAB fills in every NaN from the
+  nearest along-track value (screened points, and NaNs already in the files:
+  up to about 10 % of profiles on some days, e.g. 2007-05-31); here they are
   NaN with their state, and filling is a separate, visible step (agreed);
 - MATLAB's warnings when more than 5 % (``IasiFracBad``) or a connected 3 %
   (``IasiRegionFracBad``) of a granule is bad are replaced by the state

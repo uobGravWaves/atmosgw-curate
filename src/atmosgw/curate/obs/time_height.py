@@ -103,7 +103,8 @@ options), ``tests/test_time_height_alomar.py`` (real files, public
 Datasets: values, rows and states identical to ``load_limb_sounders(...,
 "ALOMAR", original_z=True)`` on five date ranges; a wider run on 34 dates,
 2003-2026, made once on 2026-11-26), ``tests/test_states_conformance.py``
-and ``tests/test_data_convert.py``.
+and ``tests/test_data_convert.py``. Full record: ``docs/validation.md`` in
+the repository.
 
 Status
 ------
