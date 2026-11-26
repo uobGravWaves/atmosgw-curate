@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.5.1] - 2026-11-26
 - Nadir: fill values and impossible times in the AIRS and IASI files (none
   declared as `_FillValue`; census of every file on eepc-0184) now become NaN
   instead of being read as data: -999 (30,355 padded AIRS daily-file
