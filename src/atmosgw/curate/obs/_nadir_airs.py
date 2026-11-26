@@ -27,8 +27,19 @@ seconds since 2000-01-01T00:00Z, leap seconds ignored (as MATLAB; agreed).
 If a granule's heights are all zero or NaN, the standard 27 AIRS levels are
 used, as MATLAB (``ret_z`` missing in some granules), and noted.
 
+Fill values (``_common.nadir_fill_to_nan``; the files declare none): -999 (in
+padded daily-file granules), -9999 positions (missing scans, times kept) and
+0/0 positions or zero times become NaN; stray pixel times (> 600 s from their
+scan) and scans more than a day outside the file's day (e.g. 2009 days 193-194)
+become NaN. Counts are in the load record's notes. A granule left with no
+valid time (e.g. all -999) is skipped and recorded in ``files_not_found`` as
+"(no valid times)"; for a time range it is placed by its nominal time.
+
 Differences from MATLAB, by design: a missing granule is skipped and recorded
-(MATLAB fails the whole call); granules are returned in time order.
+(MATLAB fails the whole call); granules are returned in time order; the fill
+handling above (MATLAB reads fill values as data, and crashes regridding them).
+
+2026/11/26 [Claude] fill values, bad times to NaN; fill granules recorded, not dropped
 
 Note: the daily files on eepc-0184 store temperature rounded to whole kelvin
 (``merge_airs_into_daily.sh``); the granule files have full precision. Both
@@ -41,7 +52,9 @@ import numpy as np
 
 from atmosgw.curate.obs._common import (
     day_label,
+    nadir_fill_to_nan,
     note,
+    note_fill_counts,
     note_sources,
     record,
     year_and_day,
@@ -117,6 +130,7 @@ def load(settings, inst_info, var_names):
         by_file.setdefault((path, kind), []).append((day, g))
 
     granules, file_list, alt = [], [], None
+    fill_counts = {}
     for (path, kind), wanted in sorted(by_file.items()):
         rows = [g - 1 for _, g in wanted] if kind == "daily" else None
         if kind == "daily":  # (granule files are the producer's, unaltered)
@@ -131,13 +145,20 @@ def load(settings, inst_info, var_names):
         for k, (day, g) in enumerate(wanted):
             part = {name: (v[k] if kind == "daily" else v)
                     for name, v in values.items()}
+            span = ((day - J2000) * 86400, (day + 1 - J2000) * 86400)
+            counts = nadir_fill_to_nan(part["l1_lat"], part["l1_lon"],
+                                       part["l1_time"], part["ret_temp"], span)
             time = J2000 + part["l1_time"].T / 86400  # [cross x along], datenums
             mean = np.nanmean(time) if np.any(np.isfinite(time)) else np.nan
+            if not np.isfinite(mean):  # in the range by its nominal time?
+                nominal = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
+                if explicit or t0 <= nominal <= t1:
+                    not_found.append(f"{day_label(day)} granule {g} (no valid times)")
+                continue
             if not explicit and not (t0 <= mean <= t1):
                 continue
-            if not np.isfinite(mean):
-                not_found.append(f"{day_label(day)} granule {g} (no times)")
-                continue
+            for key, n in counts.items():  # (granules returned only)
+                fill_counts[key] = fill_counts.get(key, 0) + n
             if not used:
                 file_list.append(os.path.basename(path))
                 used = True
@@ -161,6 +182,7 @@ def load(settings, inst_info, var_names):
                                 if v.ndim >= 2 else v)
             granules.append((mean, g_data))
     record(inst_info)["files_not_found"].extend(not_found)
+    note_fill_counts(inst_info, fill_counts)
 
     granules.sort(key=lambda item: item[0])
     names = ["Lat", "Lon", "Time", "Temp", "Granule", "Day", "SourceFile",

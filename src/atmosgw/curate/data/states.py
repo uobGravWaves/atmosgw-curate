@@ -102,8 +102,8 @@ STATES = (
           "removed because outside the height, latitude or longitude range "
           "asked for"),
     State("bad_geolocation", 8, True, "removed as bad",
-          "latitude or longitude out of range (nadir: also NaN; limb: out "
-          "of range only, as MATLAB)"),
+          "latitude or longitude out of range (nadir: also NaN, or time "
+          "missing; limb: out of range only, as MATLAB)"),
     State("outside_physical_range", 16, True, "removed as bad",
           "temperature < 100 K (IASI: <= 100 K, its retrieval's lower bound), "
           "or > 400 K below 100 km"),

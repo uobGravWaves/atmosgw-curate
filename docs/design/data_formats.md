@@ -261,7 +261,8 @@ Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
   MATLAB here; nadir derived variables take the main variable's states).
 - **Qualified states** (`derived`, `extrapolated`, `filled`) are set only on
   values that exist.
-- **`bad_geolocation`.** Nadir: latitude or longitude NaN or out of range.
+- **`bad_geolocation`.** Nadir: latitude or longitude NaN or out of range,
+  or time NaN (fill values and bad times in the files, `obs._common.nadir_fill_to_nan`).
   Limb: out of range only, as MATLAB, because some files have values at
   levels without a position (the GNSS files, pre-interpolated by C. Wright,
   lack positions at some levels; their values are kept, and the dataset says

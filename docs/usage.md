@@ -111,7 +111,10 @@ ds = load_nadir_sounders(["2020-01-20T00:00", "2020-01-20T01:00"], "AIRS",
 The swath is split into `segment`s wherever successive scans are more than
 180 s apart (a missing granule, or separate times); each segment is regridded
 on its own, and `distance_along` restarts at each. `granule` and
-`granule_day` say where each along-track row came from.
+`granule_day` say where each along-track row came from. Scans with a missing
+position or time (fill values in the files) form segments of their own: they
+are kept, as `bad_geolocation`, with `original_grid=True`, and left out of a
+regridded swath.
 
 IASI has a statistical outlier screen on by default (`"rolling"`: values
 more than 5 interquartile ranges beyond the quartiles of their height level
@@ -175,7 +178,7 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `no_observation` | NaN | nothing measured here: outside the swath, above or below a profile's values, padding between profiles |
 | `missing` | NaN | a gap inside what was measured: a fill value at a scanned point, or between a profile's first and last value |
 | `outside_requested_range` | NaN | outside the heights asked for |
-| `bad_geolocation` | NaN | position out of range (nadir: also NaN; limb: out of range only, as MATLAB) |
+| `bad_geolocation` | NaN | position out of range (nadir: also NaN, or time missing; limb: out of range only, as MATLAB) |
 | `outside_physical_range` | NaN | temperature < 100 K (IASI: also exactly 100 K, the retrieval's lower bound), or > 400 K below 100 km |
 | `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |

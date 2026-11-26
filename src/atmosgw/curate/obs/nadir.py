@@ -81,7 +81,17 @@ Segments: the swath is split where successive rows are more than 180 s apart
 daily files store times as float32); each segment is
 regridded on its own along-track axis, all on one cross-track axis (that of
 the first segment, as MATLAB assumes every scan has the same cross-track
-geometry). Rows of different segments are not interpolated across.
+geometry). Rows of different segments are not interpolated across. A scan
+with any position missing or out of range, or with no valid time (fill
+values in the files, see the readers), cannot be placed: such scans form
+segments of their own, kept on the native grid output (unless a
+latitude/longitude box is given: they are never inside it) and left out of
+the regridded one (as a missing granule is); the cross-track axis is that
+of the first segment that can be
+placed. If no two successive scans can be placed, the native grid is
+returned, with a warning. A stray pixel time alone is ``bad_geolocation``
+but does not stop its scan being regridded (its NaN time spreads to the
+regridded times around it).
 
 MATLAB -> Python names (private layer ``_load_nadir_arrays``, compared with
 MATLAB): ``l1_lat`` Lat, ``l1_lon`` Lon, ``l1_time`` Time (datenums),
@@ -93,8 +103,8 @@ Science
 - Regridding and vertical grid: ``swath.regrid``, ``swath.regular_levels``,
   ``swath.interpolate_levels`` (see ``swath``), as MATLAB.
 - States (``data.states``): fill values in the files are ``missing``;
-  positions outside [-90, 90] / [-180, 180] or not finite are
-  ``bad_geolocation``; temperatures below 100 K or above 400 K are
+  positions outside [-90, 90] / [-180, 180] or not finite, or a missing
+  time, are ``bad_geolocation``; temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (IASI also at exactly 100 K, its retrieval's
   lower bound; proposal: MATLAB applies this only to IASI;
   for AIRS it changes nothing where no such values exist, as in the test
@@ -149,12 +159,14 @@ Change log
 2026/11/25 [Claude] IASI: exactly 100 K (retrieval lower bound) outside_physical_range
 2026/11/25 [Claude] extrapolated state; record-based attributes; heights and
   preprocessing attributes (preprocessing as the readers record it)
+2026/11/26 [Claude] missing time is bad_geolocation; unplaceable scans not regridded
 
 How to cite
 -----------
 Cite the package (see ``CITATION.cff``).
 """
 
+import re
 import warnings
 
 import numpy as np
@@ -289,7 +301,8 @@ def _load_nadir_arrays(time_range, instrument, **options):
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}
         settings["record"]["files_not_found"][:] = [
-            f for f in settings["record"]["files_not_found"] if f not in extra]
+            f for f in settings["record"]["files_not_found"]
+            if _granule_label(f) not in extra]
 
     # states, then bad values to NaN (unless keep_outliers)
     temp = np.asarray(data["Temp"], dtype=float)
@@ -297,7 +310,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     flags = states.new_flags(temp.shape)
     states.set_state(flags, np.isnan(temp), "missing")
     bad_geo = ~(np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
-                & (np.abs(lon) <= 180))
+                & (np.abs(lon) <= 180) & np.isfinite(np.asarray(data["Time"], float)))
     states.set_state(flags, np.broadcast_to(bad_geo[..., None], temp.shape),
                      "bad_geolocation")
     # instrument statistical screen (swappable: see obs._screen), on the padded
@@ -338,6 +351,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
         warnings.simplefilter("ignore", RuntimeWarning)
         row_time = np.nanmean(np.asarray(data["Time"], float), axis=0)
     gap = np.diff(row_time) * 86400 > info["max_row_gap_seconds"]
+    # and around scans that cannot be placed (any position or time missing)
+    placeable = _placeable(data)
+    gap |= placeable[1:] != placeable[:-1]
     data["Segment"] = 1.0 + np.concatenate([[0.0], np.cumsum(gap)]) if n_rows else (
         np.empty(0))
     if settings["keep_native_geolocation"]:
@@ -347,11 +363,16 @@ def _load_nadir_arrays(time_range, instrument, **options):
 
     # horizontal regridding, segment by segment
     spacing = [np.nan, np.nan, np.nan]
-    if not settings["original_grid"] and n_rows > 1:
+    regrid = not settings["original_grid"] and _regriddable(data["Segment"],
+                                                             placeable)
+    if not settings["original_grid"] and not regrid and np.any(~placeable):
+        warnings.warn("No two successive scans have positions and times (fill "
+                      "values in the files): the native grid is returned.",
+                      stacklevel=3)
+    if regrid:
         say("--> Regridding")
         data, flags, spacing[:2] = _regrid(data, flags, settings, info)
-    settings["grid"] = "native" if settings["original_grid"] or n_rows < 2 else (
-        "regular")
+    settings["grid"] = "regular" if regrid else "native"
 
     # vertical grid (3-D products; a 2-D product's last dimension is channels)
     z = (np.asarray(data["Alt"], dtype=float).ravel() if settings["product"] == "3d"
@@ -458,7 +479,8 @@ def _regrid(data, flags, settings, info):
     """Regrid every segment; returns (data, flags, (cross km, along km))."""
     lat, lon = data["Lat"], data["Lon"]
     segment = data["Segment"]
-    first = np.flatnonzero(segment == 1)
+    placeable = _placeable(data)
+    first = np.flatnonzero(segment == segment[placeable][0])
     d0 = swath.swath_distances(lat[:, first], lon[:, first])
     cross_axis = swath.regular_axis(d0["cross"],
                                     settings["n_cross"] or info["n_cross"],
@@ -468,8 +490,8 @@ def _regrid(data, flags, settings, info):
     parts, spacing = [], (np.nan, np.nan)
     for seg in np.unique(segment):
         rows = np.flatnonzero(segment == seg)
-        if rows.size < 2:
-            continue  # a single row cannot be regridded (recorded as dropped)
+        if rows.size < 2 or not placeable[rows[0]]:
+            continue  # a single row, or scans without positions: not regridded
         n_gran = len({(d, g) for d, g in zip(data["Day"][rows], data["Granule"][rows],
                                              strict=True)})
         n_along = (None if settings["dx_along"] is not None
@@ -526,6 +548,30 @@ def _regrid(data, flags, settings, info):
         if name in data:
             new[name] = data[name]
     return new, np.concatenate([p["Flags"] for p in parts], axis=1), spacing
+
+
+def _placeable(data):
+    """True for each along-track row whose positions are all valid (finite and
+    in range, as for bad_geolocation) and which has a valid time (a stray
+    pixel time alone does not stop regridding)."""
+    lat, lon = np.asarray(data["Lat"], float), np.asarray(data["Lon"], float)
+    with np.errstate(invalid="ignore"):
+        ok = (np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
+              & (np.abs(lon) <= 180))
+    has_time = np.any(np.isfinite(np.asarray(data["Time"], float)), axis=0)
+    return np.all(ok, axis=0) & has_time
+
+
+def _granule_label(entry):
+    """'<day> granule g' at the start of a files_not_found entry, else entry."""
+    match = re.match(r"^(\S+ granule \d+)(?=$| |:)", entry)
+    return match.group(1) if match else entry
+
+
+def _regriddable(segment, placeable):
+    """True if some segment of placeable rows has at least two rows."""
+    ids, counts = np.unique(np.asarray(segment)[placeable], return_counts=True)
+    return bool(np.any(counts >= 2))
 
 
 def _interpolate_with_states(z, values, flags, new_z):

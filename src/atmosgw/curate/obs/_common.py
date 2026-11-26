@@ -54,6 +54,7 @@ Change log
 2026/11/25 [Claude] warn_multiple_matches (moved from limb.py)
 2026/11/25 [Claude] record_attrs (from limb; now also used by nadir)
 2026/11/25 [Claude] outside_physical_range: floor_is_bad (IASI's 100 K lower bound)
+2026/11/26 [Claude] nadir_fill_to_nan, note_fill_counts: AIRS/IASI fill, bad times
 """
 
 import json
@@ -266,6 +267,79 @@ def choose_file(found, inst_info, label, prefer=None):
         record(inst_info)["multiple_matches"].append(
             f"{label}: {names} -> used {os.path.basename(chosen)}")
     return chosen
+
+
+# nadir fill values
+
+# Fill values in the AIRS and IASI files, none declared as _FillValue (census of
+# every AIRS daily and IASI file on eepc-0184, 2026-11-26): -999 in every
+# variable of padded AIRS daily-file granules; -9999 in AIRS latitude and
+# longitude of missing scans (times kept); latitude = longitude = 0 exactly in
+# IASI scans without geolocation (some with time 0) and AIRS 2014-01-01 g228.
+FILL_VALUES = (-999.0, -9999.0)
+STRAY_SECONDS = 600.0  # a pixel this far from its scan's median time is stray
+MISDATED_DAYS = 1.0  # a scan this far outside its file's span is misdated
+
+
+def nadir_fill_to_nan(lat, lon, time, temp, span):
+    """
+    Fill values and impossible times in one nadir file's arrays to NaN, in
+    place. lat, lon, time [along x cross] (time in seconds since 2000-01-01),
+    temp [along x cross x level]; span: (first, last) second the file covers.
+
+    - lat or lon -999 or -9999, or both exactly 0: lat and lon NaN;
+    - time -999 or exactly 0 (2000-01-01T00:00, before either instrument): NaN;
+    - a time more than STRAY_SECONDS from its scan's median: NaN (stray pixel);
+    - a scan whose median time is more than MISDATED_DAYS outside span: every
+      time of the scan NaN (misdated);
+    - temp -999 or -9999: NaN.
+
+    Returns {"position": n, "time": n, "stray": n, "misdated": n scans,
+    "temp": n} (points set to NaN, except misdated).
+    """
+    fill_pos = (np.isin(lat, FILL_VALUES) | np.isin(lon, FILL_VALUES)
+                | ((lat == 0) & (lon == 0)))
+    lat[fill_pos] = np.nan
+    lon[fill_pos] = np.nan
+    fill_time = np.isin(time, FILL_VALUES) | (time == 0)
+    time[fill_time] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN scans
+        median = np.nanmedian(time, axis=1)
+        stray = np.abs(time - median[:, None]) > STRAY_SECONDS
+        time[stray] = np.nan
+        median = np.nanmedian(time, axis=1)
+    margin = MISDATED_DAYS * 86400
+    misdated = (median < span[0] - margin) | (median > span[1] + margin)
+    time[misdated, :] = np.nan
+    fill_temp = np.isin(temp, FILL_VALUES)
+    temp[fill_temp] = np.nan
+    return {"position": int(fill_pos.sum()), "time": int(fill_time.sum()),
+            "stray": int(stray.sum()), "misdated": int(misdated.sum()),
+            "temp": int(fill_temp.sum())}
+
+
+def note_fill_counts(inst_info, counts):
+    """Add the totals of nadir_fill_to_nan to the load record's notes (AIRS:
+    granules returned; IASI: files read, including any padding)."""
+    text = {"Lat": ("position", "fill positions (-999, -9999 or 0/0) set to NaN"),
+            "Lon": ("position", "fill positions (-999, -9999 or 0/0) set to NaN"),
+            "Temp": ("temp", "fill values (-999, -9999) set to NaN")}
+    notes = record(inst_info)["notes"]
+    for name, (key, words) in text.items():
+        if counts.get(key):
+            _append_note(notes, name, f"{words}: {counts[key]} points")
+    parts = [f"{counts[k]} {words}" for k, words in (
+        ("time", "fill times (-999 or 0) set to NaN"),
+        ("stray", f"stray times (> {STRAY_SECONDS:g} s from their scan) set to NaN"),
+        ("misdated", f"misdated scans (> {MISDATED_DAYS:g} day outside their file) "
+                     "set to NaN")) if counts.get(k)]
+    if parts:
+        _append_note(notes, "Time", "; ".join(parts))
+
+
+def _append_note(notes, name, text):
+    notes[name] = f"{notes[name]}; {text}" if notes.get(name) else text
 
 
 # range check
