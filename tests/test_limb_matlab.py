@@ -235,7 +235,7 @@ def test_real_data_against_matlab(reference, case):
     if dataset in ("ACE", "GNSS"):
         got, want, tol = _python_changes(dataset, args, options, want, tol)
     else:
-        if dataset == "MLS":  # (Q15: MATLAB applies no MLS screening)
+        if dataset in ("MLS", "SOFIE"):  # (Q15, Q17: MATLAB applies no screening)
             options = {**options, "instrument_qc": False}
         got, _ = _load_limb_arrays(*args, **_defaults(options))
         want = _q12_rows(want, options)

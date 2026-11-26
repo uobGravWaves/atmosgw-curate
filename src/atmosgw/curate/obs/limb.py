@@ -70,9 +70,13 @@ Options (type, default):
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
   only).
 - ``instrument_qc`` (bool, True): apply the provider's own screening where
-  implemented (MLS: its data quality documents' temperature rules, v5.0x and
-  v6.x; see ``obs._limb_mls.screen``): values failing it are
-  ``instrument_flag``, removed unless ``keep_outliers``.
+  implemented: MLS, its data quality documents' temperature rules (v5.0x and
+  v6.x; ``obs._limb_mls.screen``); SOFIE, the heights endorsed for
+  scientific use (15-88 km, V1.3 data description); values failing these are
+  ``instrument_flag``, removed unless ``keep_outliers``. HIRDLS: values with
+  negative precision, "most of the information comes from the a priori"
+  (V7 data quality document, section I.2), are kept and marked
+  ``a_priori_dominated`` (Q17).
 - ``keep_duplicate_occultations`` (bool, False): GNSS: return every copy of
   an occultation present more than once in the files (from several
   processing centres) instead of one (see ``obs._limb_ace_gnss``).
@@ -479,8 +483,12 @@ def _load_limb_arrays(time_range, instrument, **options):
         var_names = var_names + ["PresEstimated"]
     # the provider's own screening (MLS: its data quality document), point by
     # point, for the instrument_flag state (taken out of data below)
-    if settings["instrument_qc"] and reader is _limb_mls:
+    # (MLS: its data quality document; SOFIE: the endorsed heights; HIRDLS:
+    # values dominated by the a priori, kept but marked)
+    if settings["instrument_qc"] and reader in (_limb_mls, _limb_sofie):
         var_names = var_names + ["InstrumentBad"]
+    if settings["instrument_qc"] and reader is _limb_hirdls:
+        var_names = var_names + ["APrioriDominated"]
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
@@ -520,9 +528,13 @@ def _load_limb_arrays(time_range, instrument, **options):
         data.pop("SourceFile", None)
 
     instrument_bad = data.pop("InstrumentBad", None)
-    var_names = [name for name in var_names if name != "InstrumentBad"]
+    a_priori = data.pop("APrioriDominated", None)
+    var_names = [name for name in var_names
+                 if name not in ("InstrumentBad", "APrioriDominated")]
     if instrument_bad is not None:
         instrument_bad = np.asarray(instrument_bad, dtype=float) > 0.5
+    if a_priori is not None:
+        a_priori = np.asarray(a_priori, dtype=float) > 0.5
     contributed = {}
     plan = None
     if not settings["original_z"]:
@@ -545,12 +557,22 @@ def _load_limb_arrays(time_range, instrument, **options):
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
                                               height_scale, reach, extrap, plan)
                 contributed[state] = np.nan_to_num(spread) != 0
-            if not settings["keep_outliers"]:
-                # (extras keep their values here: they may be interpolated by
-                # another method; they are removed with the others below)
-                data = mask_points(data, np.logical_or.reduce(list(native.values())),
-                                   list(skip) + ["Alt"]
-                                   + list(settings["additional_vars"]), copy=False)
+        if a_priori is not None and a_priori.any():
+            # (a qualified state: values kept; marked wherever such a point
+            # contributes, spread as the no-value states are)
+            method = settings["interp_type"].lower()
+            piecewise = method in ("linear", "nearest", "next", "previous")
+            spread = interpolate_profiles(
+                data["Alt"], a_priori.astype(float), height_scale,
+                method if piecewise else "linear",
+                True if settings["extrapolate"] or not piecewise else None, plan)
+            contributed["a_priori_dominated"] = np.nan_to_num(spread) != 0
+        if any(m.any() for m in native.values()) and not settings["keep_outliers"]:
+            # (extras keep their values here: they may be interpolated by
+            # another method; they are removed with the others below)
+            data = mask_points(data, np.logical_or.reduce(list(native.values())),
+                               list(skip) + ["Alt"]
+                               + list(settings["additional_vars"]), copy=False)
 
         # unwrap longitudes along each profile (finite values only), so that
         # interpolation is safe across the dateline
@@ -623,6 +645,8 @@ def _load_limb_arrays(time_range, instrument, **options):
         outside_requested = outside[:, levels]
         if instrument_bad is not None:  # (on the levels kept)
             contributed["instrument_flag"] = instrument_bad[:, levels]
+        if a_priori is not None:
+            contributed["a_priori_dominated"] = a_priori[:, levels]
         data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
                                     copy=False)  # (in place: memory)
 

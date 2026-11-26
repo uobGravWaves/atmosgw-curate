@@ -5,6 +5,11 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `instrument_qc` extended (Q17): HIRDLS values with negative precision
+  (mostly a priori, V7 data quality document) are kept and marked
+  `a_priori_dominated`; SOFIE temperatures outside the endorsed 15-88 km
+  (V1.3 data description) are `instrument_flag`. Default 18-60 km output:
+  values unchanged for both; 0.3 % of HIRDLS points marked. [Claude]
 - MLS temperatures are screened as the MLS data quality documents prescribe
   (v5.0x and v6.x, identical rules), as `instrument_flag`; new option
   `instrument_qc` (default True) (Q15). The limb ALOMAR reader also finds

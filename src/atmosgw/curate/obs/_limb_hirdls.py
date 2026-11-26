@@ -85,7 +85,16 @@ def load(settings, inst_info, var_names):
 
         store = {}
         for name in var_names:
-            if name == "Temp":
+            if name == "APrioriDominated":
+                # (V7 data quality document, section I.2: "Data points for which
+                # most of the information comes from the a priori have their
+                # precision fields set negative"; checked 2026-11-26)
+                with np.errstate(invalid="ignore"):
+                    store[name] = (get("TemperaturePrecision") < 0).astype(float)
+                note(inst_info, "Temp", "values with negative TemperaturePrecision "
+                                        "(mostly a priori: V7 data quality document, "
+                                        "section I.2) are kept, as a_priori_dominated")
+            elif name == "Temp":
                 store["Temp"] = get("Temperature")
             elif name == "Lat":
                 store["Lat"] = get("Latitude")
