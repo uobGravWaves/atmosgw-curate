@@ -221,6 +221,7 @@ from atmosgw.curate.obs._common import (
     warn_if_no_data,
     warn_missing_files,
     warn_mixed_versions,
+    warn_multiple_matches,
 )
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import in_box
@@ -335,6 +336,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=3)
+    warn_multiple_matches(settings, stacklevel=3)
     if padded and settings["granules"] is not None:  # padding is not a request
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}

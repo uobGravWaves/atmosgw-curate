@@ -10,7 +10,8 @@ File format: one MATLAB .mat file per day with [profiles x levels] arrays
 
 File names: ``<pws path>/<yyyy>/<INSTRUMENT>_PWs_<yyyy>d<ddd>.mat``, or for
 Misc the first file below ``misc_path`` matching
-``*<identifier>*<yyyy>d<ddd>*``.
+``*<identifier>*<yyyy>d<ddd>*``. A file not at its usual path is looked for
+by name anywhere below the pws folder (a flat folder, or other nesting).
 
 The MATLAB module concatenates days in chunks of 15 for speed; the result is
 the same as concatenating all days at once, which is done here. One detail is
@@ -36,6 +37,7 @@ from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
     find_in,
+    locate,
     note_sources,
     note_version,
     record,
@@ -60,11 +62,9 @@ def load(settings, inst_info, var_names):
             )
         year, doy = year_and_day(day)
         if inst_info["inst"].lower() != "misc":
-            path = os.path.join(
-                inst_info["path"],
-                f"{year:04d}",
-                f"{inst_info['inst']}_PWs_{year:04d}d{doy:03d}.mat",
-            )
+            name = f"{inst_info['inst']}_PWs_{year:04d}d{doy:03d}.mat"
+            path = locate(inst_info, os.path.join(inst_info["path"], f"{year:04d}",
+                                                  name), name, day_label(day))
         else:
             found = find_in(
                 inst_info,

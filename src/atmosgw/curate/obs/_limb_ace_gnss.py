@@ -12,7 +12,9 @@ If there is no ``Pres``, it is estimated from ``Alt`` with
 
 File names: ACE ``<path>/<yyyy>/ace_v52_<yyyy>d<ddd>.mat``; GNSS
 ``<path>/<yyyy>/merged_ro_<yyyy>_<ddd>.mat``; Misc: the first file below
-``misc_path`` matching ``*<identifier>*<yyyy>d<ddd>*.mat``.
+``misc_path`` matching ``*<identifier>*<yyyy>d<ddd>*.mat``. An ACE or GNSS
+file not at its usual path is looked for by name anywhere below the dataset
+folder (a flat folder, or other nesting).
 
 Units and corrections (not in the MATLAB ``module_load_ACE_GNSS.m``, which
 reads the files as they are; Q9-Q11 in ``docs/quirks.md``):
@@ -51,6 +53,7 @@ from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
     find_in,
+    locate,
     note,
     note_sources,
     note_version,
@@ -71,14 +74,12 @@ def load(settings, inst_info, var_names):
 
     def find_file(day):
         year, doy = year_and_day(day)
-        if instrument == "GNSS":
-            return os.path.join(
-                inst_info["path"], f"{year:04d}", f"merged_ro_{year:04d}_{doy:03d}.mat"
-            )
-        if instrument == "ACE":
-            return os.path.join(
-                inst_info["path"], f"{year:04d}", f"ace_v52_{year:04d}d{doy:03d}.mat"
-            )
+        # (the usual yyyy/ folder, else anywhere below the dataset folder)
+        if instrument in ("GNSS", "ACE"):
+            name = (f"merged_ro_{year:04d}_{doy:03d}.mat" if instrument == "GNSS"
+                    else f"ace_v52_{year:04d}d{doy:03d}.mat")
+            return locate(inst_info, os.path.join(inst_info["path"], f"{year:04d}",
+                                                  name), name, day_label(day))
         found = find_in(
             inst_info,
             f"*{inst_info['identifier']}*{year:04d}d{doy:03d}*.mat",

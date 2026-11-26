@@ -1,15 +1,17 @@
 """
-Nadir-sounder reader for IASI 3-D temperature retrievals, in the group's
-netCDF orbit files, with the IASI outlier screen.
+Nadir-sounder reader for IASI 3-D temperature retrievals, in netCDF orbit
+files (provenance: ``docs/data_supply.md``), with the IASI outlier screen.
 
 Port of ``get_iasi_granule`` in ``prep_airs_3d.m`` (corwin365/MatlabFunctions,
 commit f1a78c0, which includes the November 2026 fixes).
 
 Files, below the IASI folder (``datasets.toml``, ``IASI`` ``raw``):
 ``YYYY/DDD/iasi_YYYYMMDDhhmmss.nc``, one per orbit dump, named by the start
-of its first scan. Only names whose date matches the folder's day are used
-(the 2007/149 folder also holds 2008-12-24 files). Files are back-to-back
-(the next starts one 8-s scan after the last ends; checked at 67 boundaries,
+of its first scan. A day with no ``YYYY/DDD`` folder uses the files of that
+date anywhere below the IASI folder (a flat folder, or other nesting).
+Only names whose date matches the folder's day are used (the 2007/149
+folder also holds 2008-12-24 files). Files are back-to-back (the next
+starts one 8-s scan after the last ends; checked at 67 boundaries,
 2007-2016), so a file covers [its start, the next file's start). Files of the
 day before and after are listed too, as orbits cross midnight.
 
@@ -63,6 +65,7 @@ import numpy as np
 from atmosgw.curate.matlab_time import datenum_to_datetime, datetime_to_datenum
 from atmosgw.curate.obs._common import (
     day_label,
+    locate_matching,
     nadir_fill_to_nan,
     note,
     note_fill_counts,
@@ -79,23 +82,31 @@ _NAME = re.compile(r"^iasi_(\d{14})\.nc$")
 FILE_NAMES = {"Lat": "l1_lat", "Lon": "l1_lon", "Temp": "ret_temp", "Alt": "ret_z"}
 
 
-def list_files(root, first_day, last_day):
-    """(start datenum, path) of every file for the days, in time order."""
+def list_files(root, first_day, last_day, inst_info=None):
+    """(start datenum, path) of every file for the days, in time order: in
+    each day's usual yyyy/ddd/ folder, else (with inst_info) the files of
+    that date anywhere below root (a flat folder, or any other nesting)."""
     out = []
     for day in range(int(first_day), int(last_day) + 1):
         t = datenum_to_datetime(day)
         year, doy = year_and_day(day)
         folder = os.path.join(root, f"{year:04d}", f"{doy:03d}")
-        if not os.path.isdir(folder):
-            continue
         stamp = str(t)[:10].replace("-", "")
-        for name in sorted(os.listdir(folder)):
+        if os.path.isdir(folder):
+            paths = [os.path.join(folder, name) for name in sorted(os.listdir(folder))]
+        elif inst_info is not None:
+            named = re.compile(rf"^iasi_{stamp}\d{{6}}\.nc$")
+            paths = locate_matching(inst_info, named, root)
+        else:
+            continue
+        for path in paths:
+            name = os.path.basename(path)
             match = _NAME.match(name)
             if match and match.group(1).startswith(stamp):
                 s = match.group(1)
                 start = datetime_to_datenum(np.datetime64(
                     f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}:{s[12:14]}"))
-                out.append((float(start), os.path.join(folder, name)))
+                out.append((float(start), path))
     return sorted(out)
 
 
@@ -153,13 +164,15 @@ def load(settings, inst_info, var_names):
         spans = [(t0 - 6 / 1440, t1 + 6 / 1440)]
     low, high = min(s[0] for s in spans), max(s[1] for s in spans)
 
-    files = list_files(inst_info["path"], np.floor(low) - 1, np.floor(high) + 1)
-    if explicit is None:  # (days asked for with no folder of files)
+    files = list_files(inst_info["path"], np.floor(low) - 1, np.floor(high) + 1,
+                       inst_info)
+    if explicit is None:  # (days asked for with no folder, or no files, of their own)
         r0, r1 = settings.get("request_range", settings["time_range"])
+        file_days = {np.floor(s) for s, _ in files}
         for day in range(int(np.floor(r0)), int(np.floor(r1)) + 1):
             year, doy = year_and_day(day)
             if not os.path.isdir(os.path.join(inst_info["path"], f"{year:04d}",
-                                              f"{doy:03d}")):
+                                              f"{doy:03d}")) and day not in file_days:
                 record(inst_info)["files_not_found"].append(day_label(day))
     starts = np.array([s for s, _ in files])
     finish = np.append(starts[1:], np.inf) if files else starts
