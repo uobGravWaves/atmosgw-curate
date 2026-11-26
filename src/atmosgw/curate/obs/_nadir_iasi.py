@@ -155,8 +155,8 @@ def load(settings, inst_info, var_names):
 
     files = list_files(inst_info["path"], np.floor(low) - 1, np.floor(high) + 1)
     if explicit is None:  # (days asked for with no folder of files)
-        for day in range(int(np.floor(settings["time_range"][0])),
-                         int(np.floor(settings["time_range"][1])) + 1):
+        r0, r1 = settings.get("request_range", settings["time_range"])
+        for day in range(int(np.floor(r0)), int(np.floor(r1)) + 1):
             year, doy = year_and_day(day)
             if not os.path.isdir(os.path.join(inst_info["path"], f"{year:04d}",
                                               f"{doy:03d}")):

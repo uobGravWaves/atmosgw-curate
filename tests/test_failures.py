@@ -157,3 +157,24 @@ def test_every_missing_value_masked(tmp_path):
         v[:] = [220.0, -999.0, 200.0]
     np.testing.assert_array_equal(read_netcdf(path, ["t"])["t"],
                                   [220.0, np.nan, np.nan])
+
+
+def test_one_row_of_heights_is_per_level(tmp_path):
+    # (a Misc file may give its heights as one row, as GNSS gives MSL_alt)
+    alt = np.arange(10.0, 41.0, 2.0)[None, :]
+    savemat(tmp_path / "mine_2007d001.mat", {
+        "Alt": alt, "Lat": np.full((2, 16), 30.0), "Lon": np.full((2, 16), 10.0),
+        "Temp": np.full((2, 16), 230.0),
+        "Time": np.full((2, 16), datenum(2007, 1, 1) + 0.5)})
+    ds = _load(tmp_path, original_z=True)
+    np.testing.assert_array_equal(ds.altitude.values, np.tile(alt, (2, 1)))
+
+
+def test_padding_and_neighbours_not_reported(tmp_path):
+    # IASI's default screen reads beyond the request: the days before and
+    # after are not reported missing (nothing is in the folder, so only the
+    # day asked for is)
+    with pytest.warns(UserWarning, match="2010-07-01"):
+        ds = load_nadir_sounders(["2010-07-01T00:00", "2010-07-01T00:20"], "IASI",
+                                 file_path=tmp_path)
+    assert ds.attrs["files_not_found"] == "2010-07-01"

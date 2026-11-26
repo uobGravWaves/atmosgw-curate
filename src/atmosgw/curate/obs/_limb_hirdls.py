@@ -27,6 +27,7 @@ from atmosgw.curate.obs._common import (
     note,
     note_sources,
     note_version,
+    record,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_mls import pge_version
@@ -124,7 +125,9 @@ def load(settings, inst_info, var_names):
         zidx = int(np.nanargmin(np.abs(mean_alt - 30)))
         lat, lon = store["Lat"], store["Lon"]
         if n_prof < 2:  # (no direction to move along: positions as in the file)
-            note(inst_info, "Lat", "file with one profile: not moved (no direction)")
+            record(inst_info)["notes"]["Lat"] = (  # (replaces "moved along track")
+                "moved along track by 0.6 km per km from 30 km [R2], except in "
+                "files with one profile (no direction to move along)")
             return conform_vars(store, settings)
         theta = azimuth(lat[:-1, zidx], lon[:-1, zidx], lat[1:, zidx], lon[1:, zidx])
         theta = np.tile(np.atleast_1d(theta)[:, None], (1, n_lev))

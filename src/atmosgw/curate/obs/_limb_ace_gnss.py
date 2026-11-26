@@ -136,7 +136,10 @@ def load(settings, inst_info, var_names):
             else:
                 store[name] = inst_data[name]
         shape = np.shape(store["Lat"])
-        for name in ("Lon", "Temp", "Pres", "Alt", "Time"):
+        for name in ("Alt", "Pres", "PresEstimated"):  # (one row: per level)
+            if name in store and np.shape(store[name]) == (1,) + shape[1:]:
+                store[name] = np.tile(store[name], (shape[0], 1))
+        for name in ("Lon", "Temp", "Pres", "Alt", "Time", "PresEstimated"):
             if name in store and np.shape(store[name]) != shape:
                 raise ValueError(f"{path}: {name} has shape {np.shape(store[name])}, "
                                  f"not that of Lat {shape} [profiles x levels].")

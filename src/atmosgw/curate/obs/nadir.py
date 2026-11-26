@@ -293,6 +293,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     # with a screen that needs neighbouring data, read beyond the request
     # (then trim), so a scan's flags do not depend on how it was requested
     load_settings, padded = settings, screen is not None and pad > 0
+    settings["request_range"] = settings["time_range"]  # (before any padding)
     if padded:
         load_settings = dict(settings)
         if settings["granules"] is not None:
@@ -304,13 +305,13 @@ def _load_nadir_arrays(time_range, instrument, **options):
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=3)
-    warn_missing_files(settings, stacklevel=3, what="granules or files")
     if padded and settings["granules"] is not None:  # padding is not a request
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}
         settings["record"]["files_not_found"][:] = [
             f for f in settings["record"]["files_not_found"]
             if _granule_label(f) not in extra]
+    warn_missing_files(settings, stacklevel=3, what="granules or files")
 
     # states, then bad values to NaN (unless keep_outliers)
     temp = np.asarray(data["Temp"], dtype=float)

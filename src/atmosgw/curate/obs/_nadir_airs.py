@@ -120,13 +120,18 @@ def load(settings, inst_info, var_names):
     file_names = ["l1_time", "l1_lat", "l1_lon", "ret_temp"] + extra
     explicit = settings.get("granules") is not None
     t0, t1 = (-np.inf, np.inf) if explicit else settings["time_range"]
+    # (missing granules are recorded only if their nominal time is in the
+    # range asked for: not the candidates around it, nor screen padding)
+    r0, r1 = (-np.inf, np.inf) if explicit else settings.get("request_range",
+                                                             settings["time_range"])
 
     # group the candidates by file, so each daily file is opened once
     by_file, not_found = {}, []
     for day, g in candidate_granules(settings):
         path, kind = find_file(inst_info["path"], day, g)
         if path is None:
-            not_found.append(f"{day_label(day)} granule {g}")
+            if r0 <= day + FIRST_START + (g - 0.5) * GRANULE_DAYS <= r1:
+                not_found.append(f"{day_label(day)} granule {g}")
             continue
         by_file.setdefault((path, kind), []).append((day, g))
 
@@ -153,7 +158,7 @@ def load(settings, inst_info, var_names):
             mean = np.nanmean(time) if np.any(np.isfinite(time)) else np.nan
             if not np.isfinite(mean):  # in the range by its nominal time?
                 nominal = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
-                if explicit or t0 <= nominal <= t1:
+                if explicit or r0 <= nominal <= r1:
                     not_found.append(f"{day_label(day)} granule {g} (no valid times)")
                 continue
             if not explicit and not (t0 <= mean <= t1):
