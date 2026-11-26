@@ -5,6 +5,26 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Nadir: fill values and impossible times in the AIRS and IASI files (none
+  declared as `_FillValue`; census of every file on eepc-0184) now become NaN
+  instead of being read as data: -999 (30,355 padded AIRS daily-file
+  granules), -9999 AIRS positions (missing scans, 1,071 granules), latitude =
+  longitude = 0 and zero times (IASI, 357 files with temperatures; one AIRS
+  granule), stray pixel times (> 600 s from their scan) and scans more than a
+  day outside their file (AIRS 2009 days 193-194). Counts are in the
+  variables' `comment`. A missing time is `bad_geolocation`. Scans with a
+  missing or out-of-range position (also e.g. IASI latitude -2147.48 on
+  2011-06-30), or no valid time, are kept on the native grid and left out of
+  regridding (their own segments), which no longer crashes on them; a stray
+  pixel time alone does not stop regridding. If nothing can be regridded,
+  the native grid is returned with a warning. AIRS granules with no valid
+  time, and IASI scans with none (under their estimated granule), are listed
+  in `files_not_found` when requested (time-range requests no longer drop
+  them silently; padding neighbours are not reported). IASI scans whose first
+  pixel's time is bad are placed by their median time, so they are no longer
+  lost to a 2000-01-01 granule (e.g. 2011-06-30 granule 40 was missing
+  entirely). Everything else bit-identical (974 of 994 real-data cases; the
+  rest contain such data). MATLAB `prep_airs_3d` unchanged. [Claude]
 
 ## [0.4.1] - 2026-11-25
 - IASI: temperatures of exactly 100 K, the retrieval's lower bound (the files

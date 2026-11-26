@@ -250,7 +250,11 @@ As MATLAB, so the step-by-step core can be compared with it:
 2. read (reader): AIRS daily or granule files; IASI orbit files overlapping
    each pseudo-granule; time from seconds since 2000-01-01 (leap seconds
    ignored, as MATLAB: agreed, well below wave timescales); file fill values
-   become NaN with the `missing` state;
+   become NaN with the `missing` state; so do the undeclared fill values and
+   bad times of the AIRS and IASI files (`obs._common.nadir_fill_to_nan`:
+   -999, -9999, 0/0 positions, zero, stray and misdated times), whose
+   positions and times are then `bad_geolocation`; scans with any such
+   position or time are their own segments, not regridded;
 3. IASI screen (per height, 3 x IQR) and the 100-400 K range check, setting
    their states; flagged points become NaN. (MATLAB refills IASI points from
    the nearest along-track value; Python does not, by design. The MATLAB

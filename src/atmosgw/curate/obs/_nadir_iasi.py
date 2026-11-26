@@ -15,7 +15,9 @@ day before and after are listed too, as orbits cross midnight.
 
 Pseudo-granules (MATLAB): granule k of a day holds the scans whose first
 cross-track position's time lies in [6(k-1), 6k) minutes after 00:00 UTC
-(computed in seconds, so the bin edges are exact). A granule's time is the
+(computed in seconds, so the bin edges are exact); if that time is not valid,
+the median of the scan's valid times is used (MATLAB uses it regardless).
+A granule's time is the
 mean of its times; it belongs to the time range if that lies in it, as for
 AIRS. Granules can also be given explicitly.
 
@@ -35,7 +37,19 @@ Differences from MATLAB, by design:
   NaN with their state, and filling is a separate, visible step (agreed);
 - MATLAB's warnings when more than 5 % (``IasiFracBad``) or a connected 3 %
   (``IasiRegionFracBad``) of a granule is bad are replaced by the state
-  counts in the output attributes.
+  counts in the output attributes;
+- fill values and bad times (``_common.nadir_fill_to_nan``; the files declare
+  no fill values): latitude = longitude = 0 (scans without geolocation),
+  times of 0, stray pixel times (> 600 s from their scan, mostly at the swath
+  edges; 357 of the files with temperatures, mostly 2007-2013, census
+  2026-11-26) and scans more than a day from the file's start become NaN.
+  Scans with no valid time are dropped and recorded in ``files_not_found``
+  ("<day> granule g: n scans without valid times (<file>)", the granule from
+  the scan's position in the file), if that granule was requested. MATLAB
+  reads them as data: a zero time puts a scan in a 2000-01-01 granule (lost
+  from its own), and 0/0 positions crash regridding.
+
+2026/11/26 [Claude] fill values, bad times to NaN; granule by scan median if col. 1 bad
 """
 
 import os
@@ -47,7 +61,9 @@ import numpy as np
 from atmosgw.curate.matlab_time import datenum_to_datetime, datetime_to_datenum
 from atmosgw.curate.obs._common import (
     day_label,
+    nadir_fill_to_nan,
     note,
+    note_fill_counts,
     note_sources,
     record,
     year_and_day,
@@ -88,6 +104,39 @@ def granule_of(time_seconds):
     return day, np.floor(np.mod(t, 86400) / 360) + 1
 
 
+def _record_lost_scans(rec, path, place, lost, settings, wanted):
+    """Record scans without valid times under the granule they would be in
+    (time estimated from the scan number, linear between the file's valid
+    scans), if that granule or time was requested."""
+    rows = np.arange(place.size)
+    good = np.flatnonzero(~lost)
+    if good.size >= 2:
+        step = (place[good[-1]] - place[good[0]]) / (good[-1] - good[0])
+        est = np.interp(rows, good, place[good])
+        est = np.where(rows < good[0], place[good[0]] - step * (good[0] - rows), est)
+        est = np.where(rows > good[-1], place[good[-1]] + step * (rows - good[-1]),
+                       est)
+    elif good.size == 1:
+        est = place[good[0]] + 8.0 * (rows - good[0])  # nominal 8-s scans
+    else:
+        rec["files_not_found"].append(
+            f"{os.path.basename(path)}: {int(lost.sum())} scans without valid times")
+        return
+    day, gran = granule_of(est[lost])
+    datenum = J2000 + est[lost] / 86400
+    for d, g in sorted(set(zip(day.tolist(), gran.tolist(), strict=True))):
+        here = (day == d) & (gran == g)
+        if wanted is not None:
+            if (d, g) not in wanted:
+                continue
+        elif not np.any((datenum[here] >= settings["time_range"][0])
+                        & (datenum[here] <= settings["time_range"][1])):
+            continue
+        rec["files_not_found"].append(
+            f"{day_label(d)} granule {int(g)}: {int(here.sum())} scans without "
+            f"valid times ({os.path.basename(path)})")
+
+
 def load(settings, inst_info, var_names):
     """Read the granules; returns (data, file_list). See the module docstring."""
     note_sources(inst_info, {**FILE_NAMES, "Time": "l1_time"})
@@ -110,6 +159,7 @@ def load(settings, inst_info, var_names):
 
     rows, file_list, alt = [], [], None
     rec = record(inst_info)
+    fill_counts = {}
     for k in use:
         path = files[k][1]
         try:
@@ -124,9 +174,31 @@ def load(settings, inst_info, var_names):
         elif not np.array_equal(alt, z):
             raise ValueError(f"{os.path.basename(path)}: heights differ from those "
                              "of the files before it.")
-        day, gran = granule_of(values["l1_time"][:, 0])
+        start = (files[k][0] - J2000) * 86400  # the file's first scan, s
+        counts = nadir_fill_to_nan(values["l1_lat"], values["l1_lon"],
+                                   values["l1_time"], values["ret_temp"],
+                                   (start, start))
+        for key, n in counts.items():
+            fill_counts[key] = fill_counts.get(key, 0) + n
+        # the time that places a scan: column 1's (MATLAB), else the scan's median
+        place = values["l1_time"][:, 0].copy()
+        bad = ~np.isfinite(place)
+        if bad.any():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                place[bad] = np.nanmedian(values["l1_time"][bad], axis=1)
+            lost = ~np.isfinite(place)
+            if lost.any():
+                _record_lost_scans(rec, path, place, lost, settings, wanted
+                                   if explicit is not None else None)
+                keep = np.flatnonzero(~lost)
+                values = {name: v[keep] for name, v in values.items()}
+                place = place[keep]
+        day, gran = granule_of(place)
         file_list.append(os.path.basename(path))
-        rows.append((values, day, gran, len(file_list)))
+        rows.append((values, day, gran, len(file_list), place))
+
+    note_fill_counts(inst_info, fill_counts)
 
     # assign rows to granules and choose granules
     if not rows:
@@ -139,9 +211,10 @@ def load(settings, inst_info, var_names):
                  "Alt": np.arange(0, 91, 3.0)[:27] if alt is None else alt},
                 file_list)
     time = np.concatenate([J2000 + v["l1_time"] / 86400 for v, *_ in rows], axis=0)
-    day = np.concatenate([d for _, d, _, _ in rows])
-    gran = np.concatenate([g for _, _, g, _ in rows])
-    source = np.concatenate([np.full(d.size, float(n)) for _, d, _, n in rows])
+    day = np.concatenate([d for _, d, _, _, _ in rows])
+    gran = np.concatenate([g for _, _, g, _, _ in rows])
+    source = np.concatenate([np.full(d.size, float(n)) for _, d, _, n, _ in rows])
+    place = np.concatenate([p for *_, p in rows])
     key_id = day * 1000 + gran  # one number per (day, granule)
     ids, inverse = np.unique(key_id, return_inverse=True)
     with warnings.catch_warnings():
@@ -159,7 +232,7 @@ def load(settings, inst_info, var_names):
     else:
         ok = (mean >= settings["time_range"][0]) & (mean <= settings["time_range"][1])
     order = np.flatnonzero(ok[inverse])
-    order = order[np.argsort(time[order, 0], kind="stable")]
+    order = order[np.argsort(place[order], kind="stable")]
 
     def stack(name):
         return np.concatenate([v[name] for v, *_ in rows], axis=0)[order]
