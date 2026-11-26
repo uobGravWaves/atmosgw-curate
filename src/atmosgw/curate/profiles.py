@@ -132,8 +132,22 @@ def select_profiles(data, keep, skip=()):
     return out
 
 
-def interpolate_profiles(alt, values, new_alt, method="linear", extrap=None):
-    """Interpolate each profile to new_alt. See the module docstring."""
+def interpolation_plan(alt, new_alt):
+    """The part of interpolate_profiles that depends only on the heights (for
+    the piecewise methods), computed once to reuse for every variable on the
+    same heights: a list of (rows, plan) chunks."""
+    alt = np.asarray(alt, dtype=float)
+    new_alt = np.asarray(new_alt, dtype=float).ravel()
+    rows = max(1, int(_CHUNK_ELEMENTS // max(1, alt.shape[1] * new_alt.size)))
+    return [(slice(start, start + rows), _plan_rows(alt[start:start + rows], new_alt))
+            for start in range(0, alt.shape[0], rows)]
+
+
+def interpolate_profiles(alt, values, new_alt, method="linear", extrap=None,
+                         plan=None):
+    """Interpolate each profile to new_alt. See the module docstring. plan:
+    interpolation_plan(alt, new_alt), to save recomputing it (piecewise
+    methods; the result is identical)."""
     alt = np.asarray(alt, dtype=float)
     values = np.asarray(values)
     new_alt = np.asarray(new_alt, dtype=float).ravel()
@@ -147,11 +161,10 @@ def interpolate_profiles(alt, values, new_alt, method="linear", extrap=None):
         # (as in the per-profile version and MATLAB; e.g. ALOMAR, Q7)
         levels = as_3d[:, : alt.shape[1]].astype(float)
         out = np.full((values.shape[0], new_alt.size, n_slices), np.nan)
-        rows = max(1, int(_CHUNK_ELEMENTS // max(1, alt.shape[1] * new_alt.size)))
-        for start in range(0, values.shape[0], rows):
-            part = slice(start, start + rows)
-            out[part] = _piecewise_rows(alt[part], levels[part], new_alt,
-                                        method.lower(), bool(extrap))
+        if plan is None:
+            plan = interpolation_plan(alt, new_alt)
+        for part, chunk in plan:
+            out[part] = _apply_rows(chunk, levels[part], method.lower(), bool(extrap))
     else:
         out = _interpolate_each(alt, as_3d, new_alt, method, extrap)
     return out.reshape((values.shape[0], new_alt.size) + values.shape[2:])
@@ -261,21 +274,23 @@ def _piecewise_rows(alt, values, q, method, extrapolate):
     results are identical to _interpolate_each). alt [profiles x levels],
     values [profiles x levels x slices], q 1-D -> [profiles x len(q) x slices].
     """
-    n_prof, n_lev, n_slices = values.shape
-    out = np.full((n_prof, q.size, n_slices), np.nan)
+    return _apply_rows(_plan_rows(alt, q), values, method, extrapolate)
+
+
+def _plan_rows(alt, q):
+    """The height-only part of _piecewise_rows (see interpolation_plan)."""
+    n_prof, n_lev = alt.shape
     if n_prof == 0 or n_lev < 3 or q.size == 0:  # (fewer than 3 levels: NaN)
-        return out
+        return {"empty": True, "shape": (n_prof, q.size)}
 
     # usable levels (finite heights, first of any repeats), sorted by height
     # and moved to the front of each row; n of them in each profile
     order = np.argsort(alt, axis=1, kind="stable")  # NaN last; repeats in order
     x = np.take_along_axis(alt, order, axis=1)
-    v = np.take_along_axis(values, order[:, :, None], axis=1)
     usable = np.isfinite(x)
     usable[:, 1:] &= x[:, 1:] != x[:, :-1]
     front = np.argsort(~usable, axis=1, kind="stable")
     x = np.take_along_axis(x, front, axis=1)
-    v = np.take_along_axis(v, front[:, :, None], axis=1)
     n = usable.sum(axis=1)
     x = np.where(np.arange(n_lev) < n[:, None], x, np.inf)
     m = np.maximum(n, 2)[:, None]  # rows with fewer than 3 are set to NaN below
@@ -289,6 +304,22 @@ def _piecewise_rows(alt, values, q, method, extrapolate):
     below = qq < x[:, :1]
     above = qq > np.take_along_axis(x, m - 1, axis=1)
     enough = (n > 2)[:, None]
+    return {"empty": False, "order": order, "front": front, "qq": qq, "j": j,
+            "x0": x0, "x1": x1, "m": m, "below": below, "above": above,
+            "enough": enough}
+
+
+def _apply_rows(plan, values, method, extrapolate):
+    """Interpolate values [profiles x levels x slices] with a _plan_rows plan."""
+    if plan["empty"]:
+        return np.full(plan["shape"] + (values.shape[2],), np.nan)
+    order, front, qq, j = plan["order"], plan["front"], plan["qq"], plan["j"]
+    x0, x1, m = plan["x0"], plan["x1"], plan["m"]
+    below, above, enough = plan["below"], plan["above"], plan["enough"]
+    n_slices = values.shape[2]
+    v = np.take_along_axis(values, order[:, :, None], axis=1)
+    v = np.take_along_axis(v, front[:, :, None], axis=1)
+    out = np.full((values.shape[0], qq.shape[1], n_slices), np.nan)
 
     with np.errstate(invalid="ignore", divide="ignore"):
         for k in range(n_slices):

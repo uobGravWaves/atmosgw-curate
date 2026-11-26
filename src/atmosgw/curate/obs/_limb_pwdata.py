@@ -35,6 +35,7 @@ from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note_sources,
     note_version,
     record,
@@ -43,7 +44,7 @@ from atmosgw.curate.obs._common import (
 from atmosgw.curate.obs._limb_ace_gnss import gnss_fixes, note_gnss_counts
 from atmosgw.curate.obs._limb_tools import conform_vars, note_estimated_pres
 from atmosgw.curate.profiles import concat_profiles
-from atmosgw.curate.readers import find_files, read_mat
+from atmosgw.curate.readers import read_mat
 
 
 def load(settings, inst_info, var_names):
@@ -65,9 +66,10 @@ def load(settings, inst_info, var_names):
                 f"{inst_info['inst']}_PWs_{year:04d}d{doy:03d}.mat",
             )
         else:
-            found = find_files(
-                settings["misc_path"],
+            found = find_in(
+                inst_info,
                 f"*{settings['misc_identifier']}*{year:04d}d{doy:03d}*",
+                root=settings["misc_path"],
             )
             path = choose_file(found, inst_info, day_label(day))
         if path is None or not os.path.isfile(path):

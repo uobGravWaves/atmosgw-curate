@@ -27,6 +27,7 @@ import numpy as np
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs._common import (
     choose_file,
+    find_in,
     note,
     note_sources,
     note_version,
@@ -34,7 +35,7 @@ from atmosgw.curate.obs._common import (
 )
 from atmosgw.curate.obs._limb_tools import conform_vars
 from atmosgw.curate.profiles import concat_profiles
-from atmosgw.curate.readers import find_files, read_attrs, read_netcdf
+from atmosgw.curate.readers import read_attrs, read_netcdf
 
 MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
@@ -59,7 +60,7 @@ def load(settings, inst_info, var_names):
         t = datenum_to_datetime(day)
         year = int(t.astype("datetime64[Y]").astype(int)) + 1970
         month = MONTHS[int(t.astype("datetime64[M]").astype(int)) % 12]
-        found = find_files(inst_info["path"], f"{month}{year}")
+        found = find_in(inst_info, f"{month}{year}")
         first_look = f"{month}{year}" not in months_seen
         months_seen.add(f"{month}{year}")
         if first_look:  # (the file of the month, recording duplicates)

@@ -5,6 +5,17 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- MLS temperatures are screened as the MLS data quality documents prescribe
+  (v5.0x and v6.x, identical rules), as `instrument_flag`; new option
+  `instrument_qc` (default True) (Q15). The limb ALOMAR reader also finds
+  sessions that cross New Year (Q16). Empty regridded nadir results have the
+  regridded shape (they concatenate with full ones); AIRS 2-D fill values
+  and bad times become NaN, as for 3-D; IASI screen padding for explicit
+  granules covers the screen's window. Faster, with identical results: limb
+  loads about 2.5 times (the interpolation plan once per load, longitudes
+  unwrapped for all profiles at once, each data folder listed once), IASI
+  with the default screen about 18 % (quartiles for all levels in one
+  sort). [Claude]
 - Formats and conversion: a saved file read back with `xr.load_dataset`
   (times as datetime64[ns]) passes `validate`; extras' own dimensions
   (`<name>_dim<k>`) are accepted; an empty planetary-wave result keeps its

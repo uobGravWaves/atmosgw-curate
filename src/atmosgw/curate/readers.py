@@ -102,9 +102,11 @@ import netCDF4
 import numpy as np
 
 
-def find_files(root, pattern, case_sensitive=False):
+def find_files(root, pattern, case_sensitive=False, listing=None):
     """Files (and folders) below root whose relative path matches a wildcard
-    pattern, in MATLAB wildcardsearch order. See the module docstring."""
+    pattern, in MATLAB wildcardsearch order. See the module docstring.
+    listing: list_tree(root), to search a folder many times without listing
+    it again (the same result)."""
     alternatives = pattern.split(os.pathsep)
     regex = "|".join(f"({_wildcard_to_regex(a)})" for a in alternatives)
     flags = 0 if case_sensitive else re.IGNORECASE
@@ -112,7 +114,18 @@ def find_files(root, pattern, case_sensitive=False):
     root = str(root)
     if not root.endswith(os.sep):
         root = root + os.sep
-    return _search(root, root, compiled)
+    if listing is None:
+        listing = list_tree(root)
+    return [path for path in listing if compiled.search(path[len(root):])]
+
+
+def list_tree(root):
+    """Every folder (with a trailing separator) and file below root, in
+    find_files' search order."""
+    root = str(root)
+    if not root.endswith(os.sep):
+        root = root + os.sep
+    return _list(root)
 
 
 def read_mat(path):
@@ -192,8 +205,9 @@ def _wildcard_to_regex(pattern):
     return pattern.replace(".", r"\.").replace("*", ".*").replace("?", ".")
 
 
-def _search(folder, root, regex):
-    """Depth-first search in regexpdir order (sub-folders, then files)."""
+def _list(folder):
+    """Depth-first listing in regexpdir order (each sub-folder, then its
+    contents; then the files), as the MATLAB search visits them."""
     found = []
     try:
         names = sorted(os.listdir(folder))
@@ -203,13 +217,9 @@ def _search(folder, root, regex):
     files = [n for n in names if not os.path.isdir(os.path.join(folder, n))]
     for name in folders:
         path = os.path.join(folder, name) + os.sep
-        if regex.search(path[len(root):]):
-            found.append(path)
-        found.extend(_search(path, root, regex))
-    for name in files:
-        path = os.path.join(folder, name)
-        if regex.search(path[len(root):]):
-            found.append(path)
+        found.append(path)
+        found.extend(_list(path))
+    found.extend(os.path.join(folder, name) for name in files)
     return found
 
 

@@ -300,7 +300,7 @@ import xarray as xr
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.geodesy import haversine
-from atmosgw.curate.matlab_compat import unwrap, wrap_to_pi
+from atmosgw.curate.matlab_compat import unwrap_rows, wrap_to_pi
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import (
     _limb_ace_gnss,
@@ -336,6 +336,7 @@ from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import (
     clip_to_height_range,
     interpolate_profiles,
+    interpolation_plan,
     mask_points,
     profiles_in_box,
     select_profiles,
@@ -523,7 +524,11 @@ def _load_limb_arrays(time_range, instrument, **options):
     if instrument_bad is not None:
         instrument_bad = np.asarray(instrument_bad, dtype=float) > 0.5
     contributed = {}
+    plan = None
     if not settings["original_z"]:
+        # the height-only part of the interpolation, once for every variable
+        # (the same arithmetic as computing it per variable: identical results)
+        plan = interpolation_plan(data["Alt"], height_scale)
         # screen the file's own points first (Q13): a point failing the checks
         # below is NaN in every variable but height (so it is not bridged
         # over), and the heights it reaches when interpolated get its state
@@ -538,7 +543,7 @@ def _load_limb_arrays(time_range, instrument, **options):
             extrap = True if settings["extrapolate"] or not piecewise else None
             for state, mask in native.items():
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
-                                              height_scale, reach, extrap)
+                                              height_scale, reach, extrap, plan)
                 contributed[state] = np.nan_to_num(spread) != 0
             if not settings["keep_outliers"]:
                 # (extras keep their values here: they may be interpolated by
@@ -549,10 +554,7 @@ def _load_limb_arrays(time_range, instrument, **options):
 
         # unwrap longitudes along each profile (finite values only), so that
         # interpolation is safe across the dateline
-        lon = np.deg2rad(np.asarray(data["Lon"], dtype=float))
-        for i in range(lon.shape[0]):
-            finite = np.isfinite(lon[i])
-            lon[i, finite] = unwrap(lon[i, finite])
+        lon = unwrap_rows(np.deg2rad(np.asarray(data["Lon"], dtype=float)))
 
         if verbose:
             print("----> Interpolating to output z")
@@ -597,7 +599,7 @@ def _load_limb_arrays(time_range, instrument, **options):
                     with np.errstate(invalid="ignore", divide="ignore"):
                         value = np.log(np.where(value > 0, value, np.nan))
                 new[name] = interpolate_profiles(
-                    data["Alt"], value, height_scale, method, extrap
+                    data["Alt"], value, height_scale, method, extrap, plan
                 )
                 if log_pres:
                     new[name] = np.exp(new[name])

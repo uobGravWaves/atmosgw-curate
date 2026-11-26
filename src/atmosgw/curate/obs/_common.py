@@ -272,6 +272,17 @@ def note(inst_info, name, text):
     record(inst_info)["notes"].setdefault(name, text)
 
 
+def find_in(inst_info, pattern, root=None):
+    """readers.find_files below inst_info["path"] (or root), listing the
+    folder only once per load (kept in inst_info)."""
+    from atmosgw.curate.readers import find_files, list_tree
+    root = str(inst_info["path"] if root is None else root)
+    listings = inst_info.setdefault("_listings", {})
+    if root not in listings:
+        listings[root] = list_tree(root)
+    return find_files(root, pattern, listing=listings[root])
+
+
 def choose_file(found, inst_info, label, prefer=None):
     """
     One path from those found for a day (``readers.find_files`` output).

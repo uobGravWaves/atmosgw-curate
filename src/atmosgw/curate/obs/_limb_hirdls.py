@@ -24,6 +24,7 @@ from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note,
     note_sources,
     note_version,
@@ -32,7 +33,7 @@ from atmosgw.curate.obs._common import (
 )
 from atmosgw.curate.obs._limb_mls import pge_version
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
-from atmosgw.curate.readers import find_files, read_hdf5
+from atmosgw.curate.readers import read_hdf5
 
 _SWATH = "HDFEOS/SWATHS/HIRDLS"
 
@@ -71,7 +72,7 @@ def load(settings, inst_info, var_names):
 
     def find_file(day):
         year, doy = year_and_day(day)
-        found = find_files(inst_info["path"], f"*_{year:04d}d{doy:03d}*")
+        found = find_in(inst_info, f"*_{year:04d}d{doy:03d}*")
         return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):

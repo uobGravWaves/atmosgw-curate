@@ -126,9 +126,7 @@ def rolling_screen(temp, time, lat, lon, window_minutes=10.0, step_minutes=1.0,
                 continue
             values = window[in_w]  # [points x level]
             counts = np.sum(np.isfinite(values), axis=0)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                q1, q3 = np.nanpercentile(values, [25, 75], axis=0, method="hazen")
+            q1, q3 = hazen_quartiles(values)
             iqr = q3 - q1
             usable = (counts >= min_points) & (iqr > 0)  # IQR 0: safeguard
             xi, ai = np.nonzero(in_b)
@@ -138,6 +136,35 @@ def rolling_screen(temp, time, lat, lon, window_minutes=10.0, step_minutes=1.0,
             bad &= usable[None, :]
             out[xi, rows_b[ai], :] = bad
     return out
+
+
+def hazen_quartiles(values):
+    """(q1, q3) of each column of values [points x levels], NaN ignored, as
+    np.nanpercentile(values, [25, 75], axis=0, method="hazen") gives them (the
+    same arithmetic: identical results), but with one sort for all columns
+    instead of one call per column. NaN for a column without values."""
+    values = np.asarray(values, dtype=float)
+    ordered = np.sort(values, axis=0)  # (NaN last)
+    n = np.sum(np.isfinite(values), axis=0)
+    out = []
+    for q in (0.25, 0.75):
+        virtual = n * q - 0.5  # (NumPy's "hazen": alpha = beta = 0.5)
+        below, above = virtual < 0, virtual >= n - 1
+        previous = np.floor(virtual)
+        gamma = virtual - previous
+        previous = np.where(below, 0, np.where(above, n - 1, previous)).astype(int)
+        following = np.where(below, 0, np.where(above, n - 1, previous + 1)).astype(int)
+        previous, following = np.clip(previous, 0, None), np.clip(following, 0, None)
+        columns = np.arange(values.shape[1])
+        a = ordered[previous, columns] if values.shape[0] else np.full(n.shape, np.nan)
+        b = ordered[following, columns] if values.shape[0] else np.full(n.shape, np.nan)
+        gamma = np.where(above, virtual - (n - 1), gamma)
+        diff = b - a  # (NumPy's _lerp)
+        with np.errstate(invalid="ignore"):
+            result = a + diff * gamma
+            result = np.where(gamma >= 0.5, b - diff * (1 - gamma), result)
+        out.append(np.where(n > 0, result, np.nan))
+    return out[0], out[1]
 
 
 def pooled_screen(temp, time, lat, lon, factor=3.0):

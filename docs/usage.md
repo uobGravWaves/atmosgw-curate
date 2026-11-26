@@ -190,9 +190,10 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
 
-The loaders apply no instrument quality flags (MLS `Status`, `Quality`,
-`Convergence`, precision; HIRDLS quality fields ...), only the checks in this
-table: request them with `additional_vars` and screen as the product's
+Of the providers' own quality screening, only MLS's is applied (its data
+quality documents' temperature rules, as `instrument_flag`;
+`instrument_qc=False` to switch it off). For the other instruments, request
+their quality fields with `additional_vars` and screen as the product's
 documentation says.
 
 The same rules hold in every format (`docs/design/data_formats.md` section

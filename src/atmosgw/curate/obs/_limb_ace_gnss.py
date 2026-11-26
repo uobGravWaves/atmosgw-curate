@@ -50,6 +50,7 @@ from atmosgw.curate.matlab_time import datetime_to_datenum
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note,
     note_sources,
     note_version,
@@ -57,7 +58,7 @@ from atmosgw.curate.obs._common import (
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, note_estimated_pres
-from atmosgw.curate.readers import find_files, read_mat
+from atmosgw.curate.readers import read_mat
 
 
 def load(settings, inst_info, var_names):
@@ -78,8 +79,8 @@ def load(settings, inst_info, var_names):
             return os.path.join(
                 inst_info["path"], f"{year:04d}", f"ace_v52_{year:04d}d{doy:03d}.mat"
             )
-        found = find_files(
-            inst_info["path"],
+        found = find_in(
+            inst_info,
             f"*{inst_info['identifier']}*{year:04d}d{doy:03d}*.mat",
         )
         return choose_file(found, inst_info, day_label(day))
