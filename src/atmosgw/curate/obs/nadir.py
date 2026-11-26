@@ -364,6 +364,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     if not settings["keep_outliers"]:
         temp[states.no_value_mask(flags)] = np.nan
     data["Temp"] = temp
+    temp = None  # (only data holds it now: freed once regridded, not kept)
     if padded:
         keep = _requested_rows(data, settings)
         for name in _along_track_names(data):
@@ -440,16 +441,17 @@ def _load_nadir_arrays(time_range, instrument, **options):
                  else settings["height_scale"])
         low, high = settings["height_range"]
         new_z = new_z[(new_z >= low) & (new_z <= high)]
-        temp, flags = _interpolate_with_states(z, data["Temp"], flags, new_z)
-        data["Temp"], data["Alt"] = temp, new_z
+        data["Temp"], flags = _interpolate_with_states(z, data["Temp"], flags, new_z)
+        data["Alt"] = new_z
         steps = np.diff(new_z)
         if steps.size and np.allclose(steps, steps[0], rtol=0, atol=1e-9):
             spacing[2] = float(steps[0])
     else:
         low, high = settings["height_range"]
         keep = (z >= low) & (z <= high)
-        data["Temp"], data["Alt"], flags = data["Temp"][..., keep], z[keep], (
-            flags[..., keep])
+        if not keep.all():  # (all kept: no copy of the whole swath)
+            data["Temp"], flags = data["Temp"][..., keep], flags[..., keep]
+        data["Alt"] = z[keep]
     data["Spacing"] = np.array(spacing)
 
     # rows entering the latitude/longitude box
@@ -592,6 +594,10 @@ def _regrid(data, flags, settings, info):
         rows = np.flatnonzero(segment == seg)
         if rows.size < 2 or not placeable[rows[0]]:
             continue  # a single row, or scans without positions: not regridded
+        # (segments are runs of successive rows: a slice gives views, not
+        # copies, of the swath's arrays; the same values)
+        take = (slice(int(rows[0]), int(rows[-1]) + 1)
+                if rows[-1] - rows[0] + 1 == rows.size else rows)
         n_gran = len({(d, g) for d, g in zip(data["Day"][rows], data["Granule"][rows],
                                              strict=True)})
         per_granule = settings["n_along"] or info["rows_per_granule"]
@@ -601,32 +607,32 @@ def _regrid(data, flags, settings, info):
             # spacing is that of whole granules (Q14; was n_gran whole granules'
             # worth, e.g. 135 rows for 75 scans, 9.9 km instead of 18 km)
             n_along = max(2, int(round(per_granule * rows.size / native_rows)))
-        xyz = _unit_vectors(lat[:, rows], lon[:, rows])
-        fields = {"Temp": data["Temp"][:, rows], "Time": data["Time"][:, rows],
-                  **{n: data[n][:, rows] for n in extra},
+        xyz = _unit_vectors(lat[:, take], lon[:, take])
+        fields = {"Temp": data["Temp"][:, take], "Time": data["Time"][:, take],
+                  **{n: data[n][:, take] for n in extra},
                   "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}
         # this segment's own cross-track distances (used to interpolate and to
         # mark extrapolation alike)
-        seg_cross = (np.median(cross_all[:, rows], axis=1) if by_median else
-                     swath.swath_distances(lat[:, rows], lon[:, rows])["cross"])
+        seg_cross = (np.median(cross_all[:, take], axis=1) if by_median else
+                     swath.swath_distances(lat[:, take], lon[:, take])["cross"])
         # (a segment a little narrower than the common axis keeps its edge
         # columns: up to half a grid step, and at most one native pixel)
         edge = 0.0
         if by_median and cross_axis.size > 1:
             edge = min(0.5 * abs(cross_axis[1] - cross_axis[0]),
                        float(np.median(np.abs(np.diff(seg_cross)))))
-        out = swath.regrid(lat[:, rows], lon[:, rows], fields, n_along=n_along,
+        out = swath.regrid(lat[:, take], lon[:, take], fields, n_along=n_along,
                            dx_along=settings["dx_along"],
                            method=settings["interp_type"],
                            extrapolate="linear" if settings["extrapolate"] else None,
-                           cross_axis=cross_axis, flags=flags[:, rows],
+                           cross_axis=cross_axis, flags=flags[:, take],
                            cross=seg_cross if by_median else None, cross_edge=edge)
         # states: those of every input point used (swath.regrid), and
         # no_observation for NaN points outside the input
         new_flags = out["flags"]
         unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
         states.set_state(new_flags, unexplained, "no_observation")
-        d_seg = swath.swath_distances(lat[:, rows], lon[:, rows])
+        d_seg = swath.swath_distances(lat[:, take], lon[:, take])
         if out["cross_edge"].any():  # (edge value used: extrapolated)
             edge = np.broadcast_to(out["cross_edge"].reshape(
                 (-1,) + (1,) * (new_flags.ndim - 1)), new_flags.shape)
@@ -678,8 +684,9 @@ def _regrid(data, flags, settings, info):
     for name in parts[0]:
         if name in ("Flags",):
             continue
-        new[name] = np.concatenate([p[name] for p in parts],
-                                   axis=1 if parts[0][name].ndim > 1 else 0)
+        new[name] = (parts[0][name] if len(parts) == 1 else  # (no copy of one)
+                     np.concatenate([p[name] for p in parts],
+                                    axis=1 if parts[0][name].ndim > 1 else 0))
     new["DistCross"] = cross_axis
     # along-track spacing: the median over segments (within about 5 % of each
     # other with the proportional rule above; distance_along has each exactly)
@@ -689,7 +696,9 @@ def _regrid(data, flags, settings, info):
     for name in ("NativeLat", "NativeLon", "NativeTime", "ScanPosition"):
         if name in data:
             new[name] = data[name]
-    return new, np.concatenate([p["Flags"] for p in parts], axis=1), spacing
+    flags = (parts[0]["Flags"] if len(parts) == 1
+             else np.concatenate([p["Flags"] for p in parts], axis=1))
+    return new, flags, spacing
 
 
 def _placeable(data):

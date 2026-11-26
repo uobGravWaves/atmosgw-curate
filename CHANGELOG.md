@@ -5,6 +5,10 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Nadir loads use about 25 % less memory (a regridded AIRS day: 3.4 to 2.6
+  GB at peak), with identical results: segments are views, not copies; one
+  segment is not copied again; the native temperature is freed once
+  regridded; all levels kept means no copy. [Claude]
 - `instrument_qc` extended (Q17): HIRDLS values with negative precision
   (mostly a priori, V7 data quality document) are kept and marked
   `a_priori_dominated`; SOFIE temperatures outside the endorsed 15-88 km
