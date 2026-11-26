@@ -129,6 +129,7 @@ Data states and the other metadata have no MATLAB counterpart.
 | `swath` | MATLAB output for synthetic swaths |
 | `matlab_time` | MathWorks' documented examples and Python's own calendar; not MATLAB itself |
 | `readers`, `paths`, `profiles` | known answers; `profiles` also through the limb MATLAB tests |
+| `data.netcdf` | round trips of every format (`tests/test_netcdf.py`): unpacked identical, packed within half the stated resolution |
 
 [get_limbsounders]: https://github.com/uobGravWaves/MultiInstrumentFunctions/blob/main/MultiInstrumentLoaders/get_limbsounders.m
 [prep_airs_3d]: https://github.com/corwin365/MatlabFunctions/blob/master/DatasetSpecific/AIRS/prep_airs_3d.m
