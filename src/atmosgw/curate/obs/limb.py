@@ -4,9 +4,10 @@ Load limb-sounder and other profile data in a common format.
 Load temperature profiles from several instruments (ACE-FTS, GNSS radio
 occultation, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar), from
 planetary-wave-filtered versions of them, from the output of the Wright and
-Hindley (2018) sampler, or from any files in the same MATLAB format ("Misc"),
-and return them on one [profile x level] grid, by default interpolated to a
-common height scale, with outliers removed.
+Hindley (2018) sampler (https://github.com/corwin365/Model-Sampling), or
+from any files in the same MATLAB format ("Misc"), and return them on one
+[profile x level] grid, by default interpolated to a common height scale,
+with outliers removed.
 
 Port of the MATLAB ``get_limbsounders`` (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78), the group's own code. AIRS and
@@ -67,14 +68,18 @@ Options (type, default):
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
   only).
 
-``time_handling``:
+``time_handling`` (both ends are included):
 
+- ``"fuzzy"``: one time means its whole day; two times are used as given,
+  except that an end at exactly midnight includes that whole day (so
+  2010-01-01 to 2010-01-02 gives both days);
+- ``"generous"``: whole days, from the start of the first day to the end of
+  the day the end falls in;
 - ``"strict"``: exactly the times given; one time selects only profiles at
-  exactly that instant (with a warning if there are none);
-- ``"generous"``: whole days, from the start of the first day touched to the
-  end of the last;
-- ``"fuzzy"``: one time means its whole day; an end time at exactly midnight
-  includes that whole day (e.g. 2010-01-01 to 2010-01-02 gives both days).
+  exactly that instant (with a warning if there are none).
+
+"The end of a day" is 1e-8 day (about 1 ms) before the next midnight, as in
+MATLAB.
 
 Profiles are selected by their mean time, so profiles are never split.
 
@@ -215,7 +220,8 @@ through log and exp; each tolerance, and the largest difference seen, is in
 the test's docstring. A by-hand sweep of 1,420 real-data calls at 0.3.4
 (``tests/matlab/sweep/README.md``) compares the same layer.
 ``tests/test_limb_known.py``: the known-answer checks of the MATLAB test, on
-synthetic files and real data.
+synthetic files and real data. Full record: ``docs/validation.md`` in the
+repository.
 
 Status
 ------

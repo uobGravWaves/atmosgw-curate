@@ -16,23 +16,33 @@ from atmosgw.curate.data import states
 
 ## Times
 
-Every loader takes `time_range` as one time (that whole day) or two (start
-and end): `numpy.datetime64`, ISO strings or `datetime` objects.
+Every loader takes `time_range` as one time or two (start and end):
+`numpy.datetime64`, ISO strings or `datetime` objects. `time_handling` says
+how they are read; both ends are included.
+
+- `"fuzzy"` (default): one time means its whole day. Two times are used as
+  given, except that an end at exactly midnight includes that whole day.
+- `"generous"`: whole days, from the start of the first day to the end of
+  the day the end falls in.
+- `"strict"`: exactly as given. One time selects only data at exactly that
+  instant, which is usually nothing.
+
+| `time_range` | `"fuzzy"` | `"generous"` | `"strict"` |
+|---|---|---|---|
+| `"2007-01-01"` | 1 Jan | 1 Jan | 1 Jan 00:00 only |
+| `"2007-01-01T06:00"` | 1 Jan | 1 Jan | 06:00 only |
+| `["2007-01-01T06:00", "2007-01-01T12:00"]` | 06:00-12:00 | 1 Jan | 06:00-12:00 |
+| `["2007-01-01", "2007-01-02"]` | 1 and 2 Jan | 1 and 2 Jan | 1 Jan 00:00 to 2 Jan 00:00 |
+| `["2007-01-01T06:00", "2007-01-02T18:00"]` | 1 Jan 06:00 to 2 Jan 18:00 | 1 and 2 Jan | 1 Jan 06:00 to 2 Jan 18:00 |
+
+So `["2007-01-01", "2007-01-02"]` is two days, not one. "The end of a day"
+is about 1 ms (1e-8 day) before the next midnight, as in MATLAB.
 
 ```python
-ds = load_limb_sounders("2007-01-01", "SABER")                     # one day
-ds = load_limb_sounders(["2007-01-01", "2007-01-03"], "SABER")     # three days
-ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER",
-                        time_handling="strict")                    # six hours
+ds = load_limb_sounders("2007-01-01", "SABER")                                # one day
+ds = load_limb_sounders(["2007-01-01", "2007-01-03"], "SABER")                # three days
+ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER")    # six hours
 ```
-
-`time_handling` says what the times mean:
-
-| Mode | One time | Two times |
-|---|---|---|
-| `"fuzzy"` (default) | that whole day | as given; an end at exactly midnight includes that day |
-| `"generous"` | that whole day | from the start of the first day to the end of the last |
-| `"strict"` | that instant only (usually nothing) | exactly as given |
 
 Profiles (limb) and granules (nadir) are selected by their mean time, so
 they are never split; time-height rows are selected by their own time.
@@ -43,9 +53,10 @@ MATLAB datenums are refused: convert them with
 ## Limb sounders and other profiles
 
 Instruments: `"ACE"`, `"GNSS"`, `"HIRDLS"`, `"MIPAS"`, `"MLS"`, `"SABER"`,
-`"SOFIE"`, `"ALOMAR"` (lidar), `"Sampler"` (output of the Wright and Hindley
-sampler) and `"Misc"` (any files in the same MATLAB format). ALOMAR here is
-the MATLAB-parity path and gives a warning: for a time series, use
+`"SOFIE"`, `"ALOMAR"` (lidar), `"Sampler"` (output of the
+[Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling))
+and `"Misc"` (any files in the same MATLAB format). ALOMAR here is the
+MATLAB-parity path and gives a warning: for a time series, use
 `load_time_height` (below).
 
 ```python
@@ -181,7 +192,7 @@ The same rules hold in every format (`docs/design/data_formats.md` section
 point. The value states (`derived`, `extrapolated`) are only on values that
 exist. To judge coverage, use `missing` and `no_observation` together, not
 `no_observation` alone. With `keep_outliers=True` the values removed as bad
-are kept and their states still set, so you can remove them later yourself.
+are kept and their states still set.
 The full list is `states.STATES`.
 
 **Not raw data.** `ds.attrs["data"]` is "preprocessed" when the files were
@@ -238,9 +249,7 @@ folder).
 |---|---|---|
 | `lat_range`, `lon_range` | keeps profiles that enter the box at any height | keeps along-track rows with any point in the box |
 | default heights | 18-60 km every 0.5 km (as MATLAB) | a 3 km grid from the lowest file level (as MATLAB) |
-| `time_range` | whole profiles, by their mean time | whole granules, by their mean time (IASI reads a little beyond each end for its screen) |
 | `extrapolate` | vertical, beyond each profile | horizontal, in the regridding |
-| `keep_outliers` | keeps values removed as bad; states still set | the same |
 
 ## Things to know
 

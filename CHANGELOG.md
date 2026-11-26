@@ -32,7 +32,11 @@ reference outputs.
   MATLAB reference; AIRS 2-D listed as implemented; IASI's MATLAB test
   described; `outside_physical_range` described as > 400 K at any height for
   nadir data, as the code does; `data_formats.md` section 6.2 brought up to
-  date). No code changes apart from the text of one state description.
+  date; MATLAB's IASI fill-in also covers NaNs in the files). New
+  `docs/validation.md`: every check against MATLAB and real data, including
+  the nadir sweep at 0.4.1. `time_handling` explained with examples. Links
+  to the MATLAB code and the Wright and Hindley sampler. No code changes
+  apart from the text of one state description.
   [Claude]
 
 ## [0.5.0] - 2026-11-26

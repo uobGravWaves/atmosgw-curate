@@ -80,8 +80,10 @@ Record which applies in the docstring's Origin section.
 
 ## Documentation
 Each fact has one home; elsewhere, link to it. `README.md` says what the
-package does and what has been checked; `docs/usage.md` shows common tasks;
-the module docstrings are the reference for options, outputs and science.
+package does and summarises what has been checked; `docs/validation.md` is
+the full record of checks (add each new comparison with MATLAB or real
+data there); `docs/usage.md` shows common tasks; the module docstrings are
+the reference for options, outputs and science.
 
 Module docstrings are read through `help()`, often without the repository
 open, so each should make sense on its own. Start with a one-line summary

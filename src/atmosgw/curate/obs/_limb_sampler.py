@@ -1,5 +1,6 @@
 """
-Limb-sounder reader for output of the Wright and Hindley (2018) sampler.
+Limb-sounder reader for output of the Wright and Hindley (2018) sampler
+(https://github.com/corwin365/Model-Sampling).
 Port of ``module_load_sampler.m`` (uobGravWaves/MultiInstrumentFunctions,
 commit 78eef78).
 
