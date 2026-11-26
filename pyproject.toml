@@ -34,6 +34,9 @@ dependencies = [
     "h5py>=3.8",
     # netCDF instrument files (SABER, MIPAS, SOFIE)
     "netcdf4>=1.6",
+    # MATLAB tables (GNSS MetaData) as DataFrames; used directly by the readers.
+    # 3.0: mat-io needs its string inference (failures reported with 2.2.3)
+    "pandas>=3.0",
 ]
 
 [project.optional-dependencies]

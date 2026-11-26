@@ -1,13 +1,14 @@
-# Known quirks kept from the MATLAB code
+# MATLAB behaviour found wrong, and fixed
 
-Ports reproduce the MATLAB code exactly first, so they can be checked against
-its outputs. Behaviour that is known to be wrong or questionable is kept, and
-listed here so it can be fixed later. Each fix is a separate change with
-before/after tests.
+The ports first reproduced the MATLAB code exactly, so they could be checked
+against its outputs. Behaviour found wrong is listed here with what changed
+and by how much. Q1-Q8 were fixed in both languages. Q9 onwards were found
+in a review after release 0.5.1, the last release that reproduces the MATLAB
+loaders, and are fixed in Python only: to reproduce an older result, install
+0.5.1 (or the MATLAB version named in a row).
 
-Each quirk has an ID, used in the code comments at the place where it
-happens, and a test that pins the current behaviour. Fixing a quirk should
-change that test and the matching MATLAB regression fields, and nothing else.
+Each quirk has an ID, used in the code comments where it happens, and the
+tests that pin the new behaviour.
 
 | ID | Where | What happens | Why it matters | Pinned by |
 |---|---|---|---|---|

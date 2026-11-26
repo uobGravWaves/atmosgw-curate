@@ -1,6 +1,8 @@
 # Design: `load_nadir_sounders` (port of [`prep_airs_3d`](https://github.com/corwin365/MatlabFunctions/blob/master/DatasetSpecific/AIRS/prep_airs_3d.m))
 
-**Status:** draft for agreement, 2026-11-25. Nothing here is implemented yet.
+**Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1). Parts
+still planned, not implemented: the `analysis` steps (detrend, smooth, fill)
+and `data.to_netcdf` with packing.
 Decisions marked *agreed* were agreed with C. Wright on 2026-11-25; anything
 else is a proposal.
 

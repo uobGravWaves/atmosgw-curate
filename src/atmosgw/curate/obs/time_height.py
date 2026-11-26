@@ -190,7 +190,7 @@ def load_time_height(
     date_warning=True,
     **other,
 ):
-    """Load time-height data as an xarray.Dataset. See the module docstring."""
+    # (the module docstring, so that help(load_time_height) shows it all)
     if other:
         limb = [name for name in other if name in _LIMB_ONLY]
         if limb:
@@ -368,5 +368,7 @@ def _to_dataset(rows, file_list, settings, call):
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
+
+load_time_height.__doc__ = __doc__
 
 __all__ = ["load_time_height", "INSTRUMENTS"]

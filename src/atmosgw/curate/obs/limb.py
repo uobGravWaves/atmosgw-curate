@@ -423,7 +423,7 @@ def load_limb_sounders(
     sample_path=None,
     keep_duplicate_occultations=False,
 ):
-    """Load profile data as an xarray.Dataset. See the module docstring."""
+    # (the module docstring, so that help(load_limb_sounders) shows it all)
     options = {k: v for k, v in locals().items() if k not in ("time_range",
                                                               "instrument")}
     call = {"time_range": time_range, "instrument": instrument, **options}
@@ -915,6 +915,8 @@ def _to_dataset(data, settings, call=None):
         value = np.asarray(value)
         if name == "Time":
             value = datenum_to_datetime(value, "ms")
+        if name == "Temp_PW" and value.size == 0 and value.ndim == 2:
+            value = np.empty(lat_shape + (0,))  # (no profiles: still with mode)
         if value.shape[:2] == lat_shape:
             dims = ["profile", "level"]
             dims += ["mode" if out == "temperature_pw" else f"{out}_dim{d}"
@@ -964,5 +966,7 @@ def _to_dataset(data, settings, call=None):
     }
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
+
+load_limb_sounders.__doc__ = __doc__
 
 __all__ = ["load_limb_sounders", "INSTRUMENTS"]

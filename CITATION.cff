@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it using the metadata below, together with the method papers listed in each function's documentation."
+message: "If you use this software, please cite it using the metadata below, and the source of any physical relation your result depends on (docs/theory/relations.md)."
 title: "AtmosGW Curate"
 type: software
 authors:

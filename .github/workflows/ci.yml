@@ -9,10 +9,11 @@ jobs:
   # Exact versions from uv.lock: the same environment as on the maintainers'
   # machines. Fails if uv.lock is out of date with pyproject.toml.
   locked:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,7 +26,9 @@ jobs:
       - name: Lint
         run: uv run --locked --extra dev ruff check .
       - name: Test
-        run: uv run --locked --extra dev pytest
+        run: uv run --locked --extra dev pytest -rs
+      - name: Doctests
+        run: uv run --locked --extra dev pytest --doctest-modules src -p no:cacheprovider
 
   # Newest releases allowed by pyproject.toml: catches breakage from new
   # versions of dependencies before it reaches users.
@@ -44,4 +47,4 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test
-        run: pytest
+        run: pytest -rs

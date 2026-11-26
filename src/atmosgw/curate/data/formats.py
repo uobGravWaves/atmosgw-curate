@@ -297,7 +297,9 @@ def problems(ds, format_name):
 
     # dimensions
     for dim in ds.dims:
-        if dim not in spec["dims"] and dim != "file":
+        # (extras bring their own dimensions, named <variable>_dim<k>)
+        if (dim not in spec["dims"] and dim != "file"
+                and not re.fullmatch(r".+_dim\d+", str(dim))):
             out.append(f"unexpected dimension {dim!r}")
 
     # variables
@@ -361,7 +363,9 @@ def _check_variable(ds, name, var):
                    + " or ".join(str(t) for t in allowed_types))
     elif kind == "coord" and dtype != np.float64:
         out.append(f"{name!r} is {dtype}, expected float64")
-    elif kind == "time" and dtype != np.dtype("datetime64[us]"):
+    elif kind == "time" and dtype not in (np.dtype("datetime64[us]"),
+                                          np.dtype("datetime64[ns]")):
+        # (datetime64[ns]: as xarray reads a saved file back by default)
         out.append(f"{name!r} is {dtype}, expected datetime64[us]")
     if var.get("non_decreasing") and kind == "time" and v.size:
         values = np.asarray(v).ravel()

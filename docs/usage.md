@@ -190,6 +190,11 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
 
+The loaders apply no instrument quality flags (MLS `Status`, `Quality`,
+`Convergence`, precision; HIRDLS quality fields ...), only the checks in this
+table: request them with `additional_vars` and screen as the product's
+documentation says.
+
 The same rules hold in every format (`docs/design/data_formats.md` section
 6.3). A point removed as bad is removed in every data variable at that
 point. The value states (`derived`, `extrapolated`) are only on values that
@@ -241,7 +246,10 @@ float64.
 ## Saving
 
 ```python
+import xarray as xr
 ds.to_netcdf("/path/to/output.nc")
+back = xr.load_dataset("/path/to/output.nc")   # times come back as datetime64[ns]
+validate(back, back.attrs["format"])           # still valid
 ```
 
 A day of AIRS or IASI regridded is several GB in memory. Save to a disk with
