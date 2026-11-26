@@ -5,6 +5,8 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.5.0] - 2026-11-26
 - New loader `obs.load_time_height` and format "time_height" (version 1):
   ground-based [time x level] series at one site. First instrument: the
   ALOMAR lidar, on its own heights (one 0.15 km grid holds every session's
