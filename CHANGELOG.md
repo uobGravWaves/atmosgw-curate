@@ -5,6 +5,12 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.5.1] - 2026-11-26
+- Pinned as the last release whose limb and nadir loaders reproduce the
+  MATLAB `get_limbsounders` and `prep_airs_3d` (with the differences listed
+  in `docs/quirks.md` and `docs/validation.md`). Later releases fix
+  problems found in review that the MATLAB loaders share. [Claude]
 - Nadir: fill values and impossible times in the AIRS and IASI files (none
   declared as `_FillValue`; census of every file on eepc-0184) now become NaN
   instead of being read as data: -999 (30,355 padded AIRS daily-file
