@@ -10,6 +10,9 @@ the record of a load the same way:
   rules), ``year_and_day``, ``day_label``;
 - checks of shared options: ``check_flags``, ``check_time_handling``,
   ``check_additional_vars``, ``find_instrument``, ``warn_if_no_data``;
+- finding files: ``locate`` (a file at its usual path in the group's
+  layout, else anywhere below the dataset folder), ``locate_matching``,
+  ``find_in``;
 - the load record: ``record``, ``note_sources``, ``note`` (what a load read,
   did not find, and how each variable was obtained), ``choose_file`` (one
   file from those matching a day, recording when there was more than one);
@@ -283,6 +286,33 @@ def find_in(inst_info, pattern, root=None):
     return find_files(root, pattern, listing=listings[root])
 
 
+def locate(inst_info, usual, name, label, root=None):
+    """
+    A file named name: at its usual path (the usual layout, e.g.
+    <folder>/yyyy/name), else anywhere below the dataset folder (or root),
+    so that a flat folder, or any other nesting, works too. Several files of
+    that name: the first in search order, recorded as choose_file does.
+    Returns the path, or None.
+    """
+    if os.path.isfile(usual):
+        return usual
+    found = [p for p in find_in(inst_info, "*" + name, root)
+             if os.path.basename(p) == name]
+    return choose_file(found, inst_info, label)
+
+
+def locate_matching(inst_info, regex, root=None):
+    """Every file below the dataset folder (or root) whose name matches regex
+    (a compiled re), in search order (one folder listing per load)."""
+    from atmosgw.curate.readers import list_tree
+    root = str(inst_info["path"] if root is None else root)
+    listings = inst_info.setdefault("_listings", {})
+    if root not in listings:
+        listings[root] = list_tree(root)
+    return [p for p in listings[root]
+            if not p.endswith(os.sep) and regex.match(os.path.basename(p))]
+
+
 def choose_file(found, inst_info, label, prefer=None):
     """
     One path from those found for a day (``readers.find_files`` output).
@@ -300,9 +330,13 @@ def choose_file(found, inst_info, label, prefer=None):
         return None
     chosen = prefer(files) if prefer is not None else files[0]
     if len(files) > 1:
-        names = ", ".join(os.path.basename(path) for path in files)
+        def name(path):  # (paths below the folder if the names are the same)
+            if len({os.path.basename(p) for p in files}) == len(files):
+                return os.path.basename(path)
+            return os.path.relpath(path, str(inst_info.get("path") or "."))
+        names = ", ".join(name(path) for path in files)
         record(inst_info)["multiple_matches"].append(
-            f"{label}: {names} -> used {os.path.basename(chosen)}")
+            f"{label}: {names} -> used {name(chosen)}")
     return chosen
 
 

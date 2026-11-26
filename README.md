@@ -91,6 +91,7 @@ with versions, dates and what was not covered.
 |---|---|
 | `docs/usage.md` | how to load data and read what comes back |
 | loader docstrings (`help(load_limb_sounders)` ...) | every option, output variable and attribute |
+| `docs/data_supply.md` | the input files each loader reads, and their provenance |
 | `docs/design/data_formats.md` | the profile, swath and time_height formats; data states |
 | `docs/validation.md` | every check against MATLAB and real data, and what was not covered |
 | `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q8), with sizes |
@@ -100,23 +101,24 @@ with versions, dates and what was not covered.
 
 ## Where the data are
 
-The loaders read the group's copies of each product, in these layouts under
-the dataset's folder (`datasets.toml`); a product in another layout or
-version is not found, or not checked (see each reader's docstring:
-`help(atmosgw.curate.obs._limb_saber)` ...). The version each file states is
-recorded in `ds.attrs["source_versions"]`.
+The loaders read the products below, found by file name anywhere below the
+dataset's folder (`datasets.toml`): a flat folder of files works as well as
+year folders. Another version of a product may work but has not been checked.
+The version each file states is recorded in `ds.attrs["source_versions"]`.
+`docs/data_supply.md` gives, for each product, the file names, the variables
+read (with units and fill values) and where the files come from.
 
-| Instrument | Files (as checked) | Layout under the dataset folder |
+| Instrument | Files (as checked) | File names (usual folders) |
 |---|---|---|
-| ACE-FTS | v5.2, the group's daily MAT-files | `yyyy/ace_v52_yyyydddd.mat` |
-| GNSS RO | the group's merged daily MAT-files (several centres; JPL, UCAR, ROM SAF) | `yyyy/merged_ro_yyyy_ddd.mat` |
+| ACE-FTS | v5.2 daily MAT-files | `yyyy/ace_v52_yyyydddd.mat` |
+| GNSS RO | merged daily MAT-files (several centres; JPL, UCAR, ROM SAF) | `yyyy/merged_ro_yyyy_ddd.mat` |
 | HIRDLS | NASA L2 v7 (HDF-EOS5) | any path containing `_yyyydddd` |
 | MLS | NASA L2GP Temperature v5/v6 (HDF-EOS5); newest of several | any path containing `_yyyydddd` |
 | MIPAS | Oxford retrieval v1.40 (netCDF, CEDA) | any path containing `_yyyymmdd_nom` |
 | SABER | GATS custom Level 2A monthly Temp_O3_H2O files (v2.07, v2.08) | any path containing `<Month><yyyy>` |
 | SOFIE | GATS Level 2 v1.3 (netCDF) | any path containing `Level2_yyyyddd` |
 | ALOMAR lidar | yearly HDF5, V2026-07-27 | `yyyy_V2026-07-27_file4juli.h5` |
-| AIRS 3-D | L. Hoffmann's retrieval: the group's daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
+| AIRS 3-D | L. Hoffmann's retrieval: daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
 | AIRS 2-D | L. Hoffmann's brightness-temperature granule files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
 | IASI 3-D | L. Hoffmann's retrieval, orbit files | `yyyy/ddd/iasi_yyyymmddhhmmss.nc` |
 

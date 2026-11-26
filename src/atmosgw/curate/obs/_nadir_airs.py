@@ -1,6 +1,6 @@
 """
 Nadir-sounder reader for AIRS 3-D temperature retrievals (Hoffmann and
-Alexander), in the group's netCDF files.
+Alexander), in netCDF files (provenance: ``docs/data_supply.md``).
 
 Port of the AIRS file handling of ``prep_airs_3d.m`` (its
 ``get_airs_granule``; corwin365/MatlabFunctions, commit f1a78c0).
@@ -11,6 +11,9 @@ Files, below the AIRS folder (``datasets.toml``, ``AIRS`` ``raw``), as MATLAB:
   (dimension ``time``), each 135 along-track x 90 cross-track points on 27
   levels; used if present;
 - otherwise granule files ``YYYY/DDD/airs_YYYY_DDD_GGG.nc``.
+
+A file not at its usual path is looked for by name anywhere below the AIRS
+folder (a flat folder, or other nesting), the daily file first.
 
 Granules: 240 a day, each six minutes; granule g of a day nominally starts at
 00:05:28 + 6(g - 1) minutes UTC (2007 files; used only to find candidates,
@@ -53,6 +56,7 @@ import numpy as np
 
 from atmosgw.curate.obs._common import (
     day_label,
+    locate,
     nadir_fill_to_nan,
     note,
     note_fill_counts,
@@ -97,16 +101,25 @@ DAILY_PREPROCESSING = ("daily files merged from L. Hoffmann's granule files "
                        "kelvin, times stored as float32")
 
 
-def find_file(root, day, granule):
-    """(path, kind): the daily file if present, else the granule file; (None, None)."""
+def find_file(root, day, granule, inst_info=None):
+    """(path, kind): the daily file if present, else the granule file; (None,
+    None). Each at its usual path (yyyy/, yyyy/ddd/), else, with inst_info,
+    anywhere below root (a flat folder, or any other nesting)."""
     year, doy = year_and_day(day)
-    daily = os.path.join(root, f"{year:04d}", f"airs_{year:04d}d{doy:03d}.nc")
-    if os.path.isfile(daily):
-        return daily, "daily"
-    single = os.path.join(root, f"{year:04d}", f"{doy:03d}",
-                          f"airs_{year:04d}_{doy:03d}_{granule:03d}.nc")
-    if os.path.isfile(single):
-        return single, "granule"
+    daily_name = f"airs_{year:04d}d{doy:03d}.nc"
+    single_name = f"airs_{year:04d}_{doy:03d}_{granule:03d}.nc"
+    daily = os.path.join(root, f"{year:04d}", daily_name)
+    single = os.path.join(root, f"{year:04d}", f"{doy:03d}", single_name)
+    for usual, name, kind in ((daily, daily_name, "daily"),
+                              (single, single_name, "granule")):
+        if os.path.isfile(usual):
+            return usual, kind
+    if inst_info is not None:
+        for usual, name, kind in ((daily, daily_name, "daily"),
+                                  (single, single_name, "granule")):
+            path = locate(inst_info, usual, name, day_label(day), root)
+            if path is not None:
+                return path, kind
     return None, None
 
 
@@ -128,7 +141,7 @@ def load(settings, inst_info, var_names):
     # group the candidates by file, so each daily file is opened once
     by_file, not_found = {}, []
     for day, g in candidate_granules(settings):
-        path, kind = find_file(inst_info["path"], day, g)
+        path, kind = find_file(inst_info["path"], day, g, inst_info)
         if path is None:
             if r0 <= day + FIRST_START + (g - 0.5) * GRANULE_DAYS <= r1:
                 not_found.append(f"{day_label(day)} granule {g}")

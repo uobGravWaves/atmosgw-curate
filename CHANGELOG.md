@@ -5,6 +5,13 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Data folders need no year or day folders: ACE, GNSS, planetary-wave, AIRS
+  and IASI files not at their usual path are found by name anywhere below the
+  dataset's folder (the other readers already searched it). Duplicates of a
+  name are warned for nadir loads too. New `docs/data_supply.md`: the files
+  each loader reads, their variables, units, fill values and provenance
+  (placeholders where not yet documented). Usual layouts give the same files.
+  [Claude]
 - Tests: the SABER, HIRDLS, MIPAS and SOFIE readers and the AIRS daily-file
   layout now have known-answer tests on small files written by the tests, so
   they run in CI too (before, only where the real data are). [Claude]

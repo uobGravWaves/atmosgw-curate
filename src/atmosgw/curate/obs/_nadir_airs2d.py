@@ -4,11 +4,12 @@ granule files, with perturbations and variances).
 
 Files, below the AIRS 2-D folder (``datasets.toml``, ``AIRS`` ``2d``):
 ``YYYY/DDD/airs_YYYY_DDD_GGG.nc``, or ``DDD/airs_YYYY_DDD_GGG.nc`` (copies
-holding one year), one per granule: 135 along-track x 90 cross-track points
-(dimensions ``NTRACK``, ``NXTRACK``), with ``time`` (seconds since
-2000-01-01T00:00Z), ``lat``, ``lon`` and, for each channel group,
-``bt_<group>`` (K) and, except 8.1 micron, its perturbation
-``bt_<group>_pt`` (K) and variance ``bt_<group>_var`` (K^2).
+holding one year), else that name anywhere below the folder, one per
+granule: 135 along-track x 90 cross-track points (dimensions ``NTRACK``,
+``NXTRACK``), with ``time`` (seconds since 2000-01-01T00:00Z), ``lat``,
+``lon`` and, for each channel group, ``bt_<group>`` (K) and, except 8.1
+micron, its perturbation ``bt_<group>_pt`` (K) and variance
+``bt_<group>_var`` (K^2).
 
 Channel groups (``channels`` option; default all, in this order):
 
@@ -47,6 +48,7 @@ import numpy as np
 from atmosgw.curate.obs._common import (
     FILL_VALUES,
     day_label,
+    locate,
     nadir_fill_to_nan,
     note,
     note_fill_counts,
@@ -84,8 +86,9 @@ DERIVED = {
 }
 
 
-def find_file(root, day, granule):
-    """Path of a granule file (YYYY/DDD/ or DDD/ below root), or None."""
+def find_file(root, day, granule, inst_info=None):
+    """Path of a granule file (YYYY/DDD/ or DDD/ below root, else, with
+    inst_info, anywhere below root), or None."""
     year, doy = year_and_day(day)
     name = f"airs_{year:04d}_{doy:03d}_{granule:03d}.nc"
     for folder in (os.path.join(root, f"{year:04d}", f"{doy:03d}"),
@@ -93,6 +96,8 @@ def find_file(root, day, granule):
         path = os.path.join(folder, name)
         if os.path.isfile(path):
             return path
+    if inst_info is not None:
+        return locate(inst_info, os.path.join(root, name), name, day_label(day), root)
     return None
 
 
@@ -112,7 +117,7 @@ def load(settings, inst_info, var_names):
 
     granules, file_list, fill_counts = [], [], {}
     for day, g in candidate_granules(settings):
-        path = find_file(inst_info["path"], day, g)
+        path = find_file(inst_info["path"], day, g, inst_info)
         if path is None:
             mid = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
             r0, r1 = (-np.inf, np.inf) if explicit else settings.get(

@@ -6,7 +6,9 @@ in the loaders' docstrings (`help(load_limb_sounders)`,
 `help(load_nadir_sounders)`, `help(load_time_height)`).
 
 Install the package and set the data root first (`README.md`, "Quick
-start" and "Where the data are"). The examples below use:
+start" and "Where the data are"); the files each loader reads, how to lay
+them out and where they come from are in `docs/data_supply.md`. The examples
+below use:
 
 ```python
 from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders, load_time_height
