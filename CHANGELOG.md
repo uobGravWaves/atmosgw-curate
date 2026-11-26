@@ -5,6 +5,13 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+
+## [0.6.0] - 2026-11-26
+- Not MATLAB-equivalent: fixes problems found in review that the MATLAB
+  loaders share (Q9-Q17 in `docs/quirks.md`). Use 0.5.1 to reproduce
+  MATLAB `get_limbsounders` and `prep_airs_3d`. Output changes: ACE and GNSS
+  pressure now in hPa; GNSS returns one copy per occultation, with corrected
+  times and positions; nadir positions and cross-track axis recomputed. [Claude]
 - Data folders need no year or day folders: ACE, GNSS, planetary-wave, AIRS
   and IASI files not at their usual path are found by name anywhere below the
   dataset's folder (the other readers already searched it). Duplicates of a

@@ -5,6 +5,7 @@ path. Each test writes the same files in the usual layout and flat (or in
 other folders), and checks the loads are the same.
 """
 
+import os
 import shutil
 import warnings
 
@@ -89,7 +90,8 @@ def test_airs_flat_and_duplicates(tmp_path):
     flatten(tmp_path / "usual", flat, "copy")
     with pytest.warns(UserWarning, match="more than one matching"):
         twice = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=flat)
-    assert "copy/airs_2007_001_053.nc" in twice.attrs["multiple_matches"]
+    copy = os.path.join("copy", "airs_2007_001_053.nc")
+    assert copy in twice.attrs["multiple_matches"]
 
 
 def test_airs_usual_layout_wins(tmp_path):
