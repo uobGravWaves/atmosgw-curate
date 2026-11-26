@@ -5,6 +5,9 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Tests: the SABER, HIRDLS, MIPAS and SOFIE readers and the AIRS daily-file
+  layout now have known-answer tests on small files written by the tests, so
+  they run in CI too (before, only where the real data are). [Claude]
 - Nadir loads use about 25 % less memory (a regridded AIRS day: 3.4 to 2.6
   GB at peak), with identical results: segments are views, not copies; one
   segment is not copied again; the native temperature is freed once
