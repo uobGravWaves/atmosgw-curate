@@ -140,12 +140,14 @@ from atmosgw.curate.obs._common import (
     check_flags,
     check_time_handling,
     expand_time_range,
+    file_versions,
     find_instrument,
     load_attrs,
     outside_physical_range,
     record,
     to_datenums,
     warn_if_no_data,
+    warn_mixed_versions,
 )
 from atmosgw.curate.obs.limb import _state_flags
 from atmosgw.curate.paths import dataset_dir
@@ -202,6 +204,7 @@ def load_time_height(
     rows, file_list = reader.load(settings, inst_info)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
+    warn_mixed_versions(settings, stacklevel=2)
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and rows["time_posix"].size == 0):
         warnings.warn(
@@ -328,6 +331,9 @@ def _to_dataset(rows, file_list, settings, call):
                                     .astype(np.int32), {
             "long_name": "index into original_files (1-based)"})
         coords["original_files"] = (("file",), np.array(file_list, dtype=str))
+        coords["original_file_version"] = (("file",), np.array(
+            file_versions(rec, file_list), dtype=str),
+            {"long_name": "data version stated by each file"})
 
     spec = FORMATS["time_height"]["variables"]
     availability = {n: ("not_in_files" if n in info["not_in_files"]

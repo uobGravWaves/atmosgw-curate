@@ -18,6 +18,9 @@ the record of a load the same way:
   altitude) and ``load_attrs`` (the dataset attributes recording the load),
   with ``options_json``.
 - ``warn_multiple_matches``: one warning per load when a day had several files.
+- ``note_version``, ``versions_text``, ``warn_mixed_versions``: the data
+  version each file read states, the ``source_versions`` attribute, and one
+  warning per load when the files read state different versions.
 - ``record_attrs``: a variable's ``source_variable`` and ``comment`` from the record.
 
 Data dicts use the MATLAB variable names (``Lat``, ``Temp`` ...) and datenum
@@ -54,6 +57,7 @@ Change log
 2026/11/25 [Claude] record_attrs (from limb; now also used by nadir)
 2026/11/25 [Claude] outside_physical_range: floor_is_bad (IASI's 100 K lower bound)
 2026/11/26 [Claude] nadir_fill_to_nan, note_fill_counts: AIRS/IASI fill, bad times
+2026/11/26 [Claude] note_version, versions_text, warn_mixed_versions: source_versions
 """
 
 import json
@@ -389,7 +393,8 @@ def load_attrs(settings, call, source):
     The dataset attributes recording a load, in output order: time_range (as
     expanded), source (the public loader), atmosgw_curate_version, options
     (the call's arguments as JSON; "" without call), files_read,
-    files_not_found and multiple_matches (from settings["record"]).
+    source_versions, files_not_found and multiple_matches (from
+    settings["record"]).
     """
     first, last = (str(datenum_to_datetime(t, "ms")) for t in settings["time_range"])
     return {
@@ -398,6 +403,7 @@ def load_attrs(settings, call, source):
         "atmosgw_curate_version": __version__,
         "options": options_json(call) if call is not None else "",
         "files_read": ", ".join(settings["files_read"]),
+        "source_versions": versions_text(settings["record"], settings["files_read"]),
         "files_not_found": ", ".join(settings["record"]["files_not_found"]),
         "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
     }
@@ -435,3 +441,50 @@ def record_attrs(name, record, interpolated=False):
         attrs["comment"] = "the height scale; the data were interpolated to it" + (
             f" from the file's heights ({origin})" if origin else "")
     return attrs
+
+
+# data versions of the files read
+
+
+NOT_STATED = "not stated in the files"
+
+
+def note_version(inst_info, path, text):
+    """Record the data version stated in one file read: a text, or a list of
+    texts for files holding several (GNSS: one per processing centre's
+    retrieval version); "" or [] if it states none."""
+    items = [text] if isinstance(text, str) else list(text)
+    items = tuple(str(t).strip() for t in items if str(t).strip())
+    record(inst_info).setdefault("versions", {})[os.path.basename(str(path))] = items
+
+
+def file_versions(record, files):
+    """The version text of each file in files (NOT_STATED where none)."""
+    versions = record.get("versions", {})
+    return [", ".join(versions.get(f, ())) or NOT_STATED for f in files]
+
+
+def versions_text(record, files):
+    """The ``source_versions`` attribute: each version stated by the files
+    read, with how many files state it, e.g. 'Data_Product_Version 02.07 (30
+    files); Data_Product_Version 02.08 (1 file)'; '' if no file was read."""
+    versions = record.get("versions", {})
+    counts = {}
+    for f in files:
+        for text in versions.get(f) or (NOT_STATED,):
+            counts[text] = counts.get(text, 0) + 1
+    return "; ".join(f"{text} ({n} file{'s' if n != 1 else ''})"
+                     for text, n in counts.items())
+
+
+def warn_mixed_versions(settings, stacklevel, exempt=()):
+    """Warn once per load if the files read state more than one data version
+    (instruments in exempt, whose files always mix versions, are not warned)."""
+    if settings.get("instrument_name", settings.get("instrument")) in exempt:
+        return
+    versions = sorted(set(file_versions(settings["record"], settings["files_read"])))
+    if len(versions) > 1:
+        warnings.warn(
+            f"The {settings['instrument']} files read state {len(versions)} different "
+            f"data versions ({'; '.join(versions)}). Their counts are in the output "
+            "attribute 'source_versions'.", stacklevel=stacklevel + 1)

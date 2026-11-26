@@ -5,6 +5,16 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New dataset attribute `source_versions` (all loaders): each data version
+  the files read state, with how many files state it (SABER
+  `Data_Product_Version`, MLS and HIRDLS `PGEVersion` and DOI, SOFIE
+  `DP_Version`, MIPAS L2 processing version, ACE and ALOMAR from the file
+  name, GNSS each processing centre's retrieval version and the merge
+  version, planetary-wave files their code version; AIRS and IASI files state
+  none). With `file_source`, `original_file_version` gives each file's. A
+  warning when the files read state different versions (e.g. SABER 2020: 1
+  file 02.07, 12 files 02.08, though every file name says v2.0); not for
+  GNSS, whose files always mix centres. Values unchanged. [Claude]
 - ACE and GNSS pressure converted to hPa: the files hold atmospheres (ACE)
   and pascals (GNSS), and were returned labelled hPa (Q9). GNSS: profiles
   without positions take their `MetaData` position at every level; JPL

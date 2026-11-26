@@ -29,7 +29,7 @@ import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.matlab_time import datenum_to_datetime
-from atmosgw.curate.obs._common import note, note_sources, record
+from atmosgw.curate.obs._common import note, note_sources, note_version, record
 from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.profiles import concat_profiles
 
@@ -60,6 +60,7 @@ def load(settings, inst_info, var_names):
             record(inst_info)["files_not_found"].append(str(year))
             continue
         file_list.append(os.path.basename(file_name))
+        note_version(inst_info, file_name, f"{DATA_VERSION} (file name)")
         profiles_in_file = 0
         with h5py.File(file_name, "r") as f:
             for group in sorted(f.keys()):

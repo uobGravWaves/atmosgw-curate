@@ -19,10 +19,11 @@ from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,
+    note_version,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
-from atmosgw.curate.readers import find_files, read_netcdf
+from atmosgw.curate.readers import find_files, read_attrs, read_netcdf
 
 # output names -> SOFIE variable names
 FILE_NAMES = {"Temp": "Temperature", "Lat": "Latitude_83km", "Lon": "Longitude_83km",
@@ -49,6 +50,8 @@ def load(settings, inst_info, var_names):
             working = read_netcdf(path, names)
         except KeyError as error:
             raise KeyError(f"Variable {error} not found in {path}") from error
+        version = read_attrs(path).get("DP_Version", "")
+        note_version(inst_info, path, f"DP_Version {version}" if version else "")
         store = {}
         for name in var_names:
             if name == "Time":

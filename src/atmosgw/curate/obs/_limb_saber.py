@@ -25,10 +25,16 @@ import os
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs._common import choose_file, note, note_sources, record
+from atmosgw.curate.obs._common import (
+    choose_file,
+    note,
+    note_sources,
+    note_version,
+    record,
+)
 from atmosgw.curate.obs._limb_tools import conform_vars
 from atmosgw.curate.profiles import concat_profiles
-from atmosgw.curate.readers import find_files, read_netcdf
+from atmosgw.curate.readers import find_files, read_attrs, read_netcdf
 
 MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
@@ -66,6 +72,9 @@ def load(settings, inst_info, var_names):
         if found[0] != file_name:  # monthly files: read only when it changes
             file_name = found[0]
             file_list.append(os.path.basename(file_name))
+            version = read_attrs(file_name).get("Data_Product_Version", "")
+            note_version(inst_info, file_name,
+                         f"Data_Product_Version {version}" if version else "")
             date = read_netcdf(file_name, ["date"])["date"]
             year_of = np.floor(date / 1000)
             event_dates = datenum(year_of, 1, date - year_of * 1000)

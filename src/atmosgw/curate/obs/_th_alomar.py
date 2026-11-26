@@ -47,7 +47,7 @@ import h5py
 import numpy as np
 
 from atmosgw.curate.matlab_time import datenum_to_datetime
-from atmosgw.curate.obs._common import note, note_sources, record
+from atmosgw.curate.obs._common import note, note_sources, note_version, record
 from atmosgw.curate.obs._limb_alomar import DATA_VERSION, RESOLUTION
 
 LEVEL_STEP = 0.15  # km, the lattice of every session's heights
@@ -82,6 +82,7 @@ def load(settings, inst_info):
                 record(inst_info)["files_not_found"].append(str(year))
             continue
         file_index = None
+        note_version(inst_info, file_name, f"{DATA_VERSION} (file name)")
         if not look_back_only:  # listed, as the limb reader, even if no rows
             file_list.append(os.path.basename(file_name))
             file_index = len(file_list)

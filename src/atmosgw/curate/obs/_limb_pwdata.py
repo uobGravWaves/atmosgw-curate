@@ -27,6 +27,7 @@ occultations); their pressure is estimated from height, as before.
 """
 
 import os
+import re
 
 import numpy as np
 
@@ -35,6 +36,7 @@ from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
     note_sources,
+    note_version,
     record,
     year_and_day,
 )
@@ -75,6 +77,7 @@ def load(settings, inst_info, var_names):
         inst_data = read_mat(path)
         file_list.append(os.path.basename(path))
         file_count = len(file_list)
+        note_version(inst_info, path, _pw_version(inst_data))
         rows = np.arange(np.shape(inst_data["Lat"])[0])  # file rows (0-based)
         if inst_info["inst"] == "GNSS":  # (as the raw GNSS files)
             rows = gnss_fixes(inst_data, inst_info,
@@ -105,3 +108,11 @@ def load(settings, inst_info, var_names):
     if len(days) == 1:
         data["Temp_PW"] = days[0]["Temp_PW"]  # keeps the file's number type
     return data, file_list
+
+
+def _pw_version(inst_data):
+    """'PW code version <date>' from the file's Note, if it gives one."""
+    note_text = " ".join(str(x) for x in np.asarray(inst_data.get("Note", ""),
+                                                     dtype=object).ravel())
+    found = re.search(r"Generated using (\S+) code version", note_text)
+    return f"PW code version {found.group(1)}" if found else ""
