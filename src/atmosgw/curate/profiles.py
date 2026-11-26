@@ -254,7 +254,7 @@ def _piecewise_rows(alt, values, q, method, extrapolate):
     """
     n_prof, n_lev, n_slices = values.shape
     out = np.full((n_prof, q.size, n_slices), np.nan)
-    if n_prof == 0 or n_lev == 0 or q.size == 0:
+    if n_prof == 0 or n_lev < 3 or q.size == 0:  # (fewer than 3 levels: NaN)
         return out
 
     # usable levels (finite heights, first of any repeats), sorted by height

@@ -120,7 +120,15 @@ def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
                 record(inst_info)["files_not_found"].append(day_label(day))
             continue
         file_list.append(os.path.basename(path))
-        days.append(read_file(path, len(file_list), day))
+        day_data = read_file(path, len(file_list), day)
+        for main in ("Temp", "Temp_Residual"):
+            if main in day_data and np.size(day_data[main]) and not np.any(
+                    np.isfinite(np.asarray(day_data[main], dtype=float))):
+                if inst_info is not None:
+                    record(inst_info).setdefault("files_without_data", []).append(
+                        os.path.basename(path))
+                break
+        days.append(day_data)
     return concat_profiles(days, var_names, consume=True), file_list
 
 

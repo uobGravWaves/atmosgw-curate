@@ -45,6 +45,7 @@ from atmosgw.curate.readers import find_files, read_attrs
 
 _SWATH = "Temperature"
 DATA_FIELDS = ("L2gpValue", "L2gpPrecision", "Quality", "Status", "Convergence")
+REQUIRED = ("L2gpValue", "Latitude", "Longitude", "Pressure", "Time")
 GEOLOCATION_FIELDS = ("ChunkNumber", "Latitude", "LineOfSightAngle", "LocalSolarTime",
                       "Longitude", "OrbitGeodeticAngle", "Pressure", "SolarZenithAngle",
                       "Time")
@@ -116,12 +117,18 @@ def _get_mls(path):
     """The fields get_MLS reads, in their stored types, 1-D fields as columns;
     a field containing its _FillValue becomes float64 with NaN there."""
     working = {}
-    with h5py.File(path, "r") as f:
+    try:
+        f = h5py.File(path, "r")
+    except OSError as error:
+        raise OSError(f"Cannot read {path}: {error}") from error
+    with f:
         for group, names in (("Data Fields", DATA_FIELDS),
                              ("Geolocation Fields", GEOLOCATION_FIELDS)):
             for name in names:
                 key = f"HDFEOS/SWATHS/{_SWATH}/{group}/{name}"
                 if key not in f:
+                    if name in REQUIRED:
+                        raise KeyError(f"{key} not found in {path}")
                     working[name] = np.empty((0, 0))
                     continue
                 dataset = f[key]

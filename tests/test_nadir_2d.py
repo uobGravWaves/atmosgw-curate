@@ -61,7 +61,7 @@ def stand_in(monkeypatch):
 def load(**options):
     return nadir.load_nadir_sounders(None, "TEST2D", product="2d",
                                      granules=[("2007-01-01", 53)],
-                                     file_path="/unused", **options)
+                                     file_path=".", **options)  # (any folder)
 
 
 def test_several_channels(stand_in):

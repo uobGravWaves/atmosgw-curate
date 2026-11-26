@@ -154,6 +154,13 @@ def load(settings, inst_info, var_names):
     low, high = min(s[0] for s in spans), max(s[1] for s in spans)
 
     files = list_files(inst_info["path"], np.floor(low) - 1, np.floor(high) + 1)
+    if explicit is None:  # (days asked for with no folder of files)
+        for day in range(int(np.floor(settings["time_range"][0])),
+                         int(np.floor(settings["time_range"][1])) + 1):
+            year, doy = year_and_day(day)
+            if not os.path.isdir(os.path.join(inst_info["path"], f"{year:04d}",
+                                              f"{doy:03d}")):
+                record(inst_info)["files_not_found"].append(day_label(day))
     starts = np.array([s for s, _ in files])
     finish = np.append(starts[1:], np.inf) if files else starts
     use = [k for k in range(len(files))
@@ -204,6 +211,8 @@ def load(settings, inst_info, var_names):
 
     # assign rows to granules and choose granules
     if not rows:
+        for d, g in sorted(wanted) if explicit is not None else ():
+            rec["files_not_found"].append(f"{day_label(d)} granule {int(g)}")
         empty = np.empty((N_CROSS, 0))
         n_lev = 27 if alt is None else alt.size
         return ({"Lat": empty, "Lon": empty, "Time": empty,

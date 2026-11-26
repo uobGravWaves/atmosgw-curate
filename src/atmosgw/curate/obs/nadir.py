@@ -168,6 +168,7 @@ Change log
 
 """
 
+import os
 import re
 import warnings
 
@@ -194,6 +195,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_missing_files,
     warn_mixed_versions,
 )
 from atmosgw.curate.paths import dataset_dir
@@ -302,6 +304,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=3)
+    warn_missing_files(settings, stacklevel=3, what="granules or files")
     if padded and settings["granules"] is not None:  # padding is not a request
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}
@@ -444,9 +447,25 @@ def _prepare(time_range, instrument, options):
     check_additional_vars(options)
     additional = options["additional_vars"]
 
+    for label in ("n_cross", "n_along"):
+        value = options[label]
+        if value is not None and (not float(value).is_integer() or value < 2):
+            raise ValueError(f"{label} must be a whole number of at least 2.")
+    for label in ("dx_cross", "dx_along"):
+        if options[label] is not None and not options[label] > 0:
+            raise ValueError(f"{label} must be a spacing in km greater than 0.")
+    for label, limit in (("lat_range", 90), ("lon_range", 180)):
+        if not all(-limit <= float(x) <= limit for x in options[label]):
+            raise ValueError(f"{label} must be within [-{limit}, {limit}].")
     granules = options["granules"]
     if granules is not None:
-        granules = [(int(np.floor(to_datenums(d)[0])), int(g)) for d, g in granules]
+        checked = []
+        for d, g in granules:
+            if float(g) != int(g) or not 1 <= int(g) <= 240:
+                raise ValueError(f"Granule numbers run from 1 to 240 (1-based), not "
+                                 f"{g!r}.")
+            checked.append((int(np.floor(to_datenums(d)[0])), int(g)))
+        granules = list(dict.fromkeys(checked))  # (each granule once, in order)
         expanded, scalar = None, False
     else:
         if time_range is None:
@@ -477,6 +496,12 @@ def _prepare(time_range, instrument, options):
     inst_info["path"] = (str(options["file_path"]) if options["file_path"] is not None
                          else str(dataset_dir(info["dataset"], kind,
                                               must_exist=False)))
+    if not os.path.isdir(inst_info["path"]):
+        given = "file_path" if options["file_path"] is not None else (
+            f"the data root and datasets.toml ({info['dataset']} {kind})")
+        raise FileNotFoundError(f"The {name} data folder {inst_info['path']} does not "
+                                f"exist (from {given}; see atmosgw.curate.paths).")
+    settings["data_path"] = inst_info["path"]
     return settings, inst_info, info
 
 

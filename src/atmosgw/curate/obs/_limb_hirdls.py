@@ -123,6 +123,9 @@ def load(settings, inst_info, var_names):
             mean_alt = _nanmean_columns(store["Alt"])
         zidx = int(np.nanargmin(np.abs(mean_alt - 30)))
         lat, lon = store["Lat"], store["Lon"]
+        if n_prof < 2:  # (no direction to move along: positions as in the file)
+            note(inst_info, "Lat", "file with one profile: not moved (no direction)")
+            return conform_vars(store, settings)
         theta = azimuth(lat[:-1, zidx], lon[:-1, zidx], lat[1:, zidx], lon[1:, zidx])
         theta = np.tile(np.atleast_1d(theta)[:, None], (1, n_lev))
         theta = np.vstack([theta, theta[-1:]])

@@ -153,7 +153,9 @@ state it: SABER ``Data_Product_Version``, MLS and HIRDLS ``PGEVersion`` and
 DOI, SOFIE ``DP_Version``, MIPAS L2 processing version, ACE and ALOMAR from
 the file name, GNSS each centre's retrieval version, PW files their code
 version; a warning if the files state different versions, except GNSS),
-``files_not_found`` (dates, SABER months or ALOMAR years that had no file)
+``files_not_found`` (dates, SABER months or ALOMAR years that had no file;
+a warning is given, unless ``date_warning`` is False), ``files_without_data``
+(files read that hold no temperature at all; warned)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
 ``to_netcdf``.
@@ -274,6 +276,7 @@ Change log
 
 """
 
+import os
 import warnings
 
 import numpy as np
@@ -310,6 +313,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
 )
@@ -463,6 +467,7 @@ def _load_limb_arrays(time_range, instrument, **options):
     warn_multiple_matches(settings, stacklevel=3)
     # (GNSS files always hold several centres' versions; Misc and Sampler none)
     warn_mixed_versions(settings, stacklevel=3, exempt=("GNSS", "Misc", "Sampler"))
+    warn_missing_files(settings, stacklevel=3)
 
     # variables not on the [profiles x levels] grid of Lat are left untouched
     # (only if ignore_non_modal; otherwise the readers have already refused them)
@@ -647,8 +652,14 @@ def _prepare(time_range, instrument, options):
         if not np.all(np.asarray(values, dtype=float) >= 0):
             raise ValueError(f"{label} must be >= 0.")
     height_range = tuple(float(h) for h in options["height_range"])
+    full_scale = height_scale
     height_scale = height_scale[(height_scale >= min(height_range))
                                 & (height_scale <= max(height_range))]
+    if not options["original_z"] and height_scale.size == 0:
+        raise ValueError(
+            f"height_range {height_range} leaves no heights of the height scale "
+            f"({full_scale.min():g} to {full_scale.max():g} km): widen it, or give "
+            "height_scale (or original_z=True).")
     lat_range = tuple(float(x) for x in options["lat_range"])
     lon_range = tuple(float(x) for x in options["lon_range"])
     if not all(-90 <= x <= 90 for x in lat_range):
@@ -693,6 +704,13 @@ def _prepare(time_range, instrument, options):
         inst_info["path"] = str(options["file_path"])
     if reader is None:
         raise NotImplementedError(f"The {name} reader is not ported yet.")
+    # a folder that does not exist is a set-up fault, not an absence of data
+    if name != "Sampler" and not os.path.isdir(inst_info["path"]):
+        given = ("file_path" if options["file_path"] is not None else "misc_path"
+                 if name == "Misc" else "the data root and datasets.toml")
+        raise FileNotFoundError(f"The {name} data folder {inst_info['path']} does not "
+                                f"exist (from {given}; see atmosgw.curate.paths).")
+    settings["data_path"] = inst_info["path"]
     return settings, inst_info, reader
 
 

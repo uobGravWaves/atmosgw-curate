@@ -125,6 +125,7 @@ Change log
 
 """
 
+import os
 import warnings
 
 import numpy as np
@@ -147,6 +148,7 @@ from atmosgw.curate.obs._common import (
     record,
     to_datenums,
     warn_if_no_data,
+    warn_missing_files,
     warn_mixed_versions,
 )
 from atmosgw.curate.obs.limb import _state_flags
@@ -205,6 +207,7 @@ def load_time_height(
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=2)
+    warn_missing_files(settings, stacklevel=2, what="yearly files")
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and rows["time_posix"].size == 0):
         warnings.warn(
@@ -245,6 +248,12 @@ def _prepare(time_range, instrument, options):
         inst_info["path"] = str(options["file_path"])
     else:
         inst_info["path"] = str(dataset_dir(name, "raw", must_exist=False))
+    if not os.path.isdir(inst_info["path"]):
+        given = ("file_path" if options["file_path"] is not None
+                 else "the data root and datasets.toml")
+        raise FileNotFoundError(f"The {name} data folder {inst_info['path']} does not "
+                                f"exist (from {given}; see atmosgw.curate.paths).")
+    settings["data_path"] = inst_info["path"]
     return settings, inst_info, info["reader"]
 
 

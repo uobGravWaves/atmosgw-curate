@@ -91,6 +91,11 @@ def load(settings, inst_info, var_names):
             rows = gnss_fixes(inst_data, inst_info,
                               settings.get("keep_duplicate_occultations", False))
         note_version(inst_info, path, file_version(instrument, path, inst_data))
+        needed = (("Lat", "Lon", "Temp", "MSL_alt", "MetaData")
+                  if instrument == "GNSS" else ("Lat", "Lon", "Temp", "Alt", "Time"))
+        for name in needed:
+            if name not in inst_data and name in var_names + ["MSL_alt", "MetaData"]:
+                raise KeyError(f"Variable {name} not found in {path}")
         if instrument in PRES_TO_HPA and "Pres" in inst_data:
             factor, text = PRES_TO_HPA[instrument]
             inst_data["Pres"] = np.asarray(inst_data["Pres"], dtype=float) * factor
@@ -108,7 +113,7 @@ def load(settings, inst_info, var_names):
         for name in var_names:
             computed = ("Alt", "Time", "SourceProf", "SourceFile")
             if name not in computed and name not in inst_data:
-                raise KeyError(f"Variable {name} not found, terminating")
+                raise KeyError(f"Variable {name} not found in {path}")
             if name == "Time":
                 if instrument == "GNSS":
                     time = np.asarray(inst_data["MetaData"]["time"], dtype=float)
@@ -130,6 +135,11 @@ def load(settings, inst_info, var_names):
                 store["SourceFile"] = np.ones_like(store["SourceProf"]) * file_count
             else:
                 store[name] = inst_data[name]
+        shape = np.shape(store["Lat"])
+        for name in ("Lon", "Temp", "Pres", "Alt", "Time"):
+            if name in store and np.shape(store[name]) != shape:
+                raise ValueError(f"{path}: {name} has shape {np.shape(store[name])}, "
+                                 f"not that of Lat {shape} [profiles x levels].")
         return conform_vars(store, settings)
 
     out = loop_days(settings, var_names, find_file, read_file, instrument, inst_info)
