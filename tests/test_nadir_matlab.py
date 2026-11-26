@@ -25,6 +25,15 @@ and NumPy; see tests/test_swath.py):
 - load-only, day/night, heights: identical.
 NaN patterns and shapes must match exactly.
 
+Deliberate differences since 0.5.1 (Q14 in docs/quirks.md): the regridded
+positions are now those of the native pixels the values come from, and the
+cross-track axis is the median of every scan's, not the first scan's. The
+comparison is run with the MATLAB axis (the private setting
+_cross_axis="first_scan") and compares MATLAB's positions with the regular
+grid's own positions (TrackLat, TrackLon in the private layer), which the
+regridding still computes; the new positions are tested in
+tests/test_nadir_geometry.py.
+
 Skipped (not passed) if reference_dir is not set, the reference is absent, or
 the AIRS data are not found.
 """
@@ -74,7 +83,8 @@ def reference():
 
 def arrays(**options):
     data, _ = _load_nadir_arrays(None, "AIRS",
-                                 **{**DEFAULTS, **options, "keep_outliers": True})
+                                 **{**DEFAULTS, **options, "keep_outliers": True,
+                                    "_cross_axis": "first_scan"})
     return data
 
 
@@ -95,8 +105,10 @@ def test_against_matlab(reference, case):
     temp = want["ret_temp"]
     if exact:  # MATLAB LoadOnly returns [level x cross x along]
         temp = np.transpose(temp, (1, 2, 0))
-    assert_close(data["Lat"], want["l1_lat"], 0 if exact else DEG, "latitude")
-    dlon = np.mod(data["Lon"] - want["l1_lon"] + 180, 360) - 180
+    lat, lon = (data["Lat"], data["Lon"]) if exact else (data["TrackLat"],
+                                                         data["TrackLon"])
+    assert_close(lat, want["l1_lat"], 0 if exact else DEG, "latitude")
+    dlon = np.mod(lon - want["l1_lon"] + 180, 360) - 180
     assert_close(dlon, np.zeros_like(dlon), 0 if exact else DEG, "longitude")
     assert_close(data["Time"], want["l1_time"], 0 if exact else DAYS, "time")
     assert_close(data["Temp"], temp, 0 if exact else KELVIN, "temperature")
@@ -104,7 +116,15 @@ def test_against_matlab(reference, case):
     if "Spacing" in ref and "Data" in ref:
         assert_close(data["Spacing"], np.ravel(ref["Spacing"]), KM, "spacing")
     if case == "AIRS_daynight":
-        np.testing.assert_array_equal(data["DayNight"], want["DayNightFlag"])
+        # (Q14: the flag is now of the data's own positions; with the regular
+        # grid's positions it is MATLAB's)
+        from atmosgw.curate.solar import day_retrieval
+        np.testing.assert_array_equal(
+            day_retrieval(data["Time"], data["TrackLat"], data["TrackLon"],
+                          datenum=True), want["DayNightFlag"])
+        np.testing.assert_array_equal(
+            data["DayNight"], day_retrieval(data["Time"], data["Lat"], data["Lon"],
+                                            datenum=True))
 
 
 # ------------------------------------------------------------------- IASI
@@ -142,13 +162,16 @@ def test_iasi_against_matlab(iasi_reference, case):
     # screen="pooled": the MATLAB screen, to compare like with like (the default
     # rolling screen flags slightly different points; see obs._screen)
     data, _ = _load_nadir_arrays(None, "IASI", **{**DEFAULTS, **IASI_CASES[case],
-                                                  "screen": "pooled"})
+                                                  "screen": "pooled",
+                                                  "_cross_axis": "first_scan"})
     exact = case == "IASI_loadonly"
     temp = want["ret_temp"]
     if exact:
         temp = np.transpose(temp, (1, 2, 0))
-    assert_close(data["Lat"], want["l1_lat"], 0 if exact else DEG, "latitude")
-    dlon = np.mod(data["Lon"] - want["l1_lon"] + 180, 360) - 180
+    lat, lon = (data["Lat"], data["Lon"]) if exact else (data["TrackLat"],
+                                                         data["TrackLon"])
+    assert_close(lat, want["l1_lat"], 0 if exact else DEG, "latitude")
+    dlon = np.mod(lon - want["l1_lon"] + 180, 360) - 180
     assert_close(dlon, np.zeros_like(dlon), 0 if exact else DEG, "longitude")
     assert_close(data["Time"], want["l1_time"], 0 if exact else DAYS, "time")
     got = np.asarray(data["Temp"], dtype=float)

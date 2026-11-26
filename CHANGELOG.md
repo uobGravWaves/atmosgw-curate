@@ -5,6 +5,17 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Regridded nadir swaths (Q14): each value's position is that of the native
+  pixels it comes from (new attribute `geolocation`; the regular-grid
+  positions were up to 72 km off at the swath edges); the cross-track axis is
+  the median of all scans' (one bad scan no longer sets it, and a granule
+  hardly depends on what is loaded with it); scans whose width is more than
+  20 % from the median cannot be placed; edge columns within half a grid step
+  of a segment take its edge value (`extrapolated`); partial granules get
+  rows in proportion, so the spacing is that of whole granules; boxes start
+  new segments where rows are left out; zero-weight missing values no longer
+  remove good neighbours; per-row granule and source row of the truly
+  nearest scan. Temperatures change by a median 0.007 K. [Claude]
 - Limb and nadir boxes: a profile (or row) needs one point whose latitude
   and longitude are both inside, and a `lon_range` with west > east crosses
   the dateline, e.g. (170, -170); profiles with no position are in no box

@@ -55,6 +55,12 @@ dx_along=None, method="linear", extrapolate=None)``:
 - ``cross_axis``: a cross-track axis (km) to use instead of one built from
   this swath, so that several segments of a swath share one (overrides
   ``n_cross`` and ``dx_cross``).
+- ``cross``: the input's cross-track distance of each scan position (km),
+  instead of those of the first scan (MATLAB's assumption).
+- ``cross_edge``: cross-track grid points up to this distance (km) beyond
+  the input's outermost scan positions take the outermost value instead of
+  NaN (returned in ``cross_edge``, a bool per cross-track point); 0 (the
+  default, as MATLAB) for none. Only without ``extrapolate``.
 - Returns a dict: ``lat``, ``lon`` [n_cross x n_along]; ``fields`` (dict, same
   names); ``cross``, ``along`` (km, the regular axes); ``spacing`` ((km
   across, km along); NaN if one point).
@@ -80,7 +86,10 @@ As MATLAB, step for step:
    interpolated across the jump (fixed in the MATLAB on 2026-11-25).
 4. Fields: bilinear (or nearest-neighbour) interpolation in distance space,
    with the input's distances as a rectilinear grid (MATLAB
-   ``griddedInterpolant``). A NaN spreads to the grid points that use it.
+   ``griddedInterpolant``). A NaN spreads to the grid points that use it
+   with a non-zero weight (in MATLAB also to those where its weight is zero,
+   e.g. a grid point exactly on a good input point beside a missing one:
+   Q14).
 
 Sphere of radius 6371 km (``geodesy.EARTH_RADIUS_KM``), as MATLAB's defaults.
 
@@ -182,7 +191,7 @@ def regular_axis(values, n=None, spacing=None):
 
 def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
            dx_along=None, method="linear", extrapolate=None, cross_axis=None,
-           flags=None):
+           flags=None, cross=None, cross_edge=0.0):
     """Regrid a swath onto a regular grid in distance. See the module docstring."""
     method = method.lower()
     if method not in ("linear", "nearest"):
@@ -192,6 +201,8 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
     lat = np.asarray(lat, dtype=float)
     lon = np.asarray(lon, dtype=float)
     dist = swath_distances(lat, lon)
+    if cross is not None:  # (the input's cross-track distances, instead of scan 1's)
+        dist["cross"] = np.asarray(cross, dtype=float)
     basis = dist["basis"]
 
     if cross_axis is None:
@@ -218,6 +229,14 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
     # every field, level and flag (the arithmetic of scipy's
     # RegularGridInterpolator, which this replaced for speed)
     q_cross, q_along = new_cross, new_along
+    # cross-track queries up to cross_edge km beyond the input's edge scan
+    # positions take the edge position's value (marked in "cross_edge")
+    near = np.zeros(new_cross.size, dtype=bool)
+    if cross_edge > 0 and extrapolate is None:
+        lo, hi = np.nanmin(dist["cross"]), np.nanmax(dist["cross"])
+        near = (((q_cross < lo) & (q_cross >= lo - cross_edge))
+                | ((q_cross > hi) & (q_cross <= hi + cross_edge)))
+        q_cross = np.where(near, np.clip(q_cross, lo, hi), q_cross)
     if extrapolate == "nearest":
         q_cross = np.clip(q_cross, dist["cross"][0], dist["cross"][-1])
         q_along = np.clip(q_along, dist["along"][0], dist["along"][-1])
@@ -231,7 +250,7 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
                abs(new_along[1] - new_along[0]) if n_a > 1 else np.nan)
     return {"lat": np.asarray(new_lat), "lon": np.asarray(new_lon),
             "fields": new_fields, "flags": new_flags, "cross": new_cross,
-            "along": new_along,
+            "along": new_along, "cross_edge": near,
             "spacing": spacing}
 
 
@@ -348,7 +367,12 @@ def _apply_weights(value, axes, block=1024):
         for a, wxa in zip(ix, wx, strict=True):
             for b, wyb in zip(iy, wy, strict=True):
                 weight = (wxa[:, None] * wyb[None, part])[(...,) + extra]
-                term = value[np.ix_(a, b[part])] * weight
+                # a corner with zero weight adds nothing, even if it is NaN
+                # (as the flags, _apply_flags; MATLAB's griddedInterpolant
+                # spreads the NaN: Q14)
+                with np.errstate(invalid="ignore"):
+                    term = np.where(weight == 0, 0.0,
+                                    value[np.ix_(a, b[part])] * weight)
                 acc = term if acc is None else acc + term
         out[:, part] = acc
     return out
