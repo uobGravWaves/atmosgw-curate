@@ -26,6 +26,8 @@ from atmosgw.curate.obs._common import (
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
 from atmosgw.curate.readers import read_attrs, read_netcdf
 
+ENDORSED_KM = (15.0, 88.0)  # temperature (SOFIE V1.3 data description, Table 1)
+
 # output names -> SOFIE variable names
 FILE_NAMES = {"Temp": "Temperature", "Lat": "Latitude_83km", "Lon": "Longitude_83km",
               "Alt": "Altitude", "Pres": "Pressure", "Time": "Time_UT"}
@@ -46,7 +48,9 @@ def load(settings, inst_info, var_names):
 
     def read_file(path, file_count, day):
         names = [FILE_NAMES.get(n, n) for n in var_names
-                 if n not in ("SourceProf", "SourceFile")]
+                 if n not in ("SourceProf", "SourceFile", "InstrumentBad")]
+        if "InstrumentBad" in var_names and "Altitude" not in names:
+            names.append("Altitude")
         try:
             working = read_netcdf(path, names)
         except KeyError as error:
@@ -55,7 +59,20 @@ def load(settings, inst_info, var_names):
         note_version(inst_info, path, f"DP_Version {version}" if version else "")
         store = {}
         for name in var_names:
-            if name == "Time":
+            if name == "InstrumentBad":
+                # heights not endorsed for scientific use (SOFIE V1.3 data
+                # description, Table 1: temperature endorsed 15-88 km, reported
+                # 10-102 km; checked 2026-11-26)
+                alt = working["Altitude"][None, :]
+                with np.errstate(invalid="ignore"):
+                    bad = (alt < ENDORSED_KM[0]) | (alt > ENDORSED_KM[1])
+                store[name] = np.tile(bad, (working["Temperature"].shape[0]
+                                            if "Temperature" in working else 1, 1)
+                                      ).astype(float)
+                note(inst_info, "Temp", "heights outside 15-88 km (not endorsed for "
+                                        "scientific use, SOFIE V1.3 data "
+                                        "description) are instrument_flag")
+            elif name == "Time":
                 store["Time"] = day + working["Time_UT"][:, None] / 24
             elif name == "Alt":
                 store["Alt"] = working["Altitude"][None, :]  # one row of levels

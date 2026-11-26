@@ -77,7 +77,8 @@ def test_q12_dateline_and_greenwich_boxes(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["temperature", "Temp", "time", "pressure_flag",
-                                  "PresEstimated"])
+                                  "PresEstimated", "InstrumentBad",
+                                  "APrioriDominated"])
 def test_extras_may_not_replace_the_loaders_variables(tmp_path, name):
     _write(tmp_path, [250.0, 250.0, 250.0], temperature=np.full((1, 3), 299.0))
     with pytest.raises(ValueError, match="would replace"):
@@ -187,3 +188,44 @@ def test_q15_mls_range_ends_as_stored_are_usable(tmp_path):
                                np.float32)
     bad = _mls_flags(tmp_path)[1]
     np.testing.assert_array_equal(bad[0], [1, 0, 0, 0, 0, 0, 1])
+
+
+def _real(instrument, day, **options):
+    import os
+    import warnings
+
+    from atmosgw.curate.paths import DataDirNotSetError, dataset_dir
+    try:
+        if not os.path.isdir(dataset_dir(instrument)):
+            pytest.skip(f"no {instrument} data")
+    except (DataDirNotSetError, FileNotFoundError) as error:
+        pytest.skip(f"no {instrument} data: {error}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return load_limb_sounders(day, instrument, **options)
+
+
+def test_q17_hirdls_a_priori_marked_not_removed():
+    # (real data: about 14 % of HIRDLS values on 2007-01-01 have negative
+    # precision, almost all below 20 km)
+    ds = _real("HIRDLS", "2007-01-01", original_z=True, keep_outliers=True)
+    off = _real("HIRDLS", "2007-01-01", original_z=True, keep_outliers=True,
+                instrument_qc=False)
+    a_priori = states.has_state(ds.temperature_flag.values, "a_priori_dominated")
+    assert 0.05 < a_priori.mean() < 0.3
+    np.testing.assert_array_equal(ds.temperature.values, off.temperature.values)
+    assert not states.has_state(off.temperature_flag.values,
+                                "a_priori_dominated").any()
+
+
+def test_q17_sofie_outside_endorsed_heights_removed():
+    kept = _real("SOFIE", "2007-06-01", original_z=True, keep_outliers=True)
+    alt = kept.altitude.values
+    bad = states.has_state(kept.temperature_flag.values, "instrument_flag")
+    outside = (alt < 15) | (alt > 88)
+    assert outside.any()
+    np.testing.assert_array_equal(bad, outside)
+    ds = _real("SOFIE", "2007-06-01", original_z=True)
+    assert np.all(np.isnan(ds.temperature.values[outside]))
+    assert np.all(np.isfinite(ds.temperature.values[~outside])
+                  == np.isfinite(kept.temperature.values[~outside]))

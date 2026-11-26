@@ -95,8 +95,8 @@ STATES = (
           "removed because outside the height, latitude or longitude range "
           "asked for"),
     State("bad_geolocation", 8, True, "removed as bad",
-          "latitude or longitude out of range (nadir: also NaN, or time "
-          "missing; limb: out of range only, as MATLAB)"),
+          "latitude or longitude out of range (nadir: also NaN, time missing, or "
+          "a scan of implausible width; limb: out of range only, as MATLAB)"),
     State("outside_physical_range", 16, True, "removed as bad",
           "temperature < 100 K (IASI: <= 100 K, its retrieval's lower bound), "
           "or > 400 K (limb and time-height: only below 100 km; nadir: at any "
@@ -104,7 +104,8 @@ STATES = (
     State("statistical_outlier", 32, True, "removed as bad",
           "marked by the instrument's statistical screen (obs._screen)"),
     State("instrument_flag", 64, True, "removed as bad",
-          "the instrument's own quality control marks it bad"),
+          "the instrument's own quality control marks it bad (MLS data quality "
+          "document rules; SOFIE heights not endorsed)"),
     State("derived", 128, False, "qualified value",
           "computed, not measured or retrieved (e.g. pressure from height)"),
     State("filled", 256, False, "qualified value",
@@ -112,7 +113,8 @@ STATES = (
     State("extrapolated", 512, False, "qualified value",
           "outside the source data's coverage (only on values that exist)"),
     State("a_priori_dominated", 1024, False, "qualified value",
-          "the retrieval has little information here (reserved)"),
+          "the retrieval has little information here, as the provider marks "
+          "it (HIRDLS: negative precision)"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed

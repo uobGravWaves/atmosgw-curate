@@ -189,10 +189,14 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
+| `instrument_flag` | NaN | failed the provider's own screening (MLS, SOFIE heights) |
+| `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
 
-Of the providers' own quality screening, only MLS's is applied (its data
-quality documents' temperature rules, as `instrument_flag`;
-`instrument_qc=False` to switch it off). For the other instruments, request
+Of the providers' own quality screening, MLS's (its data quality
+documents' temperature rules) and SOFIE's endorsed heights (15-88 km) are
+applied as `instrument_flag`, and HIRDLS values dominated by the a priori are
+marked `a_priori_dominated` but kept (`instrument_qc=False` switches all of
+this off). For the other instruments, request
 their quality fields with `additional_vars` and screen as the product's
 documentation says.
 
