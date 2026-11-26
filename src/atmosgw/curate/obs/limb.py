@@ -32,6 +32,8 @@ that).
 
 ``instrument``: ``"ACE"``, ``"GNSS"``, ``"HIRDLS"``, ``"MIPAS"``, ``"MLS"``,
 ``"SABER"``, ``"SOFIE"``, ``"ALOMAR"``, ``"Sampler"`` or ``"Misc"`` (any case).
+ALOMAR, a lidar at a fixed site, is also loaded by ``load_time_height`` as a
+[time x level] series; here it gives a UserWarning saying so.
 
 Options (type, default):
 
@@ -251,6 +253,7 @@ Change log
 2026/11/25 [Claude] attributes: version, options, files read/not found, variable sources
 2026/11/25 [Claude] clearer error for dates that do not exist (e.g. "2022-01-34")
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
+2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
 
 How to cite
 -----------
@@ -394,6 +397,14 @@ def load_limb_sounders(
     options = {k: v for k, v in locals().items() if k not in ("time_range",
                                                               "instrument")}
     call = {"time_range": time_range, "instrument": instrument, **options}
+    if isinstance(instrument, str) and instrument.lower() == "alomar":
+        warnings.warn(
+            "ALOMAR is a lidar at a fixed site: load_time_height(time_range, "
+            "'ALOMAR') gives it as a [time x level] series in the time_height "
+            "format. load_limb_sounders still loads it as profiles, as MATLAB's "
+            "get_limbsounders.",
+            UserWarning, stacklevel=2,
+        )
     data, settings = _load_limb_arrays(time_range, instrument, **options)
     return _to_dataset(data, settings, call)
 

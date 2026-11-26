@@ -96,3 +96,58 @@ def test_rejects_2d_and_other_formats(swath):
         to_profiles(swath.drop_vars(["temperature", "temperature_flag", "altitude"]))
     with pytest.raises(ValueError):
         to_profiles(swath.assign_attrs(format="profile"))
+
+
+# ------------------------------------------------------- time_height
+
+
+@pytest.fixture
+def series(tmp_path):
+    from test_time_height_known import sessions_2007, write_year
+
+    from atmosgw.curate.obs import load_time_height
+
+    write_year(tmp_path, 2007, sessions_2007())
+    return load_time_height(["2007-01-24", "2007-01-25"], "ALOMAR",
+                            file_path=tmp_path, file_source=True)
+
+
+def test_time_height_rows_become_profiles(series):
+    p = to_profiles(series)
+    validate(p, "profile")
+    n, m = series.sizes["time"], series.sizes["level"]
+    assert p.sizes["profile"] == n and p.sizes["level"] == m
+    for name in ("temperature", "temperature_flag", "temperature_uncertainty"):
+        np.testing.assert_array_equal(p[name].values, series[name].values)
+    np.testing.assert_array_equal(p.time.values,
+                                  np.repeat(series.time.values[:, None], m, axis=1))
+    assert np.all(p.latitude.values == 69.38) and np.all(p.longitude.values == 16.08)
+    np.testing.assert_array_equal(p.altitude.values,
+                                  np.broadcast_to(series.altitude.values, (n, m)))
+    np.testing.assert_array_equal(p.session.values, series.session.values)
+    np.testing.assert_array_equal(p.source_profile.values[:, 0],
+                                  series.source_profile.values)
+    np.testing.assert_array_equal(p.source_file.values[:, -1],
+                                  series.source_file.values)
+    assert list(p.original_files.values) == list(series.original_files.values)
+    assert p.attrs["converted_from"] == "time_height"
+
+
+def test_time_height_pressure_is_derived(series):
+    p = to_profiles(series)
+    np.testing.assert_array_equal(p.pressure.values,
+                                  height_to_pressure(p.altitude.values))
+    assert p.pressure.dtype == np.float64  # the temperature's type
+    assert p.pressure.attrs["origin"] == "derived"
+    assert states.has_state(p.pressure_flag.values, "derived").all()
+    avail = states.parse_availability(p.attrs["availability"])
+    assert avail["pressure_uncertainty"] == "not_provided"
+    assert avail["dx"] == "not_requested"
+    assert "temperature_uncertainty" not in avail  # present
+
+
+def test_time_height_without_temperature_refused(series):
+    winds_only = series.drop_vars(["temperature", "temperature_flag",
+                                   "temperature_uncertainty"])
+    with pytest.raises(ValueError, match="temperature"):
+        to_profiles(winds_only)

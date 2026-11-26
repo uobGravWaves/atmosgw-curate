@@ -23,14 +23,18 @@ Function                                      Returns
                                               variables
 ============================================  ==================================
 
-Formats: ``"swath"`` and ``"profile"``, version 1 (``FORMATS``).
+Formats: ``"swath"``, ``"profile"`` and ``"time_height"``, version 1
+(``FORMATS``).
 
 What ``validate`` checks:
 
 - ``format`` and ``format_version`` attributes;
 - dimensions, and the order of each variable's dimensions;
 - required variables (some depend on ``product``, ``grid`` or the data:
-  e.g. ``temperature`` for 3-D swaths, ``brightness_temperature`` for 2-D);
+  e.g. ``temperature`` for 3-D swaths, ``brightness_temperature`` for 2-D;
+  time_height: at least one of temperature and the winds);
+- time_height: ``time`` never decreases and has no NaT (repeated times are
+  allowed);
 - types: data variables float32 (profile format: float32 or float64, so the
   limb loader's values are kept exactly); coordinates float64; ``time``
   ``datetime64[us]``; flags ``states.FLAG_DTYPE``;
@@ -41,6 +45,11 @@ What ``validate`` checks:
   dimensions with the CF flag attributes of the registry, linked by
   ``ancillary_variables``; an ``origin`` attribute; and a "no value" state at
   every NaN;
+- for every data variable with a ``<name>_uncertainty`` variable: the
+  uncertainty has the dimensions, units and an allowed type of ``<name>``, a
+  ``comment`` saying what kind it is, is named in ``<name>``'s
+  ``ancillary_variables``, and is NaN wherever ``<name>`` is NaN (it has no
+  flag of its own);
 - every tracked optional variable (viewing geometry, uncertainties, source
   indices ...) is either present or listed in ``availability`` with a known
   state.
@@ -76,6 +85,7 @@ Change log
 ----------
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] profile format: data variables may be float64
+2026/11/26 [Claude] time_height format; checks of uncertainty variables
 
 How to cite
 -----------
@@ -109,6 +119,11 @@ _GEOMETRY = ("satellite_latitude", "satellite_longitude", "satellite_altitude",
 # profile data variables: float32 or float64 (proposal, 2026-11-25: the limb
 # loader's values stay exactly as loaded)
 _PROFILE_DATA_TYPES = ("float32", "float64")
+
+# time_height: data variables float32 or float64, as profiles (the ALOMAR
+# files hold float64); winds defined now for radars (no reader yet)
+_TH = ("time", "level")
+_WINDS = ("eastward_wind", "northward_wind", "upward_wind")
 
 FORMATS = {
     "swath": {
@@ -198,6 +213,33 @@ FORMATS = {
                        tracked=True),
         },
     },
+    "time_height": {
+        "version": 1,
+        "dims": ("time", "level", "file"),
+        "attrs": COMMON_ATTRS + ("site_name",),
+        "require_one_of": ("temperature",) + _WINDS,
+        "variables": {
+            "time": dict(kind="time", dims=("time",), required=True,
+                         non_decreasing=True),
+            "altitude": dict(kind="coord", dims=("level",), units="km",
+                             required=True),
+            "latitude": dict(kind="coord", dims=(), units="degrees_north",
+                             range=(-90, 90), required=True),
+            "longitude": dict(kind="coord", dims=(), units="degrees_east",
+                              range=(-180, 180), required=True),
+            "temperature": dict(kind="data", dims=_TH, units="K", tracked=True,
+                                dtypes=_PROFILE_DATA_TYPES),
+            **{name: dict(kind="data", dims=_TH, units="m s-1", tracked=True,
+                          dtypes=_PROFILE_DATA_TYPES)
+               for name in _WINDS},
+            "pressure": dict(kind="data", dims=_TH, units="hPa", tracked=True,
+                             dtypes=_PROFILE_DATA_TYPES),
+            "session": dict(kind="index", dims=("time",), tracked=True),
+            "source_profile": dict(kind="index", dims=("time",), tracked=True),
+            "source_file": dict(kind="index", dims=("time",), tracked=True),
+            "original_files": dict(kind="text", dims=("file",), tracked=True),
+        },
+    },
 }
 
 _CHARACTERISATION = re.compile(r"^[A-Za-z0-9_.-]+/\d+$")
@@ -271,6 +313,9 @@ def problems(ds, format_name):
             out.append(f"unexpected dimension {dim!r}")
 
     # variables
+    one_of = spec.get("require_one_of")
+    if one_of and not any(name in ds.variables for name in one_of):
+        out.append("needs at least one of " + ", ".join(repr(n) for n in one_of))
     conditions = _conditions(ds, format_name)
     for name, var in spec["variables"].items():
         required = var.get("required", False)
@@ -285,7 +330,7 @@ def problems(ds, format_name):
             continue
         out.extend(_check_variable(ds, name, var))
         if var["kind"] == "data":
-            out.extend(_check_data_variable(ds, name, listed))
+            out.extend(_check_data_variable(ds, name, var, listed))
     return out
 
 
@@ -330,6 +375,13 @@ def _check_variable(ds, name, var):
         out.append(f"{name!r} is {dtype}, expected float64")
     elif kind == "time" and dtype != np.dtype("datetime64[us]"):
         out.append(f"{name!r} is {dtype}, expected datetime64[us]")
+    if var.get("non_decreasing") and kind == "time" and v.size:
+        values = np.asarray(v).ravel()
+        if np.any(np.isnat(values)):
+            out.append(f"{name!r} has {int(np.isnat(values).sum())} NaT value(s)")
+        elif np.any(values[1:] < values[:-1]):
+            out.append(f"{name!r} decreases (it must be sorted; repeated values "
+                       "are allowed)")
     if "units" in var and v.attrs.get("units") != var["units"]:
         out.append(f"{name!r} has units {v.attrs.get('units')!r}, expected "
                    f"{var['units']!r}")
@@ -343,8 +395,9 @@ def _check_variable(ds, name, var):
     return out
 
 
-def _check_data_variable(ds, name, listed):
-    """Flag variable, origin, and a 'no value' state at every NaN."""
+def _check_data_variable(ds, name, var, listed):
+    """Flag variable, origin, a 'no value' state at every NaN, and the
+    uncertainty variable if there is one."""
     out = []
     v = ds[name]
     if v.attrs.get("origin") not in ORIGINS:
@@ -374,6 +427,38 @@ def _check_data_variable(ds, name, listed):
         out.append(f"{name!r} has {int(unexplained.sum())} NaN value(s) with no "
                    "'no value' state in its flag")
     uncertainty = f"{name}_uncertainty"
-    if uncertainty not in ds.variables and uncertainty not in listed:
+    if uncertainty in ds.variables:
+        out.extend(_check_uncertainty(ds, name, var))
+    elif uncertainty not in listed:
         out.append(f"{uncertainty!r} is absent but not listed in 'availability'")
+    return out
+
+
+def _check_uncertainty(ds, name, var):
+    """A present <name>_uncertainty: dimensions, units and type of <name>, a
+    comment saying what kind it is, named in <name>'s ancillary_variables,
+    and NaN wherever <name> is NaN (it has no flag of its own)."""
+    out = []
+    label = f"{name}_uncertainty"
+    v, u = ds[name], ds[label]
+    if u.dims != v.dims:
+        out.append(f"{label!r} has dimensions {u.dims}, not those of {name!r}")
+        return out
+    if u.attrs.get("units") != v.attrs.get("units"):
+        out.append(f"{label!r} has units {u.attrs.get('units')!r}, not those of "
+                   f"{name!r} ({v.attrs.get('units')!r})")
+    allowed_types = [np.dtype(t) for t in var.get("dtypes", ("float32",))]
+    if u.dtype not in allowed_types:
+        out.append(f"{label!r} is {u.dtype}, expected "
+                   + " or ".join(str(t) for t in allowed_types))
+    if not str(u.attrs.get("comment", "")).strip():
+        out.append(f"{label!r} has no 'comment' saying what kind of uncertainty "
+                   "it is")
+    if label not in str(v.attrs.get("ancillary_variables", "")).split():
+        out.append(f"{name!r} does not name {label!r} in ancillary_variables")
+    extra = (np.isnan(np.asarray(v, dtype=float))
+             & ~np.isnan(np.asarray(u, dtype=float)))
+    if np.any(extra):
+        out.append(f"{label!r} has {int(extra.sum())} value(s) where {name!r} is "
+                   "NaN")
     return out

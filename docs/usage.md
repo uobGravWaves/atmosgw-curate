@@ -1,9 +1,10 @@
 # Using the loaders
 
-How to load limb-sounder profiles and nadir-sounder swaths with
-`atmosgw.curate`, and how to read what comes back. The full list of options
-is in each loader's docstring (`help(load_limb_sounders)`,
-`help(load_nadir_sounders)`); this guide covers the common tasks.
+How to load limb-sounder profiles, nadir-sounder swaths and ground-based
+time-height series with `atmosgw.curate`, and how to read what comes back.
+The full list of options is in each loader's docstring
+(`help(load_limb_sounders)`, `help(load_nadir_sounders)`,
+`help(load_time_height)`); this guide covers the common tasks.
 
 Status: pre-alpha. `load_limb_sounders` matches the MATLAB `get_limbsounders`;
 `load_nadir_sounders` matches `prep_airs_3d` without its detrending and
@@ -17,14 +18,14 @@ the data are: `ATMOSGW_DATA`, or `data_dir` in `~/.config/atmosgw/config.toml`
 (see "Where the data are" in `README.md`).
 
 ```python
-from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders
+from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders, load_time_height
 from atmosgw.curate.data import validate, availability, to_profiles
 from atmosgw.curate.data import states
 ```
 
 ## Times
 
-Both loaders take `time_range` as one time (that whole day) or two (start
+All loaders take `time_range` as one time (that whole day) or two (start
 and end): `numpy.datetime64`, ISO strings or `datetime` objects.
 
 ```python
@@ -43,7 +44,7 @@ ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER",
 | `"strict"` | that instant only (usually nothing) | exactly as given |
 
 Profiles (limb) and granules (nadir) are selected by their mean time, so
-they are never split. MATLAB datenums are refused: convert them with
+they are never split; time-height rows by their own time. MATLAB datenums are refused: convert them with
 `atmosgw.curate.matlab_time.datenum_to_datetime`. Dates must exist:
 "2022-01-34" is an error (MATLAB would carry it over to 3 February).
 
@@ -51,7 +52,9 @@ they are never split. MATLAB datenums are refused: convert them with
 
 Instruments: `"ACE"`, `"GNSS"`, `"HIRDLS"`, `"MIPAS"`, `"MLS"`, `"SABER"`,
 `"SOFIE"`, `"ALOMAR"` (lidar), `"Sampler"` (output of the Wright and Hindley
-sampler) and `"Misc"` (any files in the same MATLAB format).
+sampler) and `"Misc"` (any files in the same MATLAB format). ALOMAR here is
+the MATLAB-parity path, and warns: for a time series, use `load_time_height`
+(below).
 
 ```python
 # default: interpolated to 18-60 km every 0.5 km, outliers removed
@@ -116,13 +119,42 @@ within a 10-minute window, day and night separately); AIRS has none. Choose
 another with `screen=` (`"none"`, `"pooled"` as MATLAB, or a function); the
 choice is recorded in the `screen` attribute.
 
-## What comes back: formats, states and attributes
+## Ground-based time-height series
 
-Both loaders return an `xarray.Dataset` in a named format: `"profile"` for
-`load_limb_sounders`, `"swath"` for `load_nadir_sounders`.
+Instruments: `"ALOMAR"` (the lidar at Andoya). The data stay on their own
+heights (one 0.15 km grid for all ALOMAR sessions, no interpolation), at the
+site.
 
 ```python
-ds.attrs["format"]                 # "profile" or "swath"
+ds = load_time_height("2007-01-23", "ALOMAR")
+ds.temperature                     # (time, level), K
+ds.temperature_uncertainty         # as supplied by the files (kind UNVERIFIED)
+ds.latitude, ds.longitude          # the site (no dimensions)
+ds.session                         # which measurement session each row is from
+
+# a few hours, 20-90 km, and where each row came from
+ds = load_time_height(["2007-01-23T13:00", "2007-01-23T15:00"], "ALOMAR",
+                      time_handling="strict", height_range=(20, 90),
+                      file_source=True)
+
+# the lower-resolution product and the ECMWF temperatures in the files
+ds = load_time_height("2007-01-23", "ALOMAR", additional_vars=["T2_lidar", "T_ecmwf"])
+```
+
+Times can repeat (about 29% of ALOMAR rows share their time stamp with
+another row; why is not stated in the files): `ds.sel(time=slice(...))`
+works, but aligning or merging with another Dataset on `time` does not.
+`to_profiles(ds)` gives one profile per row (pressure estimated from
+height). A whole archive is about 1.7 GB per variable.
+
+## What comes back: formats, states and attributes
+
+Each loader returns an `xarray.Dataset` in a named format: `"profile"` for
+`load_limb_sounders`, `"swath"` for `load_nadir_sounders`, `"time_height"`
+for `load_time_height`.
+
+```python
+ds.attrs["format"]                 # "profile", "swath" or "time_height"
 validate(ds, ds.attrs["format"])   # raises FormatError listing any problem
 ```
 
@@ -149,7 +181,7 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
 
-The same rules hold in both formats (`docs/design/data_formats.md` section
+The same rules hold in every format (`docs/design/data_formats.md` section
 6.3): a point removed as bad is removed in every data variable at that point;
 the value states (`derived`, `extrapolated`) are only on values that exist.
 Use `missing` and `no_observation` together, not `no_observation` alone, to
@@ -180,15 +212,17 @@ expanded), `options` (the call's arguments, JSON), `files_read`,
 file, and the one used), `atmosgw_curate_version`, and per variable
 `source_variable` and `comment`. All are text, so they survive saving.
 
-## Swaths as profiles
+## Swaths and time-height series as profiles
 
-`to_profiles` turns a 3-D swath into the profile format, one profile per
-swath point, so profile tools can use nadir data too:
+`to_profiles` turns a 3-D swath (one profile per swath point) or a
+time-height series (one profile per time) into the profile format, so
+profile tools can use them too:
 
 ```python
 prof = to_profiles(load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS"))
 prof.temperature                   # (profile, level)
 prof.pressure                      # estimated from altitude, marked derived
+prof = to_profiles(load_time_height("2007-01-23", "ALOMAR"))
 ```
 
 ## Saving
