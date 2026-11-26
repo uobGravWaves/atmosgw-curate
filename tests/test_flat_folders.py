@@ -26,8 +26,8 @@ def flatten(usual, flat, nest=""):
     """Copy every file below usual into flat/nest (no year or day folders)."""
     target = flat / nest
     target.mkdir(parents=True, exist_ok=True)
-    for path in usual.rglob("*"):
-        if path.is_file():
+    for path in list(usual.rglob("*")):  # (listed first: target may be below usual)
+        if path.is_file() and target not in path.parents:
             shutil.copy(path, target / path.name)
     return flat
 
