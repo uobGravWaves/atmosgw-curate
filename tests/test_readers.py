@@ -23,8 +23,9 @@ def make_tree(root):
 
 
 def rel(paths, root):
-    return [os.path.relpath(p, root) + ("/" if p.endswith(os.sep) else "")
-            for p in paths]
+    """Paths relative to root, with "/" between folders on every system."""
+    return [os.path.relpath(p, root).replace(os.sep, "/")
+            + ("/" if p.endswith(os.sep) else "") for p in paths]
 
 
 def test_order_folders_first_then_files(tmp_path):
