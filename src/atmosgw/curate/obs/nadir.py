@@ -31,6 +31,9 @@ Options (type, default; MATLAB name):
 - ``lat_range``, ``lon_range`` ((min, max), whole globe): keep along-track
   rows with any point in the box; a ``lon_range`` whose first value is
   greater than its second crosses the dateline, e.g. (170, -170).
+  ``lon_range`` may be in any convention, with any number of turns (e.g.
+  (350, 370) is (-10, 10)); the box runs east from its first value, and one
+  360 degrees or wider is the whole globe.
 - ``original_grid`` (bool, False): no horizontal regridding (``LoadOnly``,
   which also implies ``original_z``).
 - ``n_cross`` (int, 90; ``NXT``), ``n_along`` (int per granule, 135;
@@ -189,6 +192,7 @@ Change log
 2026/11/26 [Claude] docstring: AIRS 2-D listed as implemented; Validation scope
 2026/11/26 [Claude] positions of the values, median cross-track axis, partial-granule
   spacing, segments after a box, nearest rows (Q14)
+2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
 
 """
 
@@ -208,6 +212,7 @@ from atmosgw.curate.obs._common import (
     COORD_ATTRS,
     check_additional_vars,
     check_flags,
+    check_lon_range,
     check_time_handling,
     day_label,
     expand_time_range,
@@ -518,9 +523,8 @@ def _prepare(time_range, instrument, options):
     for label in ("dx_cross", "dx_along"):
         if options[label] is not None and not options[label] > 0:
             raise ValueError(f"{label} must be a spacing in km greater than 0.")
-    for label, limit in (("lat_range", 90), ("lon_range", 180)):
-        if not all(-limit <= float(x) <= limit for x in options[label]):
-            raise ValueError(f"{label} must be within [-{limit}, {limit}].")
+    if not all(-90 <= float(x) <= 90 for x in options["lat_range"]):
+        raise ValueError("lat_range must be within [-90, 90].")
     granules = options["granules"]
     if granules is not None:
         checked = []
@@ -547,7 +551,7 @@ def _prepare(time_range, instrument, options):
                     height_scale=height_scale,
                     height_range=tuple(float(h) for h in options["height_range"]),
                     lat_range=tuple(float(x) for x in options["lat_range"]),
-                    lon_range=tuple(float(x) for x in options["lon_range"]),
+                    lon_range=check_lon_range(options["lon_range"]),
                     additional_vars=list(additional),
                     interp_type=options["interp_type"].lower())
     if settings["original_grid"]:

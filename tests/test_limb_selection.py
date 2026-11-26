@@ -76,6 +76,33 @@ def test_q12_dateline_and_greenwich_boxes(tmp_path):
     assert ds.sizes["profile"] == 1 and ds.longitude.values[0, 0] == 179.0
 
 
+@pytest.mark.parametrize("given, same_as", [
+    ((170, 190), (170, -170)),  # (crosses the dateline)
+    ((-190, -170), (170, -170)),
+    ((359, 361), (-1, 1)),
+    ((-721, -719), (-1, 1)),  # (two turns)
+    ((1.0 + 720, 179 + 720), (1, 179)),
+    ((0, 360), (-180, 180)),  # (a whole turn: the globe)
+    ((-90, 400), (-180, 180)),
+    ((180, -180), (-180, 180)),  # (as before)
+])
+def test_lon_range_in_any_convention(tmp_path, given, same_as):
+    # profile 0 crosses the dateline, 1 is at Greenwich, 2 at 90 E
+    lon = np.array([[179.0, -179.0, -178.0], [0.5, 0.5, 0.5], [90.0, 90.0, 90.0]])
+    _write(tmp_path, np.full((3, 3), 230.0), lon=lon)
+    a = _load(tmp_path, original_z=True, lon_range=given)
+    b = _load(tmp_path, original_z=True, lon_range=same_as)
+    assert a.sizes["profile"] == b.sizes["profile"]
+    np.testing.assert_array_equal(a.longitude.values, b.longitude.values)
+
+
+@pytest.mark.parametrize("bad", [(np.nan, 10), (0, np.inf), (0, 10, 20), (5,)])
+def test_lon_range_must_be_two_finite_longitudes(tmp_path, bad):
+    _write(tmp_path, [230.0, 230.0, 230.0])
+    with pytest.raises(ValueError, match="two finite longitudes"):
+        _load(tmp_path, lon_range=bad)
+
+
 @pytest.mark.parametrize("name", ["temperature", "Temp", "time", "pressure_flag",
                                   "PresEstimated", "InstrumentBad",
                                   "APrioriDominated"])
