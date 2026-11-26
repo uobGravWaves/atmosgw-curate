@@ -142,3 +142,13 @@ def test_real_granule_hardly_depends_on_what_is_loaded_with_it():
     assert lost.mean() < 0.005
     finite = np.isfinite(a) & np.isfinite(b)
     assert np.percentile(np.abs(a[finite] - b[finite]), 99) < 0.5
+
+
+def test_extrapolate_marks_only_points_outside_the_segment(tmp_path):
+    # (review: with extrapolate=True whole edge columns were marked, from the
+    # first scan's distances instead of the segment's own)
+    _granule(tmp_path, 53)
+    ds = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=tmp_path,
+                             extrapolate=True)
+    edge = states.has_state(ds.temperature_flag.values[:, [0, -1]], "extrapolated")
+    assert edge.mean() < 0.05

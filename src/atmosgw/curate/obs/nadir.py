@@ -337,7 +337,6 @@ def _load_nadir_arrays(time_range, instrument, **options):
     states.set_state(flags, np.isnan(temp), "missing")
     bad_geo = ~(np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
                 & (np.abs(lon) <= 180) & np.isfinite(np.asarray(data["Time"], float)))
-    bad_geo |= ~_plausible_width(lat, lon)[None, :]  # (whole scans)
     states.set_state(flags, np.broadcast_to(bad_geo[..., None], temp.shape),
                      "bad_geolocation")
     # instrument statistical screen (swappable: see obs._screen), on the padded
@@ -359,6 +358,13 @@ def _load_nadir_arrays(time_range, instrument, **options):
                                  else 0)
         flags = flags[:, keep]
         lat, lon = data["Lat"], data["Lon"]
+    # scans of implausible width (judged on the rows returned, as _placeable)
+    narrow = ~_plausible_width(np.asarray(lat, float), np.asarray(lon, float))
+    if narrow.any():
+        states.set_state(flags, np.broadcast_to(narrow[None, :, None], flags.shape),
+                         "bad_geolocation")
+        if not settings["keep_outliers"]:
+            data["Temp"] = np.where(narrow[None, :, None], np.nan, data["Temp"])
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and data["Lat"].shape[1] == 0):
         warnings.warn("A single time_range value with time_handling='strict' selects "
@@ -576,17 +582,22 @@ def _regrid(data, flags, settings, info):
         fields = {"Temp": data["Temp"][:, rows], "Time": data["Time"][:, rows],
                   **{n: data[n][:, rows] for n in extra},
                   "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}
+        # this segment's own cross-track distances (used to interpolate and to
+        # mark extrapolation alike)
+        seg_cross = (np.median(cross_all[:, rows], axis=1) if by_median else
+                     swath.swath_distances(lat[:, rows], lon[:, rows])["cross"])
+        # (a segment a little narrower than the common axis keeps its edge
+        # columns: up to half a grid step, and at most one native pixel)
+        edge = 0.0
+        if by_median and cross_axis.size > 1:
+            edge = min(0.5 * abs(cross_axis[1] - cross_axis[0]),
+                       float(np.median(np.abs(np.diff(seg_cross)))))
         out = swath.regrid(lat[:, rows], lon[:, rows], fields, n_along=n_along,
                            dx_along=settings["dx_along"],
                            method=settings["interp_type"],
                            extrapolate="linear" if settings["extrapolate"] else None,
                            cross_axis=cross_axis, flags=flags[:, rows],
-                           cross=(np.median(cross_all[:, rows], axis=1) if by_median
-                                  else None),
-                           # (a segment a little narrower than the common axis
-                           # keeps its edge columns: half a grid step)
-                           cross_edge=(0.5 * abs(cross_axis[1] - cross_axis[0])
-                                       if by_median and cross_axis.size > 1 else 0))
+                           cross=seg_cross if by_median else None, cross_edge=edge)
         # states: those of every input point used (swath.regrid), and
         # no_observation for NaN points outside the input
         new_flags = out["flags"]
@@ -602,8 +613,8 @@ def _regrid(data, flags, settings, info):
             # outside this segment's own distances (e.g. cross-track, where the
             # common cross axis is wider than the segment): extrapolated, where
             # there is a value
-            cross_out = ((cross_axis < np.nanmin(d_seg["cross"]))
-                         | (cross_axis > np.nanmax(d_seg["cross"])))
+            cross_out = ((cross_axis < np.nanmin(seg_cross))
+                         | (cross_axis > np.nanmax(seg_cross)))
             along_out = ((out["along"] < np.nanmin(d_seg["along"]))
                          | (out["along"] > np.nanmax(d_seg["along"])))
             outside = cross_out[:, None] | along_out[None, :]
@@ -647,8 +658,8 @@ def _regrid(data, flags, settings, info):
         new[name] = np.concatenate([p[name] for p in parts],
                                    axis=1 if parts[0][name].ndim > 1 else 0)
     new["DistCross"] = cross_axis
-    # along-track spacing: the median over segments (they agree to about 1 %
-    # with the proportional rule above; distance_along has each exactly)
+    # along-track spacing: the median over segments (within about 5 % of each
+    # other with the proportional rule above; distance_along has each exactly)
     finite_steps = [s for s in steps if np.isfinite(s)]
     if finite_steps:
         spacing = (spacing[0], float(np.median(finite_steps)))
@@ -794,7 +805,7 @@ _ATTRS = {
                        "long_name": "along-track distance from the segment start"},
     "distance_cross": {"units": "km",
                        "long_name": "cross-track distance from the middle of the "
-                                    "first scan of the first segment"},
+                                    "scan (the median over the scans)"},
     "granule": {"long_name": "granule number within its day (1-based)"},
     "granule_day": {"long_name": "day of the granule"},
     "segment": {"long_name": "unbroken stretch of the swath (1-based)"},
