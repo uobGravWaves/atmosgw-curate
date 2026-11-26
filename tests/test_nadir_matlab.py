@@ -1,4 +1,4 @@
-"""Regression tests: load_nadir_sounders (AIRS) against the MATLAB prep_airs_3d.
+"""Regression tests: load_nadir_sounders (AIRS, IASI) against the MATLAB prep_airs_3d.
 
 Reference: <reference_dir>/prep_airs_3d_reference.mat, made 2026-11-25 by
 corwin365/MatlabFunctions-Tests test_prep_airs_3d.m with MATLAB R2024b
@@ -11,7 +11,9 @@ MATLAB-like names, [cross x along (x level)] arrays and datenum times, against
 each AIRS case of the MATLAB test (2007-01-01: granule 53 with default,
 spacing, nearest, no vertical interpolation, day/night and load-only options;
 granule 3, which crosses the dateline; granules 240 and 241 across midnight).
-MATLAB has no outlier screen for AIRS, so keep_outliers=True. Detrended
+MATLAB has no outlier screen for AIRS, so keep_outliers=True. The IASI cases
+(2007-11-06 and 07) are compared with screen="pooled" (see the IASI section
+below). Detrended
 fields (Tp, BG) are compared when analysis.detrend is ported.
 
 Tolerances (trig functions round differently in the last bits between MATLAB

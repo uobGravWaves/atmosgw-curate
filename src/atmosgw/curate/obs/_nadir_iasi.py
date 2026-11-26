@@ -49,6 +49,7 @@ Differences from MATLAB, by design:
   reads them as data: a zero time puts a scan in a 2000-01-01 granule (lost
   from its own), and 0/0 positions crash regridding.
 
+Change log:
 2026/11/26 [Claude] fill values, bad times to NaN; granule by scan median if col. 1 bad
 """
 

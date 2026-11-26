@@ -1,8 +1,6 @@
 """
 Operations on sets of profiles stored as [profiles x levels] arrays.
 
-Purpose
--------
 Building blocks for loaders and analyses of profile data (limb sounders,
 radio occultation, lidar): join days of data, select profiles, put profiles
 on a common height grid, clip to a height range, mask bad points and select
@@ -62,11 +60,6 @@ Function                                                        Returns
   overlap the box, i.e. if it could enter the box at any height. Profiles
   with no finite positions are kept.
 
-Science
--------
-No scientific processing beyond interpolation (linear by default) and
-selection.
-
 Origin
 ------
 Ports of steps of the MATLAB ``get_limbsounders`` (uobGravWaves/
@@ -79,9 +72,9 @@ Through ``tests/test_limb_matlab.py`` (against the MATLAB reference outputs)
 and ``tests/test_limb_known.py`` (known answers), and directly in
 ``tests/test_profiles.py``.
 
-AI involvement
---------------
-AI-ported (Claude) from the MATLAB, to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-ported (Claude) from the MATLAB, to be reviewed by C. Wright.
 
 Usage
 -----
@@ -91,17 +84,10 @@ Usage
 >>> interpolate_profiles(alt, 2 * alt, np.array([11.0, 15.0]), "linear", None)
 array([[22., 30.]])
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/24 [Claude] initial version
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import warnings

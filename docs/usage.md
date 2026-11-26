@@ -1,21 +1,12 @@
 # Using the loaders
 
 How to load limb-sounder profiles, nadir-sounder swaths and ground-based
-time-height series with `atmosgw.curate`, and how to read what comes back.
-The full list of options is in each loader's docstring
-(`help(load_limb_sounders)`, `help(load_nadir_sounders)`,
-`help(load_time_height)`); this guide covers the common tasks.
+time-height series, and how to read what comes back. Every option is listed
+in the loaders' docstrings (`help(load_limb_sounders)`,
+`help(load_nadir_sounders)`, `help(load_time_height)`).
 
-Status: pre-alpha. `load_limb_sounders` matches the MATLAB `get_limbsounders`;
-`load_nadir_sounders` matches `prep_airs_3d` without its detrending and
-smoothing, which will come with a general detrender. The data formats
-(`docs/design/data_formats.md`) are version 1 proposals.
-
-## Setting up
-
-Install the package (see `README.md`), then tell it once per machine where
-the data are: `ATMOSGW_DATA`, or `data_dir` in `~/.config/atmosgw/config.toml`
-(see "Where the data are" in `README.md`).
+Install the package and set the data root first (`README.md`, "Quick
+start" and "Where the data are"). The examples below use:
 
 ```python
 from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders, load_time_height
@@ -25,7 +16,7 @@ from atmosgw.curate.data import states
 
 ## Times
 
-All loaders take `time_range` as one time (that whole day) or two (start
+Every loader takes `time_range` as one time (that whole day) or two (start
 and end): `numpy.datetime64`, ISO strings or `datetime` objects.
 
 ```python
@@ -44,7 +35,8 @@ ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER",
 | `"strict"` | that instant only (usually nothing) | exactly as given |
 
 Profiles (limb) and granules (nadir) are selected by their mean time, so
-they are never split; time-height rows by their own time. MATLAB datenums are refused: convert them with
+they are never split; time-height rows are selected by their own time.
+MATLAB datenums are refused: convert them with
 `atmosgw.curate.matlab_time.datenum_to_datetime`. Dates must exist:
 "2022-01-34" is an error (MATLAB would carry it over to 3 February).
 
@@ -53,8 +45,8 @@ they are never split; time-height rows by their own time. MATLAB datenums are re
 Instruments: `"ACE"`, `"GNSS"`, `"HIRDLS"`, `"MIPAS"`, `"MLS"`, `"SABER"`,
 `"SOFIE"`, `"ALOMAR"` (lidar), `"Sampler"` (output of the Wright and Hindley
 sampler) and `"Misc"` (any files in the same MATLAB format). ALOMAR here is
-the MATLAB-parity path, and warns: for a time series, use `load_time_height`
-(below).
+the MATLAB-parity path and gives a warning: for a time series, use
+`load_time_height` (below).
 
 ```python
 # default: interpolated to 18-60 km every 0.5 km, outliers removed
@@ -80,9 +72,9 @@ ds = load_limb_sounders("2007-01-01", "Misc", misc_path="/path/to/files",
 
 Output dimensions are `profile` and `level` (and `mode` for
 `temperature_pw`). `altitude` is the height scale (or the file heights with
-`original_z`); `pressure` is in hPa, and its `origin` attribute says whether
-it was read or estimated from height. Extra file variables can be added with
-`additional_vars=["name", ...]`.
+`original_z`). `pressure` is in hPa; its `origin` attribute says whether it
+was read or estimated from height. `additional_vars=["name", ...]` adds
+other file variables.
 
 ## Nadir sounders
 
@@ -109,12 +101,12 @@ ds = load_nadir_sounders(["2020-01-20T00:00", "2020-01-20T01:00"], "AIRS",
 ```
 
 The swath is split into `segment`s wherever successive scans are more than
-180 s apart (a missing granule, or separate times); each segment is regridded
-on its own, and `distance_along` restarts at each. `granule` and
+180 s apart (a missing granule, or separate times). Each segment is
+regridded on its own, and `distance_along` restarts at each. `granule` and
 `granule_day` say where each along-track row came from. Scans with a missing
-position or time (fill values in the files) form segments of their own: they
-are kept, as `bad_geolocation`, with `original_grid=True`, and left out of a
-regridded swath.
+position or time (fill values in the files) form segments of their own:
+with `original_grid=True` they are kept, as `bad_geolocation`; a regridded
+swath leaves them out.
 
 IASI has a statistical outlier screen on by default (`"rolling"`: values
 more than 5 interquartile ranges beyond the quartiles of their height level
@@ -125,8 +117,8 @@ choice is recorded in the `screen` attribute.
 ## Ground-based time-height series
 
 Instruments: `"ALOMAR"` (the lidar at Andoya). The data stay on their own
-heights (one 0.15 km grid for all ALOMAR sessions, no interpolation), at the
-site.
+heights at the site: one 0.15 km grid holds every ALOMAR session, with no
+interpolation.
 
 ```python
 ds = load_time_height("2007-01-23", "ALOMAR")
@@ -144,9 +136,9 @@ ds = load_time_height(["2007-01-23T13:00", "2007-01-23T15:00"], "ALOMAR",
 ds = load_time_height("2007-01-23", "ALOMAR", additional_vars=["T2_lidar", "T_ecmwf"])
 ```
 
-Times can repeat (about 29% of ALOMAR rows share their time stamp with
-another row; why is not stated in the files): `ds.sel(time=slice(...))`
-works, but aligning or merging with another Dataset on `time` does not.
+Times can repeat: about 29% of ALOMAR rows share their time stamp with
+another row, and the files do not say why. `ds.sel(time=slice(...))` works,
+but aligning or merging with another Dataset on `time` does not.
 `to_profiles(ds)` gives one profile per row (pressure estimated from
 height). A whole archive is about 1.7 GB per variable.
 
@@ -154,7 +146,7 @@ height). A whole archive is about 1.7 GB per variable.
 
 Each loader returns an `xarray.Dataset` in a named format: `"profile"` for
 `load_limb_sounders`, `"swath"` for `load_nadir_sounders`, `"time_height"`
-for `load_time_height`.
+for `load_time_height` (defined in `docs/design/data_formats.md`).
 
 ```python
 ds.attrs["format"]                 # "profile", "swath" or "time_height"
@@ -185,19 +177,17 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
 
 The same rules hold in every format (`docs/design/data_formats.md` section
-6.3): a point removed as bad is removed in every data variable at that point;
-the value states (`derived`, `extrapolated`) are only on values that exist.
-Use `missing` and `no_observation` together, not `no_observation` alone, to
-judge coverage.
+6.3). A point removed as bad is removed in every data variable at that
+point. The value states (`derived`, `extrapolated`) are only on values that
+exist. To judge coverage, use `missing` and `no_observation` together, not
+`no_observation` alone. With `keep_outliers=True` the values removed as bad
+are kept and their states still set, so you can remove them later yourself.
+The full list is `states.STATES`.
 
 **Not raw data.** `ds.attrs["data"]` is "preprocessed" when the files were
-altered before loading, and `ds.attrs["preprocessing"]` says how: the GNSS
-files (pre-interpolated to a fixed height grid) and the AIRS 3-D daily files
-(temperatures rounded to whole kelvin, times stored as float32).
-
-With `keep_outliers=True` the "removed as bad" values are kept, and their
-states are still set, so you can remove them later yourself. The full list
-is `states.STATES`.
+altered before loading, and `ds.attrs["preprocessing"]` says how. This
+applies to the GNSS files (pre-interpolated to a fixed height grid) and the
+AIRS 3-D daily files (see "Things to know").
 
 **Variables that do not exist.** Optional variables of the format that are
 not in the Dataset are listed in the `availability` attribute, with the
@@ -228,13 +218,17 @@ prof.pressure                      # estimated from altitude, marked derived
 prof = to_profiles(load_time_height("2007-01-23", "ALOMAR"))
 ```
 
+Combining limb profiles with `to_profiles(swath)` output mixes float64 and
+float32 data variables: both are valid profile data, but stacking them gives
+float64.
+
 ## Saving
 
 ```python
 ds.to_netcdf("/path/to/output.nc")
 ```
 
-A day of AIRS or IASI regridded is several GB in memory; save to a disk with
+A day of AIRS or IASI regridded is several GB in memory. Save to a disk with
 room (on the group's Linux machine, under `~/Data/<you>/`, not your home
 folder).
 
@@ -248,14 +242,10 @@ folder).
 | `extrapolate` | vertical, beyond each profile | horizontal, in the regridding |
 | `keep_outliers` | keeps values removed as bad; states still set | the same |
 
-Combining limb profiles with `to_profiles(swath)` output mixes float64 and
-float32 data variables: both are valid profile data, but stacking them gives
-float64.
-
 ## Things to know
 
-- Times in the AIRS daily files are float32, so up to 8-32 s off; their
-  temperatures are rounded to whole kelvin (about 0.3 K rms).
+- The AIRS 3-D daily files store times as float32, so times are up to 8-32 s
+  off, and temperatures rounded to whole kelvin (about 0.3 K rms).
 - Limb data keep the type the files give (mostly float64); nadir data are
   float32. Either is far finer than the data's precision.
 - UNVERIFIED: the AIRS and IASI start dates in the loaders, and that IASI's

@@ -1,8 +1,6 @@
 """
 Statistical outlier screens for nadir-sounder swaths, swappable.
 
-Purpose
--------
 A screen marks values that are statistical outliers for their height level.
 Screens are interchangeable components: each is a function with the same
 signature, registered by name in ``SCREENS``, so a better method can replace
@@ -74,8 +72,8 @@ Origin
 ``pooled``: port of the IASI screen of ``prep_airs_3d.m`` (corwin365/
 MatlabFunctions, commit f1a78c0). ``rolling``: new.
 
-AI involvement
---------------
+Status
+------
 AI-originated (Claude), from the method agreed with C. Wright; to be
 reviewed by C. Wright.
 

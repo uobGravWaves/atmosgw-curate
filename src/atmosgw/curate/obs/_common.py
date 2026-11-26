@@ -1,8 +1,6 @@
 """
 Internal helpers shared by the limb and nadir loaders.
 
-Purpose
--------
 The parts of loading that are the same for every instrument family, so that
 ``load_limb_sounders`` and ``load_nadir_sounders`` treat times, options and
 the record of a load the same way:
@@ -44,8 +42,8 @@ Validation
 Through the loaders' tests (``tests/test_limb_*.py``, ``tests/test_nadir_*.py``);
 the move left both loaders' outputs bit-identical.
 
-AI involvement
---------------
+Status
+------
 AI-moved (Claude); to be reviewed by C. Wright.
 
 Change log

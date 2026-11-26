@@ -1,8 +1,6 @@
 """
 Conversions between the common data formats.
 
-Purpose
--------
 ``to_profiles(ds)``: a 3-D swath (format "swath") or a time-height series
 (format "time_height") as profiles (format "profile"), so that tools written
 for profiles (the sampler, profile operations, Fuse) can use nadir-sounder
@@ -58,8 +56,8 @@ From "time_height" (``load_time_height``):
 
 Science
 -------
-No scientific processing beyond reshaping, except the pressure estimate
-(see ``atmosphere``).
+Reshaping only, apart from the pressure estimate (``atmosphere``, U.S.
+Standard Atmosphere 1976 [R1]).
 
 Origin
 ------
@@ -71,18 +69,14 @@ Validation
 provenance and availability, and that the result passes
 ``validate(ds, "profile")``.
 
-AI involvement
---------------
-AI-originated (Claude); to be reviewed by C. Wright.
+Status
+------
+Proposal. AI-originated (Claude); to be reviewed by C. Wright.
 
 Usage
 -----
 >>> from atmosgw.curate.data.convert import to_profiles  # doctest: +SKIP
 >>> profiles = to_profiles(load_nadir_sounders("2007-01-01", "AIRS"))  # doctest: +SKIP
-
-Status
-------
-Proposal.
 
 Change log
 ----------
@@ -90,9 +84,6 @@ Change log
 2026/11/25 [Claude] keep source_file, source_row, original_files; inherit availability
 2026/11/26 [Claude] time_height to profiles
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np

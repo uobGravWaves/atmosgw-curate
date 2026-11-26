@@ -1,8 +1,6 @@
 """
 MATLAB-compatible versions of a few numerical functions.
 
-Purpose
--------
 Reproduce the behaviour of MATLAB's ``interp1``, ``unwrap`` and ``wrapToPi``
 where NumPy's nearest equivalents behave differently, so that ports of the
 group's MATLAB code give the same results. Use these in ports; new code may
@@ -73,10 +71,6 @@ is cubic convolution, which needs evenly spaced points and falls back to
 ``deg2rad`` and ``rad2deg`` need no copies: ``np.deg2rad`` and ``np.rad2deg``
 match MATLAB bit for bit.
 
-Science
--------
-No scientific processing.
-
 Origin
 ------
 New code written to match MATLAB's documented behaviour and checked against
@@ -94,9 +88,9 @@ dateline-crossing longitudes; wrap_to_pi at multiples of pi. Linear, nearest,
 next, previous, unwrap and wrap_to_pi are bit-identical; the tolerance for
 pchip, spline and makima is stated in the test.
 
-AI involvement
---------------
-AI-originated (Claude), to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-originated (Claude), to be reviewed by C. Wright.
 
 Usage
 -----
@@ -106,17 +100,10 @@ Usage
 ...         np.array([0.5, 1.5, 2.5]))
 array([nan, 15., 25.])
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/24 [Claude] initial version
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np

@@ -25,6 +25,12 @@ reference outputs.
   lost to a 2000-01-01 granule (e.g. 2011-06-30 granule 40 was missing
   entirely). Everything else bit-identical (974 of 994 real-data cases; the
   rest contain such data). MATLAB `prep_airs_3d` unchanged. [Claude]
+- Documentation reorganised and shortened: a quick start and a "What has
+  been checked" section in the README, the planned layout and proportionate
+  docstring guidance in `CONTRIBUTING.md`, boilerplate removed from module
+  docstrings; stale statements corrected (limb Validation names the current
+  MATLAB reference; AIRS 2-D listed as implemented; IASI's MATLAB test
+  described). No code changes. [Claude]
 
 ## [0.5.0] - 2026-11-26
 - New loader `obs.load_time_height` and format "time_height" (version 1):

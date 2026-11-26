@@ -1,8 +1,6 @@
 """
 Distances, directions and positions on a spherical Earth.
 
-Purpose
--------
 Great-circle calculations used by the instrument loaders: the distance between
 two points, the direction from one to the other, and the point reached by
 travelling a given distance in a given direction. MATLAB-compatible versions
@@ -80,9 +78,9 @@ negative and zero arc lengths, and matrices; known answers (quarter
 circumference, cardinal directions, reckon/azimuth/haversine consistency).
 Tolerances stated in the test.
 
-AI involvement
---------------
-AI-originated (Claude), to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-originated (Claude), to be reviewed by C. Wright.
 
 Usage
 -----
@@ -90,18 +88,11 @@ Usage
 >>> round(float(haversine(0, 0, 0, 90)))
 10008
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/24 [Claude] initial version
 2026/11/25 [Claude] haversine: a clipped to [0, 1], as nph_haversine.m (Q4)
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np

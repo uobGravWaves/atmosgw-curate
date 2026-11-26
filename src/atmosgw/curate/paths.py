@@ -1,8 +1,6 @@
 """
 Where this computer keeps its data.
 
-Purpose
--------
 Find the folders that hold instrument data and test reference files, so that
 code works on any machine without hard-coded paths.
 
@@ -57,10 +55,6 @@ An unknown dataset or kind raises ``KeyError``.
 path. If it is not set, ``DataDirNotSetError`` is raised; tests that need it
 catch this and skip.
 
-Science
--------
-No scientific processing.
-
 Origin
 ------
 ``local_data_dir`` replaces ``cjwtools.paths.local_data_dir`` (python-common,
@@ -78,9 +72,9 @@ settings file without ``data_dir``; dataset defaults, absolute and relative
 overrides, datasets added by the user, unknown names and kinds; the reference
 folder set, relative and unset.
 
-AI involvement
---------------
-AI-originated (Claude), to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-originated (Claude), to be reviewed by C. Wright.
 
 Usage
 -----
@@ -89,19 +83,12 @@ Usage
 >>> saber_pws = dataset_dir("SABER", "pws")
 >>> root = local_data_dir()
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/23 [Claude] initial version
 2026/11/24 [Claude] added dataset_dir() with datasets.toml, and reference_dir()
 2026/11/24 [Claude] tomllib only (Python >= 3.11; tomli fallback removed)
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import os

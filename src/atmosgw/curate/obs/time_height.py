@@ -1,8 +1,6 @@
 """
 Load ground-based time-height data (lidars, later radars) in a common format.
 
-Purpose
--------
 Load the measurements of an instrument at a fixed site as one [time x level]
 grid, in the common "time_height" format (``docs/design/data_formats.md``),
 so that time series of profiles are not treated as satellite profiles.
@@ -101,14 +99,17 @@ New code. The ALOMAR file layout follows the port of ``module_load_ALOMAR.m``
 Validation
 ----------
 ``tests/test_time_height_known.py`` (synthetic files: values, states,
-options), ``tests/test_time_height_alomar.py`` (real files: values and rows
-identical to ``load_limb_sounders(..., "ALOMAR", original_z=True)``),
-``tests/test_states_conformance.py`` and ``tests/test_data_convert.py``.
+options), ``tests/test_time_height_alomar.py`` (real files, public
+Datasets: values, rows and states identical to ``load_limb_sounders(...,
+"ALOMAR", original_z=True)`` on five date ranges; a wider run on 34 dates,
+2003-2026, made once on 2026-11-26), ``tests/test_states_conformance.py``
+and ``tests/test_data_convert.py``.
 
-AI involvement
---------------
-AI-originated (Claude), from the plan agreed with C. Wright on 2026-11-26;
-to be reviewed by C. Wright.
+Status
+------
+Proposal (format version 1 is a draft for agreement). AI-originated
+(Claude), from the plan agreed with C. Wright on 2026-11-26; to be reviewed
+by C. Wright.
 
 Usage
 -----
@@ -116,17 +117,11 @@ Usage
 >>> ds = load_time_height("2007-01-23", "ALOMAR")  # doctest: +SKIP
 >>> ds.temperature.sel(time=slice("2007-01-23T13", "2007-01-23T14"))  # doctest: +SKIP
 
-Status
-------
-Proposal (format version 1 is a draft for agreement).
-
 Change log
 ----------
 2026/11/26 [Claude] initial version (ALOMAR)
+2026/11/26 [Claude] docstring: Validation scope (dates, public Datasets)
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import warnings

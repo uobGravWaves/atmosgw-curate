@@ -1,8 +1,6 @@
 """
 The common data formats, and a checker for them.
 
-Purpose
--------
 Every loader returns an ``xarray.Dataset`` in a named, versioned format, so
 that the Detrender, Stockwell wrappers, Parameter Engine, sampler and Fuse can
 use any instrument's data the same way. This module holds the format
@@ -54,10 +52,6 @@ What ``validate`` checks:
   indices ...) is either present or listed in ``availability`` with a known
   state.
 
-Science
--------
-No scientific processing.
-
 Origin
 ------
 New code (no MATLAB equivalent).
@@ -67,19 +61,16 @@ Validation
 ``tests/test_data_formats.py``: a valid example of each format passes, and
 each kind of fault is reported.
 
-AI involvement
---------------
-AI-originated (Claude), from the design agreed with C. Wright on 2026-11-25;
-to be reviewed by C. Wright.
+Status
+------
+Proposal (format version 1 is a draft for agreement). AI-originated
+(Claude), from the design agreed with C. Wright on 2026-11-25; to be
+reviewed by C. Wright.
 
 Usage
 -----
 >>> from atmosgw.curate.data import validate  # doctest: +SKIP
 >>> validate(ds, "swath")  # doctest: +SKIP
-
-Status
-------
-Proposal (format version 1 is a draft for agreement).
 
 Change log
 ----------
@@ -87,9 +78,6 @@ Change log
 2026/11/25 [Claude] profile format: data variables may be float64
 2026/11/26 [Claude] time_height format; checks of uncertainty variables
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import re

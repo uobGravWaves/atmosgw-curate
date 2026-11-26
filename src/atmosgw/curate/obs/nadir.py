@@ -1,15 +1,14 @@
 """
 Load nadir-sounder swaths (AIRS, IASI; later CrIS, IASI-NG) in a common format.
 
-Purpose
--------
-Load swaths of retrieved temperature from cross-track scanning nadir
-sounders and return them in the common **swath** format
-(``docs/design/data_formats.md``), on a regular grid in distance by default.
-Port of the MATLAB ``prep_airs_3d`` (corwin365/MatlabFunctions, commit
-f1a78c0), without its detrending and smoothing, which are analysis steps
-(``docs/design/nadir_loader.md``). Implemented: AIRS and IASI 3-D. 2-D
-products follow.
+Load swaths from cross-track scanning nadir sounders (retrieved temperature,
+or brightness temperature for 2-D products) and return them in the common
+**swath** format (``docs/design/data_formats.md``), on a regular grid in
+distance by default. Port of the MATLAB ``prep_airs_3d`` (corwin365/
+MatlabFunctions, commit f1a78c0), without its detrending and smoothing,
+which are analysis steps (``docs/design/nadir_loader.md``). Implemented:
+AIRS 3-D, AIRS 2-D (brightness temperature; not compared with MATLAB) and
+IASI 3-D.
 
 Inputs and outputs
 ------------------
@@ -106,18 +105,17 @@ Science
   positions outside [-90, 90] / [-180, 180] or not finite, or a missing
   time, are ``bad_geolocation``; temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (IASI also at exactly 100 K, its retrieval's
-  lower bound; proposal: MATLAB applies this only to IASI;
-  for AIRS it changes nothing where no such values exist, as in the test
-  granules); values the instrument's statistical screen marks are
+  lower bound; proposal: MATLAB applies this only to IASI; for AIRS it
+  changes nothing where no such values exist, as in the test granules);
+  values the instrument's statistical screen marks are
   ``statistical_outlier`` (IASI default ``"rolling"``: more than 5
   interquartile ranges beyond the quartiles of their height level within a
   10-minute window, day and night separately; AIRS none; see
-  ``obs._screen``). Unless ``keep_outliers``,
-  bad values are NaN before regridding,
-  so a regridded point is NaN if any input it uses is; regridded points take
-  the states of the inputs they use (the OR of the flags of every input point
-  with a non-zero weight); NaN points with no other state (outside the input) are
-  ``no_observation``.
+  ``obs._screen``). Unless ``keep_outliers``, bad values are NaN before
+  regridding, so a regridded point is NaN if any input it uses is. Regridded
+  points take the states of the inputs they use (the OR of the flags of
+  every input point with a non-zero weight); NaN points with no other state
+  (outside the input) are ``no_observation``.
 - Day/night: ``solar.day_retrieval`` (solar zenith angle < 96 degrees, where
   L. Hoffmann's retrieval switches).
 
@@ -128,26 +126,26 @@ Wright, 2019-2026), the group's own code.
 
 Validation
 ----------
-``tests/test_nadir_matlab.py``: the private layer against the MATLAB
-reference outputs of ``test_prep_airs_3d.m`` (AIRS 2007-01-01 cases).
-``tests/test_nadir_known.py``, ``tests/test_nadir_iasi.py``: known answers and
-format checks on synthetic files. IASI against MATLAB: identical wherever
-Python has a value (MATLAB refills screened points; Python leaves them NaN with
-their state).
+``tests/test_nadir_matlab.py``: the private layer ``_load_nadir_arrays``
+(MATLAB-like names and arrays, datenum times) against the MATLAB reference
+outputs of ``test_prep_airs_3d.m`` (reference file, MATLAB commit and
+tolerances in the test's docstring): AIRS 2007-01-01 cases; IASI 2007-11-06
+and 07 cases with ``screen="pooled"``, identical wherever Python has a value
+(MATLAB refills screened points; Python leaves them NaN with their state).
+``tests/test_nadir_known.py``, ``tests/test_nadir_iasi.py``,
+``tests/test_nadir_airs2d.py``, ``tests/test_nadir_2d.py`` and
+``tests/test_nadir_fill.py``: known answers and format checks on synthetic
+files.
 
-AI involvement
---------------
-AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
 
 Usage
 -----
 >>> from atmosgw.curate.obs import load_nadir_sounders  # doctest: +SKIP
 >>> ds = load_nadir_sounders("2007-01-01T05:00", "AIRS",
 ...                          time_handling="strict")  # doctest: +SKIP
-
-Status
-------
-Preliminary: AIRS and IASI 3-D.
 
 Change log
 ----------
@@ -160,10 +158,8 @@ Change log
 2026/11/25 [Claude] extrapolated state; record-based attributes; heights and
   preprocessing attributes (preprocessing as the readers record it)
 2026/11/26 [Claude] missing time is bad_geolocation; unplaceable scans not regridded
+2026/11/26 [Claude] docstring: AIRS 2-D listed as implemented; Validation scope
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import re

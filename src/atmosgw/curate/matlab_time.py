@@ -1,8 +1,6 @@
 """
 MATLAB-compatible date helpers.
 
-Purpose
--------
 Convert between MATLAB serial date numbers ("datenums") and NumPy
 ``datetime64``, and reproduce MATLAB's ``datenum(Y, M, D, H, MI, S)``,
 including its carry-over of out-of-range values (e.g. ``datenum(2020, 1, 35)``
@@ -42,9 +40,7 @@ Outputs are ``datetime64[us]``, not ``[ns]``: ``[ns]`` only covers years
 1678-2261, and MATLAB code uses far-future sentinels such as
 ``datenum(9999, 999, 999)``.
 
-Science
--------
-No scientific processing (calendar arithmetic only). Precision: a float64
+Precision: a float64
 datenum near the present resolves only about 10 microseconds, so
 ``datenum_to_datetime`` rounds to the nearest millisecond by default.
 ``make_datetime`` does not go through a float datenum and keeps microsecond
@@ -62,9 +58,9 @@ carry-over cases), 2,000 random dates against Python's own calendar, leap-year
 rules including year 0, broadcasting, NaN/NaT handling, and the sentinel dates
 used in ``get_limbsounders``. Not yet compared against MATLAB itself.
 
-AI involvement
---------------
-AI-originated (Claude), reviewed by Corwin Wright.
+Status
+------
+Preliminary. AI-originated (Claude), reviewed by Corwin Wright.
 
 Usage
 -----
@@ -74,17 +70,10 @@ True
 >>> make_datetime(2020, 1, 35)
 np.datetime64('2020-02-04T00:00:00.000000')
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/23 [Claude] initial version
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np

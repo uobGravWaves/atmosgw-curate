@@ -1,8 +1,6 @@
 """
 Finding and reading data files.
 
-Purpose
--------
 Small, format-level helpers shared by the instrument loaders: find files by a
 wildcard pattern anywhere below a folder, and read MATLAB ``.mat`` files.
 
@@ -57,10 +55,6 @@ tables become ``pandas.DataFrame``. A 1 x 1 MATLAB struct becomes a dict of
 its fields (recursively); struct arrays and cell arrays are returned as
 ``mat-io`` gives them.
 
-Science
--------
-No scientific processing.
-
 Origin
 ------
 ``find_files``: new code written to reproduce the behaviour of
@@ -78,9 +72,9 @@ relative path, alternatives, search order, folders that match; ``read_mat``
 shapes, structs and v5 files. ``find_files`` is also exercised by every
 loader test that reads files found by a pattern.
 
-AI involvement
---------------
-AI-originated (Claude), to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-originated (Claude), to be reviewed by C. Wright.
 
 Usage
 -----
@@ -88,18 +82,11 @@ Usage
 >>> files = find_files("/data/ACE/raw", "*ace_v52_2007d001*.mat")  # doctest: +SKIP
 >>> data = read_mat(files[0])  # doctest: +SKIP
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/24 [Claude] initial version
 2026/11/25 [Claude] docs: Q5 now fixed in the MATLAB wildcardsearch.m
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import os

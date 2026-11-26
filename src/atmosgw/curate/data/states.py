@@ -1,8 +1,6 @@
 """
 Data states: why a value is absent, or what kind of value it is.
 
-Purpose
--------
 The shared registry of the states recorded in every loader's output, and
 helpers to set, test and describe them. Two levels (see
 ``docs/design/data_formats.md`` section 6):
@@ -41,10 +39,8 @@ New states are added by appending to ``STATES`` with the next free bit;
 nothing else changes, and saved files stay readable because each carries
 its own ``flag_masks`` and ``flag_meanings``.
 
-Science
--------
-No scientific processing. The thresholds behind some states (e.g. 100-400 K)
-belong to the code that sets them, not to this registry.
+The thresholds behind some states (e.g. 100-400 K) belong to the code that
+sets them, not to this registry.
 
 Origin
 ------
@@ -53,12 +49,15 @@ without recording why.
 
 Validation
 ----------
-``tests/test_data_states.py``.
+``tests/test_data_formats.py`` (the registry: unique bits, setting,
+testing and counting states, CF attributes, availability text);
+``tests/test_states_conformance.py`` (the states each loader sets).
 
-AI involvement
---------------
-AI-originated (Claude), from the design agreed with C. Wright on 2026-11-25;
-to be reviewed by C. Wright.
+Status
+------
+Proposal (the state list is a draft for agreement). AI-originated
+(Claude), from the design agreed with C. Wright on 2026-11-25; to be
+reviewed by C. Wright.
 
 Usage
 -----
@@ -69,18 +68,12 @@ Usage
 >>> has_state(f, "missing").tolist()
 [True, False, False]
 
-Status
-------
-Proposal (the state list is a draft for agreement).
-
 Change log
 ----------
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] descriptions match the shared rules; counts_text
+2026/11/26 [Claude] docstring: Validation names the existing tests
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 from collections import namedtuple

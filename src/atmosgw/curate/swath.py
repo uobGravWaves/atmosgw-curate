@@ -1,8 +1,6 @@
 """
 Operations on swaths stored as [cross-track x along-track (x ...)] arrays.
 
-Purpose
--------
 Building blocks for nadir-sounder loaders (AIRS, IASI; later CrIS, IASI-NG):
 distances across and along a swath, regridding a swath onto a regular grid in
 distance, and putting its levels onto a regular vertical grid. Port of the
@@ -110,9 +108,9 @@ option (``tests/data/matlab_swath_fixtures.mat``); known answers (rotation
 in longitude, regular spacing, NaN outside, the vertical grid). Tolerances
 stated in the tests.
 
-AI involvement
---------------
-AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
 
 Usage
 -----
@@ -121,17 +119,10 @@ Usage
 >>> regular_levels(np.array([0, 3, 6, 9, 12, 15, 20, 25])).tolist()
 [0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0]
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/25 [Claude] initial version
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np
