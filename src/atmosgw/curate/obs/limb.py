@@ -516,17 +516,23 @@ def _load_limb_arrays(time_range, instrument, **options):
         native = _native_bad(data)
         if any(m.any() for m in native.values()):
             method = settings["interp_type"].lower()
-            reach = method if method in ("linear", "nearest", "next",
-                                         "previous") else "linear"
-            extrap = True if settings["extrapolate"] else None
+            piecewise = method in ("linear", "nearest", "next", "previous")
+            # (pchip, spline and makima extrapolate by default and reach
+            # further: their states are spread linearly, with extrapolation;
+            # spline's influence beyond that is not marked)
+            reach = method if piecewise else "linear"
+            extrap = True if settings["extrapolate"] or not piecewise else None
             for state, mask in native.items():
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
                                               height_scale, reach, extrap)
                 contributed[state] = np.nan_to_num(spread) != 0
             if not settings["keep_outliers"]:
+                # (extras keep their values here: they may be interpolated by
+                # another method; they are removed with the others below)
                 data = mask_points(data, native["outside_physical_range"]
                                    | native["bad_geolocation"],
-                                   list(skip) + ["Alt"], copy=False)
+                                   list(skip) + ["Alt"]
+                                   + list(settings["additional_vars"]), copy=False)
 
         # unwrap longitudes along each profile (finite values only), so that
         # interpolation is safe across the dateline

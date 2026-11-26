@@ -409,7 +409,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
 
     # rows entering the latitude/longitude box
     (la0, la1), (lo0, lo1) = settings["lat_range"], settings["lon_range"]
-    if (la0, la1, lo0, lo1) != (-90, 90, -180, 180) and data["Lat"].shape[1]:
+    whole = (min(la0, la1), max(la0, la1), min(lo0, lo1), max(lo0, lo1)) == (
+        -90, 90, -180, 180)  # (as the limb loader: (180, -180) is the globe too)
+    if not whole and data["Lat"].shape[1]:
         inside = in_box(data["Lat"], data["Lon"], (la0, la1), (lo0, lo1))
         keep = np.flatnonzero(np.any(inside, axis=0))
         for name in _along_track_names(data):

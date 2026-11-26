@@ -246,9 +246,11 @@ def _interpolate_each(alt, values, new_alt, method, extrap):
         good = _usable_levels(alt[i])
         if good.size > 2:
             for k in range(values.shape[2]):
-                out[i, :, k] = interp1(
-                    alt[i, good], values[i, good, k], new_alt, method, extrap
-                )
+                v = values[i, good, k]
+                if method.lower() in ("pchip", "spline", "makima") and np.sum(
+                        np.isfinite(v)) < 2:
+                    continue  # (these drop NaN samples: fewer than 2 left, NaN)
+                out[i, :, k] = interp1(alt[i, good], v, new_alt, method, extrap)
     return out
 
 

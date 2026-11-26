@@ -88,3 +88,27 @@ def test_repeated_extras_loaded_once(tmp_path):
     _write(tmp_path, [250.0, 250.0, 250.0], Extra=np.full((1, 3), 7.0))
     ds = _load(tmp_path, additional_vars=["Extra", "Extra"], original_z=True)
     np.testing.assert_array_equal(ds["Extra"].values, [[7.0, 7.0, 7.0]])
+
+
+@pytest.mark.parametrize("method", ["pchip", "spline", "makima"])
+def test_q13_smooth_methods_with_bad_points_do_not_crash(tmp_path, method):
+    _write(tmp_path, [250.0, 50.0, 50.0, 50.0], heights=(20, 22, 24, 26))
+    ds = _load(tmp_path, height_scale=[21.0, 25.0], interp_type=method)
+    assert np.all(np.isnan(ds.temperature.values))
+    # a bad point at the top: the heights its extrapolation reaches are marked
+    _write(tmp_path, [250.0, 240.0, 230.0, 50.0], heights=(20, 22, 24, 26))
+    ds = _load(tmp_path, height_scale=[21.0, 25.0, 27.0], interp_type=method)
+    assert np.isfinite(ds.temperature.values[0, 0])
+    assert np.all(np.isnan(ds.temperature.values[0, 1:]))
+    assert np.all(states.has_state(ds.temperature_flag.values[0, 1:],
+                                   "outside_physical_range"))
+
+
+@pytest.mark.parametrize("method", ["next", "previous"])
+def test_q13_whole_number_extras_follow_the_temperature(tmp_path, method):
+    _write(tmp_path, [250.0, 240.0, 50.0, 230.0, 220.0], heights=(20, 22, 24, 26, 28),
+           Flag=np.full((1, 5), 1.0))
+    ds = _load(tmp_path, height_scale=np.arange(20.5, 28, 0.5), interp_type=method,
+               additional_vars=["Flag"])
+    t, f = ds.temperature.values, ds["Flag"].values
+    np.testing.assert_array_equal(np.isnan(t), np.isnan(f))
