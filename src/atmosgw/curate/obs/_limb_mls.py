@@ -196,7 +196,10 @@ def screen(working, version_text, inst_info):
         bad = (odd | ~(convergence < CONVERGENCE_MAX)
                | ~(quality > threshold)
                | ~(precision > 0)
-               | (pres < USEFUL_RANGE_HPA[0]) | (pres > USEFUL_RANGE_HPA[1]))
+               # (the files' levels are float32 and nominal: 261 hPa is stored
+               # as 261.016, so the range is compared to within 1e-4)
+               | (pres < USEFUL_RANGE_HPA[0] * (1 - 1e-4))
+               | (pres > USEFUL_RANGE_HPA[1] * (1 + 1e-4)))
     return np.broadcast_to(bad, shape).astype(float)
 
 

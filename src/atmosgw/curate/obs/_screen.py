@@ -145,7 +145,7 @@ def hazen_quartiles(values):
     instead of one call per column. NaN for a column without values."""
     values = np.asarray(values, dtype=float)
     ordered = np.sort(values, axis=0)  # (NaN last)
-    n = np.sum(np.isfinite(values), axis=0)
+    n = np.sum(~np.isnan(values), axis=0)  # (as nanpercentile: inf counts)
     out = []
     for q in (0.25, 0.75):
         virtual = n * q - 0.5  # (NumPy's "hazen": alpha = beta = 0.5)

@@ -18,7 +18,8 @@ def test_empty_regridded_swath_has_the_regridded_shape(tmp_path):
 
 
 def test_padding_follows_the_window():
-    assert _with_neighbours([(733043, 1)], 5) == [(733042, 240), (733043, 1),
+    # (the default: half the 10-minute window plus the 1-minute block step)
+    assert _with_neighbours([(733043, 1)], 6) == [(733042, 240), (733043, 1),
                                                    (733043, 2)]
     got = _with_neighbours([(733043, 1)], 13)  # (a 26-minute window: 3 each side)
     assert len(got) == 7 and got[0] == (733042, 238) and got[-1] == (733043, 4)

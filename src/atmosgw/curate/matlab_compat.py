@@ -202,7 +202,8 @@ def unwrap_rows(p):
     np.maximum.accumulate(index, axis=1, out=index)
     previous = np.take_along_axis(p, index, axis=1)
     jump = np.zeros(p.shape)
-    jump[:, 1:] = p[:, 1:] - previous[:, :-1]
+    with np.errstate(invalid="ignore"):
+        jump[:, 1:] = p[:, 1:] - previous[:, :-1]
     jump[:, 1:][~finite[:, 1:] | ~np.isfinite(previous[:, :-1])] = 0.0
     with np.errstate(invalid="ignore"):
         wrapped = np.mod(jump + np.pi, 2 * np.pi) - np.pi

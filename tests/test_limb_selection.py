@@ -118,6 +118,7 @@ def _mls(folder, status=(0, 0, 0), quality=(1.5, 1.5, 1.5), convergence=(1.0, 1.
          precision=None, version="v6.04"):
     """Three MLS profiles on 7 pressure levels (1000 ... 0.0001 hPa)."""
     import h5py
+    # (261.016 and 4.6416e-4: the levels as stored in real files, float32)
     pres = np.array([1000, 316, 100, 82.5, 10, 0.001, 0.0001], dtype=np.float32)
     (folder / "2026").mkdir(exist_ok=True)
     path = folder / "2026" / "MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5"
@@ -174,3 +175,15 @@ def test_q15_mls_unknown_version_not_screened(tmp_path):
     _mls(tmp_path, status=(1, 1, 1), version="v4.23")
     ds, bad = _mls_flags(tmp_path)
     assert not bad.any() and "no MLS screening rules" in ds.temperature.attrs["comment"]
+
+
+def test_q15_mls_range_ends_as_stored_are_usable(tmp_path):
+    _mls(tmp_path)
+    import h5py
+    path = next((tmp_path / "2026").iterdir())
+    with h5py.File(path, "a") as f:
+        geo = "HDFEOS/SWATHS/Temperature/Geolocation Fields/Pressure"
+        f[geo][...] = np.array([1000, 261.01572, 100, 82.5, 10, 4.6416e-4, 1e-4],
+                               np.float32)
+    bad = _mls_flags(tmp_path)[1]
+    np.testing.assert_array_equal(bad[0], [1, 0, 0, 0, 0, 0, 1])

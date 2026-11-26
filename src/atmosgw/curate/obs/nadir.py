@@ -315,8 +315,11 @@ def _load_nadir_arrays(time_range, instrument, **options):
         load_settings = dict(settings)
         if settings["granules"] is not None:
             # (granules are whole: half the window is enough context)
-            load_settings["granules"] = _with_neighbours(settings["granules"],
-                                                         max(pad - 3.0, 0.0))
+            # (half the window, plus the screen's block step: windows are
+            # centred on blocks, so an edge scan needs up to that much)
+            load_settings["granules"] = _with_neighbours(
+                settings["granules"],
+                max(pad - 3.0, 0.0) + float(screen_settings.get("step_minutes", 1.0)))
         else:
             t0, t1 = settings["time_range"]
             load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
