@@ -197,7 +197,9 @@ Origin
 ------
 Port of ``get_limbsounders.m`` and its modules (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78; C. Wright, with changes by Claude
-on 2026-11-22), the group's own code.
+on 2026-11-22), the group's own code. The fixes made since in both languages
+(Q1-Q8 in ``docs/quirks.md``) are in the MATLAB commits of the reference used
+for Validation.
 
 Validation
 ----------

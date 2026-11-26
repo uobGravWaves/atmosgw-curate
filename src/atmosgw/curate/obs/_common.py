@@ -25,9 +25,10 @@ times; see ``limb.py`` and ``nadir.py``.
 
 Science
 -------
-No scientific processing, apart from the temperature limits of
-``outside_physical_range`` (100 K and 400 K below 100 km, from the MATLAB
-loaders).
+The temperature limits of ``outside_physical_range``, from the MATLAB
+loaders: below 100 K, or above 400 K (only below 100 km when heights are
+passed, as by the limb and time-height loaders; the nadir loader passes
+none, so at any height).
 
 Origin
 ------

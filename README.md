@@ -147,7 +147,7 @@ separate, general-purpose package.
 
 BSD-3-Clause; copyright Corwin Wright and the University of Bath (`LICENSE`).
 To cite the package, use `CITATION.cff` (GitHub's "Cite this repository"
-button). A Zenodo DOI will be added with the first release. Where a result depends on a physical
+button). There is no DOI yet. Where a result depends on a physical
 relation, also cite its source (`docs/theory/relations.md`).
 
 Questions and bug reports: GitHub issues, or Corwin Wright, University of

@@ -30,7 +30,10 @@ reference outputs.
   docstring guidance in `CONTRIBUTING.md`, boilerplate removed from module
   docstrings; stale statements corrected (limb Validation names the current
   MATLAB reference; AIRS 2-D listed as implemented; IASI's MATLAB test
-  described). No code changes. [Claude]
+  described; `outside_physical_range` described as > 400 K at any height for
+  nadir data, as the code does; `data_formats.md` section 6.2 brought up to
+  date). No code changes apart from the text of one state description.
+  [Claude]
 
 ## [0.5.0] - 2026-11-26
 - New loader `obs.load_time_height` and format "time_height" (version 1):
