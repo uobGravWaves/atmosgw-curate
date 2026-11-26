@@ -112,7 +112,10 @@ ds = load_nadir_sounders(["2020-01-20T00:00", "2020-01-20T01:00"], "AIRS",
 ```
 
 The swath is split into `segment`s wherever successive scans are more than
-180 s apart (a missing granule, or separate times). Each segment is
+180 s apart (a missing granule, or separate times), or rows were left out
+by a box. Each value's `latitude` and `longitude` are those of the native
+pixels it comes from (`ds.attrs["geolocation"]`); `distance_along` and
+`distance_cross` are the grid's swath coordinates, for spectral analysis. Each segment is
 regridded on its own, and `distance_along` restarts at each. `granule` and
 `granule_day` say where each along-track row came from. Scans with a missing
 position or time (fill values in the files) form segments of their own:

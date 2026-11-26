@@ -76,6 +76,19 @@ start of each segment) and ``distance_cross`` on a regular grid; optional
 variables as requested. Variables that do not exist are listed in the
 ``availability`` attribute (e.g. the satellite position: ``not_in_files``).
 
+Positions of a regridded swath (Q14 in ``docs/quirks.md``): each value's
+latitude and longitude are those of the native pixels it is interpolated
+from, with the same weights (directions on the sphere); where there is no
+value, the regular grid's own position. ``distance_along`` and
+``distance_cross`` are the grid's coordinates in swath distance (along the
+middle scan position, across from the middle of each scan). The cross-track
+axis is the median over all scans that can be placed; scans whose width is
+more than 20 % from the median cannot be placed (``bad_geolocation``);
+cross-track points up to half a grid step beyond a segment's own edge take
+its edge value (``extrapolated``). A segment with part of a granule gets rows
+in proportion to its scans, so its spacing is that of whole granules;
+``grid_spacing_km`` gives the median over segments.
+
 Segments: the swath is split where successive rows are more than 180 s apart
 (missing granules, or separate time ranges; not 1.5 scans, because the AIRS
 daily files store times as float32); each segment is
@@ -166,6 +179,8 @@ Change log
   preprocessing attributes (preprocessing as the readers record it)
 2026/11/26 [Claude] missing time is bad_geolocation; unplaceable scans not regridded
 2026/11/26 [Claude] docstring: AIRS 2-D listed as implemented; Validation scope
+2026/11/26 [Claude] positions of the values, median cross-track axis, partial-granule
+  spacing, segments after a box, nearest rows (Q14)
 
 """
 
@@ -343,6 +358,13 @@ def _load_nadir_arrays(time_range, instrument, **options):
                                  else 0)
         flags = flags[:, keep]
         lat, lon = data["Lat"], data["Lon"]
+    # scans of implausible width (judged on the rows returned, as _placeable)
+    narrow = ~_plausible_width(np.asarray(lat, float), np.asarray(lon, float))
+    if narrow.any():
+        states.set_state(flags, np.broadcast_to(narrow[None, :, None], flags.shape),
+                         "bad_geolocation")
+        if not settings["keep_outliers"]:
+            data["Temp"] = np.where(narrow[None, :, None], np.nan, data["Temp"])
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and data["Lat"].shape[1] == 0):
         warnings.warn("A single time_range value with time_handling='strict' selects "
@@ -418,6 +440,10 @@ def _load_nadir_arrays(time_range, instrument, **options):
             data[name] = np.take(data[name], keep, axis=1 if data[name].ndim > 1
                                  else 0)
         flags = flags[:, keep]
+        # a new segment wherever rows were left out between kept rows (Q14)
+        if keep.size:
+            broken = (np.diff(keep) > 1) | (np.diff(data["Segment"]) != 0)
+            data["Segment"] = 1.0 + np.concatenate([[0.0], np.cumsum(broken)])
 
     if settings["day_night"]:
         data["DayNight"] = day_retrieval(data["Time"], data["Lat"], data["Lon"],
@@ -521,41 +547,74 @@ def _regrid(data, flags, settings, info):
     lat, lon = data["Lat"], data["Lon"]
     segment = data["Segment"]
     placeable = _placeable(data)
-    first = np.flatnonzero(segment == segment[placeable][0])
-    d0 = swath.swath_distances(lat[:, first], lon[:, first])
-    cross_axis = swath.regular_axis(d0["cross"],
-                                    settings["n_cross"] or info["n_cross"],
+    by_median = settings.get("_cross_axis", "median") != "first_scan"
+    if not by_median:
+        # (MATLAB: the first scan of the first segment that can be placed;
+        # kept for the comparison with MATLAB in the tests)
+        first = np.flatnonzero(segment == segment[placeable][0])
+        cross = swath.swath_distances(lat[:, first], lon[:, first])["cross"]
+    else:
+        # the median over every scan that can be placed, so one scan does not
+        # set the grid for all, and a granule's grid hardly depends on what
+        # else is loaded (Q14)
+        cross_all = _scan_cross_distances(lat, lon)  # [cross x rows]
+        cross = np.nanmedian(cross_all[:, placeable], axis=1)
+    cross_axis = swath.regular_axis(cross, settings["n_cross"] or info["n_cross"],
                                     settings["dx_cross"])
+    native_rows = 360 / info["row_seconds"]  # (native rows per granule)
     extra = [n for n in settings["additional_vars"] + list(data.get("DerivedVars", {}))
              if np.ndim(data[n]) >= 2 and np.shape(data[n])[:2] == lat.shape]
-    parts, spacing = [], (np.nan, np.nan)
+    parts, spacing, steps = [], (np.nan, np.nan), []
     for seg in np.unique(segment):
         rows = np.flatnonzero(segment == seg)
         if rows.size < 2 or not placeable[rows[0]]:
             continue  # a single row, or scans without positions: not regridded
         n_gran = len({(d, g) for d, g in zip(data["Day"][rows], data["Granule"][rows],
                                              strict=True)})
-        n_along = (None if settings["dx_along"] is not None
-                   else (settings["n_along"] or info["rows_per_granule"]) * n_gran)
+        per_granule = settings["n_along"] or info["rows_per_granule"]
+        n_along = None if settings["dx_along"] is not None else per_granule * n_gran
+        if n_along is not None and rows.size < 0.95 * native_rows * n_gran:
+            # part of a granule (e.g. scans missing): rows in proportion, so the
+            # spacing is that of whole granules (Q14; was n_gran whole granules'
+            # worth, e.g. 135 rows for 75 scans, 9.9 km instead of 18 km)
+            n_along = max(2, int(round(per_granule * rows.size / native_rows)))
+        xyz = _unit_vectors(lat[:, rows], lon[:, rows])
         fields = {"Temp": data["Temp"][:, rows], "Time": data["Time"][:, rows],
-                  **{n: data[n][:, rows] for n in extra}}
+                  **{n: data[n][:, rows] for n in extra},
+                  "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}
+        # this segment's own cross-track distances (used to interpolate and to
+        # mark extrapolation alike)
+        seg_cross = (np.median(cross_all[:, rows], axis=1) if by_median else
+                     swath.swath_distances(lat[:, rows], lon[:, rows])["cross"])
+        # (a segment a little narrower than the common axis keeps its edge
+        # columns: up to half a grid step, and at most one native pixel)
+        edge = 0.0
+        if by_median and cross_axis.size > 1:
+            edge = min(0.5 * abs(cross_axis[1] - cross_axis[0]),
+                       float(np.median(np.abs(np.diff(seg_cross)))))
         out = swath.regrid(lat[:, rows], lon[:, rows], fields, n_along=n_along,
                            dx_along=settings["dx_along"],
                            method=settings["interp_type"],
                            extrapolate="linear" if settings["extrapolate"] else None,
-                           cross_axis=cross_axis, flags=flags[:, rows])
+                           cross_axis=cross_axis, flags=flags[:, rows],
+                           cross=seg_cross if by_median else None, cross_edge=edge)
         # states: those of every input point used (swath.regrid), and
         # no_observation for NaN points outside the input
         new_flags = out["flags"]
         unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
         states.set_state(new_flags, unexplained, "no_observation")
         d_seg = swath.swath_distances(lat[:, rows], lon[:, rows])
+        if out["cross_edge"].any():  # (edge value used: extrapolated)
+            edge = np.broadcast_to(out["cross_edge"].reshape(
+                (-1,) + (1,) * (new_flags.ndim - 1)), new_flags.shape)
+            states.set_state(new_flags, edge & np.isfinite(out["fields"]["Temp"]),
+                             "extrapolated")
         if settings["extrapolate"]:
             # outside this segment's own distances (e.g. cross-track, where the
             # common cross axis is wider than the segment): extrapolated, where
             # there is a value
-            cross_out = ((cross_axis < np.nanmin(d_seg["cross"]))
-                         | (cross_axis > np.nanmax(d_seg["cross"])))
+            cross_out = ((cross_axis < np.nanmin(seg_cross))
+                         | (cross_axis > np.nanmax(seg_cross)))
             along_out = ((out["along"] < np.nanmin(d_seg["along"]))
                          | (out["along"] > np.nanmax(d_seg["along"])))
             outside = cross_out[:, None] | along_out[None, :]
@@ -567,8 +626,22 @@ def _regrid(data, flags, settings, info):
                              "extrapolated")
         # per-row information: from the nearest input row along track
         d_in = d_seg["along"]
-        nearest = rows[np.clip(np.searchsorted(d_in, out["along"]), 0, rows.size - 1)]
-        part = {"Lat": out["lat"], "Lon": out["lon"],
+        right = np.clip(np.searchsorted(d_in, out["along"]), 0, rows.size - 1)
+        left = np.clip(right - 1, 0, rows.size - 1)
+        closer_left = np.abs(out["along"] - d_in[left]) <= np.abs(d_in[right]
+                                                                 - out["along"])
+        nearest = rows[np.where(closer_left, left, right)]  # (ties: the earlier)
+        # positions: where the values come from, i.e. the native pixel
+        # positions interpolated with the same weights (Q14); where there is
+        # no value (outside the input), the regular grid's own position
+        new_lat, new_lon = _from_unit_vectors(out["fields"].pop("_X"),
+                                              out["fields"].pop("_Y"),
+                                              out["fields"].pop("_Z"))
+        no_source = ~np.isfinite(new_lat)
+        new_lat[no_source], new_lon[no_source] = out["lat"][no_source], out["lon"][
+            no_source]
+        part = {"Lat": new_lat, "Lon": new_lon,
+                "TrackLat": out["lat"], "TrackLon": out["lon"],
                 "Time": out["fields"]["Time"], "Temp": out["fields"]["Temp"],
                 **{n: out["fields"][n] for n in extra},
                 "Flags": new_flags, "DistAlong": out["along"],
@@ -576,8 +649,8 @@ def _regrid(data, flags, settings, info):
         for name in ("Granule", "Day", "SourceFile", "SourceRow"):
             part[name] = np.asarray(data[name])[nearest]
         parts.append(part)
-        if np.isnan(spacing[1]):
-            spacing = out["spacing"]
+        steps.append(out["spacing"][1])
+        spacing = (out["spacing"][0], spacing[1])
     new = dict(data)
     for name in parts[0]:
         if name in ("Flags",):
@@ -585,6 +658,11 @@ def _regrid(data, flags, settings, info):
         new[name] = np.concatenate([p[name] for p in parts],
                                    axis=1 if parts[0][name].ndim > 1 else 0)
     new["DistCross"] = cross_axis
+    # along-track spacing: the median over segments (within about 5 % of each
+    # other with the proportional rule above; distance_along has each exactly)
+    finite_steps = [s for s in steps if np.isfinite(s)]
+    if finite_steps:
+        spacing = (spacing[0], float(np.median(finite_steps)))
     for name in ("NativeLat", "NativeLon", "NativeTime", "ScanPosition"):
         if name in data:
             new[name] = data[name]
@@ -593,14 +671,55 @@ def _regrid(data, flags, settings, info):
 
 def _placeable(data):
     """True for each along-track row whose positions are all valid (finite and
-    in range, as for bad_geolocation) and which has a valid time (a stray
-    pixel time alone does not stop regridding)."""
+    in range, as for bad_geolocation), whose width is plausible and which has
+    a valid time (a stray pixel time alone does not stop regridding)."""
     lat, lon = np.asarray(data["Lat"], float), np.asarray(data["Lon"], float)
     with np.errstate(invalid="ignore"):
         ok = (np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
               & (np.abs(lon) <= 180))
     has_time = np.any(np.isfinite(np.asarray(data["Time"], float)), axis=0)
-    return np.all(ok, axis=0) & has_time
+    return np.all(ok, axis=0) & has_time & _plausible_width(lat, lon)
+
+
+def _plausible_width(lat, lon, tolerance=0.2):
+    """True for scans whose width (first to last pixel) is within tolerance of
+    the median width of the scans loaded (AIRS 2015-01-07 granule 170 has
+    scans 13.6 km wide, with temperatures of 0 K, which collapsed the whole
+    regridded swath; real scans vary by less than 3 %: AIRS 1735-1835 km in
+    1.5e6 scans 2002-2025, IASI 2086-2163 km in 1.1e5 scans 2008-2018). True
+    where the width is unknown (missing positions: handled elsewhere)."""
+    if lat.shape[0] < 2 or lat.shape[1] == 0:
+        return np.ones(lat.shape[1], dtype=bool)
+    arc, _ = swath.arc_distance(lat[0], lon[0], lat[-1], lon[-1])
+    width = np.deg2rad(np.asarray(arc, dtype=float)) * swath.EARTH_RADIUS_KM
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        typical = np.nanmedian(width)
+        return ~(np.abs(width - typical) > tolerance * typical)
+
+
+def _scan_cross_distances(lat, lon):
+    """[cross x scans] signed cross-track distance (km) of each pixel from the
+    scan's middle pixel, as swath.swath_distances does for one scan."""
+    basis = swath._matlab_round(lat.shape[0] / 2) - 1
+    arc, _ = swath.arc_distance(lat[basis][None, :], lon[basis][None, :], lat, lon)
+    arc = np.asarray(arc, dtype=float).copy()
+    arc[: basis + 1] = -arc[: basis + 1]
+    return np.deg2rad(arc) * swath.EARTH_RADIUS_KM
+
+
+def _unit_vectors(lat, lon):
+    """(x, y, z) of points on the unit sphere."""
+    la, lo = np.deg2rad(lat), np.deg2rad(lon)
+    return np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)
+
+
+def _from_unit_vectors(x, y, z):
+    """(lat, lon) degrees of the directions (x, y, z) (need not be unit)."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        lat = np.rad2deg(np.arctan2(z, np.hypot(x, y)))
+        lon = np.rad2deg(np.arctan2(y, x))
+    return lat, lon
 
 
 def _granule_label(entry):
@@ -686,7 +805,7 @@ _ATTRS = {
                        "long_name": "along-track distance from the segment start"},
     "distance_cross": {"units": "km",
                        "long_name": "cross-track distance from the middle of the "
-                                    "first scan of the first segment"},
+                                    "scan (the median over the scans)"},
     "granule": {"long_name": "granule number within its day (1-based)"},
     "granule_day": {"long_name": "day of the granule"},
     "segment": {"long_name": "unbroken stretch of the swath (1-based)"},
@@ -835,6 +954,10 @@ def _to_dataset(data, settings, call=None):
         "grid_spacing_km": [float(data["Spacing"][1]), float(data["Spacing"][0]),
                             float(data["Spacing"][2])],
         "grid": settings["grid"],
+        "geolocation": ("native pixel positions" if not regular else
+                        "the native pixel positions interpolated with the same "
+                        "weights as the values (where there is no value: the "
+                        "regular grid's position)"),
         "screen": settings["screen_text"],
     }
     return ds
