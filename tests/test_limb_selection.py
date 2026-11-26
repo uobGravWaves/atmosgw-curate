@@ -77,7 +77,8 @@ def test_q12_dateline_and_greenwich_boxes(tmp_path):
 
 
 @pytest.mark.parametrize("name", ["temperature", "Temp", "time", "pressure_flag",
-                                  "PresEstimated"])
+                                  "PresEstimated", "InstrumentBad",
+                                  "APrioriDominated"])
 def test_extras_may_not_replace_the_loaders_variables(tmp_path, name):
     _write(tmp_path, [250.0, 250.0, 250.0], temperature=np.full((1, 3), 299.0))
     with pytest.raises(ValueError, match="would replace"):

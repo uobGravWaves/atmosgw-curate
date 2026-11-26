@@ -715,7 +715,8 @@ def _prepare(time_range, instrument, options):
     check_time_handling(options)
     # (extras may not replace the loader's own variables: MATLAB names, output
     # names and flags, or the internal PresEstimated)
-    reserved = (set(OUTPUT_NAMES) | set(OUTPUT_NAMES.values()) | {"PresEstimated"}
+    reserved = (set(OUTPUT_NAMES) | set(OUTPUT_NAMES.values())
+                | {"PresEstimated", "InstrumentBad", "APrioriDominated"}
                 | {f"{n}_uncertainty" for n in _DATA_VARIABLES})
     additional = check_additional_vars(options, reserved)
 

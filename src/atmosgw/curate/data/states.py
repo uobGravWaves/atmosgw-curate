@@ -112,7 +112,8 @@ STATES = (
     State("extrapolated", 512, False, "qualified value",
           "outside the source data's coverage (only on values that exist)"),
     State("a_priori_dominated", 1024, False, "qualified value",
-          "the retrieval has little information here (reserved)"),
+          "the retrieval has little information here, as the provider marks "
+          "it (HIRDLS: negative precision)"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed
