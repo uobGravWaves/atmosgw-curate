@@ -5,6 +5,14 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New `data.to_netcdf(ds, path, pack=False, clobber=False)` and
+  `data.load_netcdf(path)`: save a Dataset in one of the formats and read it
+  back checked. Only valid Datasets are written; times are kept exact
+  (`datetime64[us]`); the file is written under a temporary name and renamed
+  when complete, so a failed write leaves no file; an existing file is
+  replaced only with `clobber=True`. `pack=True` stores temperatures (0.01 K),
+  their uncertainties (0.001 K), positions (1e-7 degree) and heights (1 mm) as
+  scaled integers. [Claude]
 
 ## [0.6.0] - 2026-11-26
 - Not MATLAB-equivalent: fixes problems found in review that the MATLAB

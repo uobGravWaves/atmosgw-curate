@@ -1,8 +1,9 @@
 # Design: common data formats
 
 **Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1). Parts
-still planned, not implemented: the `analysis` steps (detrend, smooth, fill)
-and `data.to_netcdf` with packing.
+still planned, not implemented: the `analysis` steps (detrend, smooth, fill).
+`data.to_netcdf` with packing (section 11) is implemented (CHANGELOG,
+Unreleased).
 Points marked *agreed* were agreed with C. Wright on 2026-11-25.
 
 The Curate plan gives "common interfaces and data structures" very high
@@ -346,10 +347,24 @@ variables or states is compatible. Changes are listed in `CHANGELOG.md`.
 
 ## 11. Saving to disk
 
-`data.to_netcdf(ds, path, pack=False)` writes the Dataset with zlib
-compression. With `pack=True`, temperatures are stored as int16 with
-`scale_factor` 0.01 K and an `add_offset` (resolution 0.01 K over a 655 K
-span; NaN stored as `_FillValue`), halving the size again. That is ten times
-finer than the best data (0.1 K), so it is safe for archives; float32 stays
-the default because packing is lossy and gains nothing in memory. State flags
-and coordinates are never packed.
+`data.to_netcdf(ds, path, pack=False, clobber=False)` writes a valid Dataset
+(it is checked with `validate` first, and an invalid one is refused) as
+netCDF-4 with zlib compression; `data.load_netcdf(path)` reads it back,
+checked, with times as `datetime64[us]`. Times are stored as int64
+microseconds, so they come back exact. The file is written under a temporary
+name and renamed when complete, so a failed write leaves no file that could
+later be read as valid. An existing file is replaced only with
+`clobber=True`.
+
+With `pack=True` (*agreed*, 2026-11-26: only variables where it is safe),
+data variables in K are stored as scaled integers at 0.01 K (ten times finer
+than the best data, 0.1 K), their uncertainties at 0.001 K, latitude and
+longitude at 1e-7 degree (about 1 cm), and altitude and `dx` at 1e-6 km
+(1 mm), unless their values are exactly float32 (read from the files, not
+computed: they compress well as they are); each as int16 if its values
+fit, else int32, else unpacked (never clipped), with NaN as `_FillValue`. Grid axes (variables with fewer than two
+dimensions), pressure, times, state flags, indices, text and extra variables
+are never packed. Packed values read back in their own type (float32 or
+float64). float32 stays the default because packing is lossy and gains
+nothing in memory. Missing values in text variables are stored as empty
+text (netCDF text has no NaN). Details: `help(atmosgw.curate.data.netcdf)`.

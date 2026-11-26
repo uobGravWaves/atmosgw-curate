@@ -253,11 +253,24 @@ float64.
 ## Saving
 
 ```python
-import xarray as xr
-ds.to_netcdf("/path/to/output.nc")
-back = xr.load_dataset("/path/to/output.nc")   # times come back as datetime64[ns]
-validate(back, back.attrs["format"])           # still valid
+from atmosgw.curate.data import load_netcdf, to_netcdf
+
+to_netcdf(ds, "/path/to/output.nc")              # checked first: invalid data are refused
+back = load_netcdf("/path/to/output.nc")         # the same Dataset, checked again
+to_netcdf(ds, "/path/to/small.nc", pack=True)    # smaller, lossy: see below
 ```
+
+`to_netcdf` compresses the file, keeps times exact (`datetime64[us]`), and
+writes under a temporary name, renamed only when the file is complete, so a
+failed write leaves nothing behind. An existing file is an error unless
+`clobber=True`. With `pack=True`, temperatures are stored to 0.01 K,
+uncertainties to 0.001 K, and computed positions and heights to about 1 cm
+and 1 mm (as scaled integers); pressure, times, flags, extra variables and
+positions read straight from float32 files are stored as they are. Missing
+values in text extras (some GNSS `MetaData` columns) come back as empty
+text. Use packing for archives, not where a result must be reproduced
+bit for bit. (`ds.to_netcdf` from xarray works too, but writes invalid
+Datasets as well, and times come back as `datetime64[ns]`.)
 
 A regridded day of AIRS is 0.6 GB returned and needs about 2.6 GB while
 loading (2007-01-01); IASI is similar. Save to a disk with
