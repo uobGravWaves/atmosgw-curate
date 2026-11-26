@@ -187,6 +187,38 @@ def unwrap(p):
     return out
 
 
+def unwrap_rows(p):
+    """unwrap of the finite values of each row of a 2-D array, all rows at
+    once (NaN stay NaN). The same arithmetic as unwrap() on each row's finite
+    values, so the results are identical."""
+    p = np.asarray(p, dtype=float)
+    out = p.copy()
+    if p.ndim != 2 or p.shape[1] < 2:
+        return out
+    finite = np.isfinite(p)
+    # each value minus the previous finite value of its row (the jumps unwrap
+    # sees between successive finite values); 0 elsewhere
+    index = np.where(finite, np.arange(p.shape[1])[None, :], 0)
+    np.maximum.accumulate(index, axis=1, out=index)
+    previous = np.take_along_axis(p, index, axis=1)
+    jump = np.zeros(p.shape)
+    with np.errstate(invalid="ignore"):
+        jump[:, 1:] = p[:, 1:] - previous[:, :-1]
+    jump[:, 1:][~finite[:, 1:] | ~np.isfinite(previous[:, :-1])] = 0.0
+    with np.errstate(invalid="ignore"):
+        wrapped = np.mod(jump + np.pi, 2 * np.pi) - np.pi
+    wrapped[(wrapped == -np.pi) & (jump > 0)] = np.pi
+    cycles = np.round((wrapped - jump) / (2 * np.pi))
+    cycles[np.abs(jump) < np.pi] = 0
+    total = np.cumsum(cycles, axis=1)
+    # (as unwrap: every finite value but the first of its row gets the shift,
+    # even a zero one, which turns -0.0 into 0.0)
+    shift = finite.copy()
+    shift[np.arange(p.shape[0]), np.argmax(finite, axis=1)] = False
+    out[shift] = p[shift] + 2 * np.pi * total[shift]
+    return out
+
+
 def wrap_to_pi(angle):
     """MATLAB-compatible wrapToPi (radians). See the module docstring."""
     angle = np.array(angle, dtype=float)  # a copy

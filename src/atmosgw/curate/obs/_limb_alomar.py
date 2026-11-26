@@ -28,7 +28,7 @@ import h5py
 import numpy as np
 
 from atmosgw.curate.atmosphere import height_to_pressure
-from atmosgw.curate.matlab_time import datenum_to_datetime
+from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs._common import note, note_sources, note_version, record
 from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
 from atmosgw.curate.profiles import concat_profiles
@@ -53,11 +53,16 @@ def load(settings, inst_info, var_names):
     note(inst_info, "Pres", ESTIMATED_PRES)
 
     days, file_list = [], []
-    for year in range(first, last + 1):
+    # (and the year before: a session that started in December can run into
+    # the range, as load_time_height does; Q16)
+    # (only for a start within 9 days of New Year: sessions last up to 8.05 days)
+    start_day = min(settings["time_range"]) - datenum(first, 1, 1)
+    for year in range(first - 1 if start_day < 9 else first, last + 1):
         file_name = os.path.join(inst_info["path"],
                                  f"{year}_{DATA_VERSION}_file4juli.h5")
         if not os.path.isfile(file_name):
-            record(inst_info)["files_not_found"].append(str(year))
+            if year >= first:
+                record(inst_info)["files_not_found"].append(str(year))
             continue
         file_list.append(os.path.basename(file_name))
         note_version(inst_info, file_name, f"{DATA_VERSION} (file name)")
@@ -87,6 +92,11 @@ def load(settings, inst_info, var_names):
     keep = np.flatnonzero((time >= settings["time_range"][0])
                           & (time <= settings["time_range"][1]))
     store = {k: v[keep] for k, v in store.items()}
+    # the year-before file is listed only if it gave rows
+    if file_list and int(os.path.basename(file_list[0])[:4]) < first and not np.any(
+            store["FN"] == 1):
+        file_list = file_list[1:]
+        store["FN"] = store["FN"] - 1
 
     temp = store[f"{RESOLUTION}_lidar"]
     n_time, n_z = temp.shape

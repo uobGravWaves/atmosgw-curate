@@ -19,12 +19,13 @@ from atmosgw.curate.matlab_time import datenum_to_datetime
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note,
     note_sources,
     note_version,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
-from atmosgw.curate.readers import find_files, read_attrs, read_netcdf
+from atmosgw.curate.readers import read_attrs, read_netcdf
 
 # output names -> MIPAS variable names
 FILE_NAMES = {"Temp": "TEM", "Lat": "latitude", "Lon": "longitude", "Alt": "hgt",
@@ -38,7 +39,7 @@ def load(settings, inst_info, var_names):
 
     def find_file(day):
         date = str(datenum_to_datetime(day))[:10].replace("-", "")
-        found = find_files(inst_info["path"], f"_{date}_nom")
+        found = find_in(inst_info, f"_{date}_nom")
         return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):

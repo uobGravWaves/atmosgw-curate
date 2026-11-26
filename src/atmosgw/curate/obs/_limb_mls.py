@@ -35,13 +35,14 @@ from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note,
     note_sources,
     note_version,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, newest_mls_version
-from atmosgw.curate.readers import find_files, read_attrs
+from atmosgw.curate.readers import read_attrs
 
 _SWATH = "Temperature"
 DATA_FIELDS = ("L2gpValue", "L2gpPrecision", "Quality", "Status", "Convergence")
@@ -63,7 +64,7 @@ def load(settings, inst_info, var_names):
 
     def find_file(day):
         year, doy = year_and_day(day)
-        found = find_files(inst_info["path"], f"_{year:04d}d{doy:03d}")
+        found = find_in(inst_info, f"_{year:04d}d{doy:03d}")
         # several versions of a day: the newest (Q8; MATLAB takes the first)
         return choose_file(found, inst_info, day_label(day), newest_mls_version)
 
@@ -72,7 +73,9 @@ def load(settings, inst_info, var_names):
         note_version(inst_info, path, pge_version(path))
         store = {}
         for name in var_names:
-            if name == "Temp":
+            if name == "InstrumentBad":  # (for the data states: see screen())
+                store[name] = screen(working, pge_version(path), inst_info)
+            elif name == "Temp":
                 store["Temp"] = working["L2gpValue"]
             elif name == "Lat":
                 store["Lat"] = working["Latitude"]
@@ -141,6 +144,63 @@ def _get_mls(path):
                         value[bad] = np.nan
                 working[name] = value[:, None] if value.ndim == 1 else value
     return working
+
+
+# The screening of the MLS data quality documents for temperature, the same
+# in v5.0x (Livesey et al., MLS Version 5.0x Level 2 and 3 data quality and
+# description document, section 3.22.6) and v6.x (section 3.23.6), checked
+# against both documents on 2026-11-26. Not applied: cloud screening with
+# the ice water content product (a separate swath), and the optional
+# precision tests for 261-178 hPa.
+USEFUL_RANGE_HPA = (0.00046, 261.0)  # "not recommended" outside
+QUALITY_LOW_P = 0.2  # at 83 hPa and smaller pressures: Quality must exceed
+QUALITY_HIGH_P = 0.9  # at 100 hPa and larger pressures
+QUALITY_SPLIT_HPA = 90.0  # (between the 100 and 83 hPa levels)
+CONVERGENCE_MAX = 1.03  # Convergence must be below
+SCREENED_VERSIONS = ("v5.", "v6.")
+
+
+def screen(working, version_text, inst_info):
+    """[profiles x levels] 1.0 where the MLS data quality document says not to
+    use a temperature value (see above), else 0.0. Profile rules (Status
+    odd, Convergence >= 1.03, Quality at or below the threshold for the
+    level's pressure) mark the whole profile's affected levels; level rules
+    (precision <= 0, pressure outside 261-0.00046 hPa) mark points. Versions
+    the documents do not cover are not screened (noted)."""
+    temp = np.asarray(working["L2gpValue"])
+    shape = temp.shape
+    version = version_text.split()[1] if version_text else ""
+    if not version.lower().startswith(SCREENED_VERSIONS):
+        note(inst_info, "Temp", f"no MLS screening rules for version "
+                                f"{version or 'unknown'}: not screened")
+        return np.zeros(shape)
+    fields = ("Status", "Quality", "Convergence", "L2gpPrecision")
+    if any(np.size(working[f]) == 0 for f in fields):
+        note(inst_info, "Temp", "MLS quality fields missing from the file: not "
+                                "screened")
+        return np.zeros(shape)
+    note(inst_info, "Temp", "MLS data quality document screening applied "
+                            "(v5.0x section 3.22.6, v6.x section 3.23.6): "
+                            "Status even, Convergence < 1.03, Quality > 0.2 at "
+                            "83 hPa and above / > 0.9 at 100 hPa and below, "
+                            "precision > 0, 261-0.00046 hPa; failures are "
+                            "instrument_flag (no cloud screening)")
+    pres = np.asarray(working["Pressure"], dtype=float).ravel()[None, :]
+    status = np.asarray(working["Status"], dtype=float).reshape(-1, 1)
+    quality = np.asarray(working["Quality"], dtype=float).reshape(-1, 1)
+    convergence = np.asarray(working["Convergence"], dtype=float).reshape(-1, 1)
+    precision = np.asarray(working["L2gpPrecision"], dtype=float)
+    with np.errstate(invalid="ignore"):
+        odd = ~np.isfinite(status) | (np.mod(status, 2) == 1)
+        threshold = np.where(pres < QUALITY_SPLIT_HPA, QUALITY_LOW_P, QUALITY_HIGH_P)
+        bad = (odd | ~(convergence < CONVERGENCE_MAX)
+               | ~(quality > threshold)
+               | ~(precision > 0)
+               # (the files' levels are float32 and nominal: 261 hPa is stored
+               # as 261.016, so the range is compared to within 1e-4)
+               | (pres < USEFUL_RANGE_HPA[0] * (1 - 1e-4))
+               | (pres > USEFUL_RANGE_HPA[1] * (1 + 1e-4)))
+    return np.broadcast_to(bad, shape).astype(float)
 
 
 def pge_version(path):

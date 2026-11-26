@@ -45,8 +45,11 @@ import netCDF4
 import numpy as np
 
 from atmosgw.curate.obs._common import (
+    FILL_VALUES,
     day_label,
+    nadir_fill_to_nan,
     note,
+    note_fill_counts,
     note_sources,
     record,
     year_and_day,
@@ -107,7 +110,7 @@ def load(settings, inst_info, var_names):
     t0, t1 = (-np.inf, np.inf) if explicit else settings["time_range"]
     rec = record(inst_info)
 
-    granules, file_list = [], []
+    granules, file_list, fill_counts = [], [], {}
     for day, g in candidate_granules(settings):
         path = find_file(inst_info["path"], day, g)
         if path is None:
@@ -122,6 +125,17 @@ def load(settings, inst_info, var_names):
             base = CHANNELS[c][0]
             names += [base] + [base + d["suffix"] for d in DERIVED.values()]
         values = _read_present(path, names)
+        # fill values and bad times, as the 3-D readers (_common.nadir_fill_to_nan)
+        span = ((day - J2000) * 86400, (day + 1 - J2000) * 86400)
+        counts = nadir_fill_to_nan(values["lat"], values["lon"], values["time"],
+                                   np.zeros(values["lat"].shape + (1,)), span)
+        for name in names[3:]:
+            if name in values:
+                fill = np.isin(values[name], FILL_VALUES)
+                counts["temp"] += int(fill.sum())
+                values[name][fill] = np.nan
+        for key, n in counts.items():
+            fill_counts[key] = fill_counts.get(key, 0) + n
         time = J2000 + values["time"].T / 86400  # [cross x along]
         mean = np.nanmean(time) if np.any(np.isfinite(time)) else np.nan
         if not explicit and not (t0 <= mean <= t1):
@@ -146,6 +160,7 @@ def load(settings, inst_info, var_names):
             part[key] = stack(d["suffix"])
         granules.append((mean, part))
 
+    note_fill_counts(inst_info, fill_counts)
     granules.sort(key=lambda item: item[0])
     names = ["Lat", "Lon", "Time", "Temp", "Granule", "Day", "SourceFile",
              "SourceRow"] + list(DERIVED)

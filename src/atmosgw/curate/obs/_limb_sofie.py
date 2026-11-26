@@ -17,13 +17,14 @@ import numpy as np
 from atmosgw.curate.obs._common import (
     choose_file,
     day_label,
+    find_in,
     note,
     note_sources,
     note_version,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
-from atmosgw.curate.readers import find_files, read_attrs, read_netcdf
+from atmosgw.curate.readers import read_attrs, read_netcdf
 
 # output names -> SOFIE variable names
 FILE_NAMES = {"Temp": "Temperature", "Lat": "Latitude_83km", "Lon": "Longitude_83km",
@@ -40,7 +41,7 @@ def load(settings, inst_info, var_names):
 
     def find_file(day):
         year, doy = year_and_day(day)
-        found = find_files(inst_info["path"], f"Level2_{year:04d}{doy:03d}")
+        found = find_in(inst_info, f"Level2_{year:04d}{doy:03d}")
         return choose_file(found, inst_info, day_label(day))
 
     def read_file(path, file_count, day):
