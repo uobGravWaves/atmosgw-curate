@@ -314,7 +314,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
     if padded:
         load_settings = dict(settings)
         if settings["granules"] is not None:
-            load_settings["granules"] = _with_neighbours(settings["granules"])
+            # (granules are whole: half the window is enough context)
+            load_settings["granules"] = _with_neighbours(settings["granules"],
+                                                         max(pad - 3.0, 0.0))
         else:
             t0, t1 = settings["time_range"]
             load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
@@ -405,6 +407,16 @@ def _load_nadir_arrays(time_range, instrument, **options):
     if regrid:
         say("--> Regridding")
         data, flags, spacing[:2] = _regrid(data, flags, settings, info)
+    elif not settings["original_grid"] and n_rows == 0:
+        # nothing loaded: an empty regular grid, of the shape a regridded
+        # swath has, so empty and full results concatenate
+        n_x = settings["n_cross"] or info["n_cross"]
+        for name in _along_track_names(data):
+            if np.ndim(data[name]) >= 2:
+                data[name] = np.empty((n_x, 0) + np.shape(data[name])[2:])
+        flags = np.zeros((n_x, 0) + flags.shape[2:], dtype=flags.dtype)
+        data["DistAlong"], data["DistCross"] = np.empty(0), np.full(n_x, np.nan)
+        regrid = True
     settings["grid"] = "regular" if regrid else "native"
 
     # vertical grid (3-D products; a 2-D product's last dimension is channels)
@@ -744,18 +756,20 @@ def _interpolate_with_states(z, values, flags, new_z):
     return out, new_flags
 
 
-def _with_neighbours(granules):
-    """The granules and the one before and after each (for screen padding)."""
+def _with_neighbours(granules, minutes=5.0):
+    """The granules and enough on each side to cover minutes (6 minutes a
+    granule; at least one), for screen padding. The default screen's 10-minute
+    window needs one; a longer custom window more."""
     out = set(granules)
+    k = max(1, int(np.ceil(minutes / 6.0)))
     for day, g in granules:
-        for step in (-1, 1):
-            n = g + step
-            if n < 1:
-                out.add((day - 1, 240))
-            elif n > 240:
-                out.add((day + 1, 1))
-            else:
-                out.add((day, n))
+        for step in [s for s in range(-k, k + 1) if s]:
+            d, n = day, g + step
+            while n < 1:
+                d, n = d - 1, n + 240
+            while n > 240:
+                d, n = d + 1, n - 240
+            out.add((d, n))
     return sorted(out)
 
 

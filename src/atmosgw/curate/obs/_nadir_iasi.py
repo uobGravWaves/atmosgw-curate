@@ -70,7 +70,7 @@ from atmosgw.curate.obs._common import (
     record,
     year_and_day,
 )
-from atmosgw.curate.obs._nadir_airs import J2000
+from atmosgw.curate.obs._nadir_airs import AIRS_LEVELS, J2000
 from atmosgw.curate.readers import read_netcdf
 
 N_CROSS = 60
@@ -219,7 +219,8 @@ def load(settings, inst_info, var_names):
                  "Temp": np.empty((N_CROSS, 0, n_lev)), "Granule": np.empty(0),
                  "Day": np.empty(0), "SourceFile": np.empty(0),
                  "SourceRow": np.empty(0),
-                 "Alt": np.arange(0, 91, 3.0)[:27] if alt is None else alt},
+                 # (the files' 27 levels, as AIRS's, when no file was read)
+                 "Alt": AIRS_LEVELS.copy() if alt is None else alt},
                 file_list)
     time = np.concatenate([J2000 + v["l1_time"] / 86400 for v, *_ in rows], axis=0)
     day = np.concatenate([d for _, d, _, _, _ in rows])

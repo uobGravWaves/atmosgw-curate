@@ -69,6 +69,10 @@ Options (type, default):
   when interpolating.
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
   only).
+- ``instrument_qc`` (bool, True): apply the provider's own screening where
+  implemented (MLS: its data quality documents' temperature rules, v5.0x and
+  v6.x; see ``obs._limb_mls.screen``): values failing it are
+  ``instrument_flag``, removed unless ``keep_outliers``.
 - ``keep_duplicate_occultations`` (bool, False): GNSS: return every copy of
   an occultation present more than once in the files (from several
   processing centres) instead of one (see ``obs._limb_ace_gnss``).
@@ -276,6 +280,7 @@ Change log
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
 2026/11/26 [Claude] docstring: Validation updated to the current MATLAB reference
+2026/11/26 [Claude] instrument_qc: MLS data quality document screening (Q15)
 2026/11/26 [Claude] boxes on valid positions, dateline boxes (Q12); extras may not
   replace output names; file points screened before interpolating (Q13)
 2026/11/26 [Claude] source_versions attribute, original_file_version, mixed-version
@@ -422,6 +427,7 @@ def load_limb_sounders(
     extrapolate=False,
     sample_path=None,
     keep_duplicate_occultations=False,
+    instrument_qc=True,
 ):
     # (the module docstring, so that help(load_limb_sounders) shows it all)
     options = {k: v for k, v in locals().items() if k not in ("time_range",
@@ -470,6 +476,10 @@ def _load_limb_arrays(time_range, instrument, **options):
     # output's data states; not in the MATLAB, so taken out of data at the end)
     if "Pres" in var_names and reader in (_limb_ace_gnss, _limb_pwdata):
         var_names = var_names + ["PresEstimated"]
+    # the provider's own screening (MLS: its data quality document), point by
+    # point, for the instrument_flag state (taken out of data below)
+    if settings["instrument_qc"] and reader is _limb_mls:
+        var_names = var_names + ["InstrumentBad"]
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
@@ -508,12 +518,16 @@ def _load_limb_arrays(time_range, instrument, **options):
         data.pop("SourceProf", None)
         data.pop("SourceFile", None)
 
+    instrument_bad = data.pop("InstrumentBad", None)
+    var_names = [name for name in var_names if name != "InstrumentBad"]
+    if instrument_bad is not None:
+        instrument_bad = np.asarray(instrument_bad, dtype=float) > 0.5
     contributed = {}
     if not settings["original_z"]:
         # screen the file's own points first (Q13): a point failing the checks
         # below is NaN in every variable but height (so it is not bridged
         # over), and the heights it reaches when interpolated get its state
-        native = _native_bad(data)
+        native = _native_bad(data, instrument_bad)
         if any(m.any() for m in native.values()):
             method = settings["interp_type"].lower()
             piecewise = method in ("linear", "nearest", "next", "previous")
@@ -529,8 +543,7 @@ def _load_limb_arrays(time_range, instrument, **options):
             if not settings["keep_outliers"]:
                 # (extras keep their values here: they may be interpolated by
                 # another method; they are removed with the others below)
-                data = mask_points(data, native["outside_physical_range"]
-                                   | native["bad_geolocation"],
+                data = mask_points(data, np.logical_or.reduce(list(native.values())),
                                    list(skip) + ["Alt"]
                                    + list(settings["additional_vars"]), copy=False)
 
@@ -606,6 +619,8 @@ def _load_limb_arrays(time_range, instrument, **options):
                        | (alt > max(settings["height_range"])))
         levels = np.flatnonzero(np.any(np.isfinite(alt) & ~outside, axis=0))
         outside_requested = outside[:, levels]
+        if instrument_bad is not None:  # (on the levels kept)
+            contributed["instrument_flag"] = instrument_bad[:, levels]
         data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
                                     copy=False)  # (in place: memory)
 
@@ -621,9 +636,10 @@ def _load_limb_arrays(time_range, instrument, **options):
     # why points are bad (data states, recorded with keep_outliers too)
     masks = _find_outliers(data, settings)
     for state, reached in contributed.items():  # (from the file's own points)
-        masks[state] = masks[state] | reached
+        masks[state] = masks[state] | reached if state in masks else reached
     bad = (masks["bad_geolocation"] | masks["outside_requested_range"]
-           | masks["outside_physical_range"])
+           | masks["outside_physical_range"]
+           | masks.get("instrument_flag", np.zeros_like(masks["bad_geolocation"])))
     if settings["original_z"]:  # (already NaN: clipped above)
         masks["outside_requested_range"] = outside_requested
     elif extrapolated is not None:
@@ -668,7 +684,8 @@ def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
     check_flags(options, ("original_z", "keep_outliers", "verbose", "date_warning",
                           "hindley_pws", "ignore_non_modal", "file_source", "dx",
-                          "extrapolate", "keep_duplicate_occultations"))
+                          "extrapolate", "keep_duplicate_occultations",
+                          "instrument_qc"))
     check_time_handling(options)
     # (extras may not replace the loader's own variables: MATLAB names, output
     # names and flags, or the internal PresEstimated)
@@ -793,7 +810,7 @@ def _find_outliers(data, settings):
     return masks
 
 
-def _native_bad(data):
+def _native_bad(data, instrument_bad=None):
     """[profiles x levels] masks of the file's own points that fail the
     checks: outside_physical_range (temperature, as _find_outliers) and
     bad_geolocation (latitude beyond +-90, longitude outside -180 to 360, as
@@ -803,8 +820,11 @@ def _native_bad(data):
         geo = (np.abs(lat) > 90) | (lon < -180) | (lon > 360)
     temp = (outside_physical_range(data["Temp"], data["Alt"]) if "Temp" in data
             else np.zeros(lat.shape, dtype=bool))
-    return {"outside_physical_range": np.asarray(temp, dtype=bool),
-            "bad_geolocation": geo}
+    out = {"outside_physical_range": np.asarray(temp, dtype=bool),
+           "bad_geolocation": geo}
+    if instrument_bad is not None:  # (the provider's screening: instrument_flag)
+        out["instrument_flag"] = instrument_bad
+    return out
 
 
 def _variable_attrs(name, out, settings):

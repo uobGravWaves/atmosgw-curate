@@ -112,3 +112,65 @@ def test_q13_whole_number_extras_follow_the_temperature(tmp_path, method):
                additional_vars=["Flag"])
     t, f = ds.temperature.values, ds["Flag"].values
     np.testing.assert_array_equal(np.isnan(t), np.isnan(f))
+
+
+def _mls(folder, status=(0, 0, 0), quality=(1.5, 1.5, 1.5), convergence=(1.0, 1.0, 1.0),
+         precision=None, version="v6.04"):
+    """Three MLS profiles on 7 pressure levels (1000 ... 0.0001 hPa)."""
+    import h5py
+    pres = np.array([1000, 316, 100, 82.5, 10, 0.001, 0.0001], dtype=np.float32)
+    (folder / "2026").mkdir(exist_ok=True)
+    path = folder / "2026" / "MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5"
+    group = "HDFEOS/SWATHS/Temperature"
+    with h5py.File(path, "w") as f:
+        f[f"{group}/Data Fields/L2gpValue"] = np.full((3, 7), 230, np.float32)
+        f[f"{group}/Data Fields/L2gpPrecision"] = (
+            np.full((3, 7), 1.0, np.float32) if precision is None else precision)
+        f[f"{group}/Data Fields/Status"] = np.array(status, np.int32)
+        f[f"{group}/Data Fields/Quality"] = np.array(quality, np.float32)
+        f[f"{group}/Data Fields/Convergence"] = np.array(convergence, np.float32)
+        geo = f"{group}/Geolocation Fields"
+        f[f"{geo}/Latitude"] = np.array([-10, 0, 10], np.float32)
+        f[f"{geo}/Longitude"] = np.array([0, 1, 2], np.float32)
+        f[f"{geo}/Pressure"] = pres
+        start = ((np.datetime64("2026-01-01") - np.datetime64("1993-01-01"))
+                 / np.timedelta64(1, "s"))
+        f[f"{geo}/Time"] = start + np.array([0.0, 3600, 7200])
+        attrs = f.create_group("HDFEOS/ADDITIONAL/FILE_ATTRIBUTES").attrs
+        attrs["PGEVersion"] = np.bytes_(version)
+    return pres
+
+
+def _mls_flags(folder, **options):
+    ds = load_limb_sounders("2026-01-01", "MLS", file_path=folder, original_z=True,
+                            **options)
+    return ds, states.has_state(ds.temperature_flag.values, "instrument_flag")
+
+
+def test_q15_mls_screening_rules(tmp_path):
+    # profile 0 good; profile 1 odd Status; profile 2 Quality 0.5 (good at
+    # 83 hPa and above, bad at 100 hPa and below); precision <= 0 at one point
+    precision = np.ones((3, 7), np.float32)
+    precision[0, 4] = -1.0
+    _mls(tmp_path, status=(0, 1, 0), quality=(1.5, 1.5, 0.5), precision=precision)
+    ds, bad = _mls_flags(tmp_path)
+    # pressure range: 1000, 316 and 0.0001 hPa are outside 261-0.00046 hPa
+    np.testing.assert_array_equal(bad[0], [1, 1, 0, 0, 1, 0, 1])
+    assert bad[1].all()
+    np.testing.assert_array_equal(bad[2], [1, 1, 1, 0, 0, 0, 1])
+    assert np.array_equal(np.isnan(ds.temperature.values), bad)
+    assert "data quality document" in ds.temperature.attrs["comment"]
+    # Convergence must be below 1.03
+    _mls(tmp_path, convergence=(1.0, 1.04, 1.0))
+    assert _mls_flags(tmp_path)[1][1].all()
+    # keep_outliers keeps the values; instrument_qc=False screens nothing
+    _mls(tmp_path, status=(0, 1, 0))
+    ds, bad = _mls_flags(tmp_path, keep_outliers=True)
+    assert bad[1].all() and np.all(ds.temperature.values == 230)
+    assert not _mls_flags(tmp_path, instrument_qc=False)[1].any()
+
+
+def test_q15_mls_unknown_version_not_screened(tmp_path):
+    _mls(tmp_path, status=(1, 1, 1), version="v4.23")
+    ds, bad = _mls_flags(tmp_path)
+    assert not bad.any() and "no MLS screening rules" in ds.temperature.attrs["comment"]
