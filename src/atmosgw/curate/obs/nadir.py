@@ -186,6 +186,7 @@ from atmosgw.curate.obs._common import (
     check_time_handling,
     day_label,
     expand_time_range,
+    file_versions,
     find_instrument,
     load_attrs,
     outside_physical_range,
@@ -193,6 +194,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_mixed_versions,
 )
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.solar import day_retrieval
@@ -299,6 +301,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     data, file_list = inst_info["reader"].load(load_settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
+    warn_mixed_versions(settings, stacklevel=3)
     if padded and settings["granules"] is not None:  # padding is not a request
         extra = {f"{day_label(d)} granule {g}"
                  for d, g in set(load_settings["granules"]) - set(settings["granules"])}
@@ -762,8 +765,11 @@ def _to_dataset(data, settings, call=None):
                 name, settings["record"],
                 interpolated=three_d and not settings["original_z"]))
     if settings["file_source"]:
-        ds = ds.assign_coords(original_files=("file", np.array(settings["files_read"],
-                                                               dtype=str)))
+        ds = ds.assign_coords(
+            original_files=("file", np.array(settings["files_read"], dtype=str)),
+            original_file_version=("file", np.array(file_versions(
+                settings["record"], settings["files_read"]), dtype=str),
+                {"long_name": "data version stated by each file"}))
 
     info = INSTRUMENTS[settings["instrument"]]
     tracked = [n for n, s in FORMATS["swath"]["variables"].items() if s.get("tracked")]

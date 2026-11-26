@@ -213,8 +213,9 @@ availability(airs, "satellite_latitude")    # "not_in_files"
 **The record of the load**, in the attributes: `instrument`, `time_range` (as
 expanded), `options` (the call's arguments, JSON), `files_read`,
 `files_not_found`, `multiple_matches` (days with more than one matching
-file, and the one used), `atmosgw_curate_version`, and per variable
-`source_variable` and `comment`. All are text, so they survive saving.
+file, and the one used), `source_versions` (the data versions the files
+state, with counts; with `file_source`, `original_file_version` per file),
+`atmosgw_curate_version`, and per variable `source_variable` and `comment`. All are text, so they survive saving.
 
 ## Swaths and time-height series as profiles
 

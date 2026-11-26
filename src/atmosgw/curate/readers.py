@@ -49,6 +49,10 @@ differ only if the root path itself matched the pattern. ``wildcardsearch.m``
 now clears it before each search, so the two agree (Q5 in
 ``docs/quirks.md``).
 
+``read_attrs(path, group="/")``: the attributes of a netCDF file (global)
+or of an HDF5 group, as a dict of text (for the data versions the files
+state).
+
 ``read_mat`` reads every MATLAB file version (including v7.3) with ``mat-io``.
 Arrays keep MATLAB's shapes (a row vector is 1 x n, a scalar 1 x 1). MATLAB
 tables become ``pandas.DataFrame``. A 1 x 1 MATLAB struct becomes a dict of
@@ -125,6 +129,23 @@ def read_hdf5(path, name):
     """One HDF5 dataset as float64, in file (C) order. See the module docstring."""
     with h5py.File(path, "r") as f:
         return np.asarray(f[name][()], dtype=np.float64)
+
+
+def read_attrs(path, group="/"):
+    """Attributes of a netCDF file or an HDF5 group, as text. See the module
+    docstring."""
+    path = str(path)
+    if path.lower().endswith((".nc", ".nc4")):
+        with netCDF4.Dataset(path) as f:
+            return {a: str(f.getncattr(a)) for a in f.ncattrs()}
+    with h5py.File(path, "r") as f:
+        if group not in f:
+            return {}
+        return {k: (v.decode(errors="replace") if isinstance(v, bytes)
+                    else str(v.ravel()[0].decode(errors="replace")
+                             if isinstance(v, np.ndarray) and v.size == 1
+                             and isinstance(v.ravel()[0], bytes) else v))
+                for k, v in f[group].attrs.items()}
 
 
 def read_netcdf(path, names, rows=None):

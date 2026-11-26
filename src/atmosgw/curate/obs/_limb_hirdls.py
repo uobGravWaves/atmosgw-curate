@@ -26,8 +26,10 @@ from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,
+    note_version,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_mls import pge_version
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
 from atmosgw.curate.readers import find_files, read_hdf5
 
@@ -77,6 +79,7 @@ def load(settings, inst_info, var_names):
 
         # kept apart from the variables, so a requested ScanUpFlag keeps its values
         scan_sign = get("ScanUpFlag")
+        note_version(inst_info, path, pge_version(path))
 
         store = {}
         for name in var_names:

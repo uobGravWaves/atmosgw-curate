@@ -99,7 +99,8 @@ Profiles are selected by their mean time, so profiles are never split.
 - ``temperature_residual``, ``temperature_pw`` (with ``mode``): K (PW data);
 - ``source_profile``: 1-based profile number in its file (``file_source``);
 - ``source_file``: 1-based index into ``original_files`` (``file_source``);
-- ``original_files`` (dimension ``file``): file names (``file_source``);
+- ``original_files`` (dimension ``file``): file names (``file_source``),
+  with ``original_file_version``, the version each states;
 - ``dx``: km from the previous profile at the same level (``dx``).
 
 All but ``original_files`` have dimensions (profile, level).
@@ -147,6 +148,11 @@ variable), ``instrument``, ``data`` ("raw" or "planetary-wave-filtered"),
 "original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
 ``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
 string; infinities as "inf"), ``files_read`` (file names, comma-separated),
+``source_versions`` (each data version the files state, with how many files
+state it: SABER ``Data_Product_Version``, MLS and HIRDLS ``PGEVersion`` and
+DOI, SOFIE ``DP_Version``, MIPAS L2 processing version, ACE and ALOMAR from
+the file name, GNSS each centre's retrieval version, PW files their code
+version; a warning if the files state different versions, except GNSS),
 ``files_not_found`` (dates, SABER months or ALOMAR years that had no file)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
@@ -261,6 +267,8 @@ Change log
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
 2026/11/26 [Claude] docstring: Validation updated to the current MATLAB reference
+2026/11/26 [Claude] source_versions attribute, original_file_version, mixed-version
+  warning
 2026/11/26 [Claude] ACE/GNSS pressure to hPa; GNSS fills, times, positions, one copy
   per occultation (Q9-Q11; keep_duplicate_occultations)
 
@@ -294,6 +302,7 @@ from atmosgw.curate.obs._common import (
     check_flags,
     check_time_handling,
     expand_time_range,
+    file_versions,
     find_instrument,
     load_attrs,
     outside_physical_range,
@@ -301,6 +310,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_mixed_versions,
     warn_multiple_matches,
 )
 from atmosgw.curate.obs._limb_tools import ESTIMATED_PRES
@@ -451,6 +461,8 @@ def _load_limb_arrays(time_range, instrument, **options):
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_multiple_matches(settings, stacklevel=3)
+    # (GNSS files always hold several centres' versions; Misc and Sampler none)
+    warn_mixed_versions(settings, stacklevel=3, exempt=("GNSS", "Misc", "Sampler"))
 
     # variables not on the [profiles x levels] grid of Lat are left untouched
     # (only if ignore_non_modal; otherwise the readers have already refused them)
@@ -821,6 +833,9 @@ def _to_dataset(data, settings, call=None):
         out = OUTPUT_NAMES.get(name, name)
         if name == "OriginalFiles":
             coords[out] = ("file", np.array(value, dtype=str))
+            coords["original_file_version"] = ("file", np.array(
+                file_versions(settings["record"], list(value)), dtype=str),
+                {"long_name": "data version stated by each file"})
             continue
         if isinstance(value, pd.DataFrame):
             for column in value.columns:

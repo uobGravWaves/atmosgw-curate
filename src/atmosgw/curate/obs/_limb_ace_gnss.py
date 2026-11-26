@@ -52,6 +52,7 @@ from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,
+    note_version,
     record,
     year_and_day,
 )
@@ -89,6 +90,7 @@ def load(settings, inst_info, var_names):
         if instrument == "GNSS":
             rows = gnss_fixes(inst_data, inst_info,
                               settings.get("keep_duplicate_occultations", False))
+        note_version(inst_info, path, file_version(instrument, path, inst_data))
         if instrument in PRES_TO_HPA and "Pres" in inst_data:
             factor, text = PRES_TO_HPA[instrument]
             inst_data["Pres"] = np.asarray(inst_data["Pres"], dtype=float) * factor
@@ -286,3 +288,31 @@ def note_gnss_counts(inst_info):
                                   "copy with per-level positions and a good time, "
                                   "then the finest original resolution (PTRes), is "
                                   "kept")
+
+
+_RETRIEVAL = re.compile(r"atmosphericRetrieval_[^_]+_([A-Za-z]+)_([^_]+)_")
+
+
+def file_version(instrument, path, inst_data):
+    """The data version a file states (see note_version): ACE from its name;
+    GNSS, a list: each processing centre's retrieval version in the
+    source-file names of the profiles returned, and the merge version if the
+    file records one; Misc none."""
+    name = os.path.basename(str(path))
+    if instrument == "ACE":
+        found = re.search(r"ace_(v\d+)_", name)
+        return f"{found.group(1)} (file name)" if found else ""
+    if instrument != "GNSS" or "MetaData" not in inst_data:
+        return ""
+    meta = inst_data["MetaData"]
+    pairs = set()
+    if "AtmSource" in meta:
+        for source in meta["AtmSource"].astype(str):
+            found = _RETRIEVAL.search(source.replace("\\", "/").rsplit("/", 1)[-1])
+            if found:
+                pairs.add(f"{found.group(1)} {found.group(2)}")
+    items = [f"{pair} retrieval" for pair in sorted(pairs)]
+    settings = inst_data.get("Settings")
+    if isinstance(settings, dict) and np.size(settings.get("Version", [])):
+        items.append(f"merge {np.asarray(settings['Version']).ravel()[0]}")
+    return items

@@ -37,10 +37,11 @@ from atmosgw.curate.obs._common import (
     day_label,
     note,
     note_sources,
+    note_version,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, newest_mls_version
-from atmosgw.curate.readers import find_files
+from atmosgw.curate.readers import find_files, read_attrs
 
 _SWATH = "Temperature"
 DATA_FIELDS = ("L2gpValue", "L2gpPrecision", "Quality", "Status", "Convergence")
@@ -67,6 +68,7 @@ def load(settings, inst_info, var_names):
 
     def read_file(path, file_count, day):
         working = _get_mls(path)
+        note_version(inst_info, path, pge_version(path))
         store = {}
         for name in var_names:
             if name == "Temp":
@@ -132,3 +134,13 @@ def _get_mls(path):
                         value[bad] = np.nan
                 working[name] = value[:, None] if value.ndim == 1 else value
     return working
+
+
+def pge_version(path):
+    """'PGEVersion <v> (DOI <doi>)' from an Aura HDF-EOS5 file's attributes."""
+    attrs = read_attrs(path, "HDFEOS/ADDITIONAL/FILE_ATTRIBUTES")
+    version = attrs.get("PGEVersion", "")
+    doi = attrs.get("identifier_product_doi") or attrs.get("identifier_product_DOI")
+    if not version:
+        return ""
+    return f"PGEVersion {version}" + (f" (DOI {doi})" if doi else "")
