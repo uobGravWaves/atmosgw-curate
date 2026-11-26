@@ -67,6 +67,9 @@ Options (type, default):
   when interpolating.
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
   only).
+- ``keep_duplicate_occultations`` (bool, False): GNSS: return every copy of
+  an occultation present more than once in the files (from several
+  processing centres) instead of one (see ``obs._limb_ace_gnss``).
 
 ``time_handling`` (both ends are included):
 
@@ -90,7 +93,8 @@ Profiles are selected by their mean time, so profiles are never split.
 - ``longitude``: degrees east, in [-180, 180];
 - ``time``: ``datetime64[us]``, to the nearest millisecond;
 - ``altitude``: km (the height scale, unless ``original_z``);
-- ``pressure``: hPa (estimated from height for some instruments);
+- ``pressure``: hPa (estimated from height for some instruments; ACE and GNSS
+  files give it in atm and Pa, and it is converted: Q9 in ``docs/quirks.md``);
 - ``temperature``: K (not for PW data);
 - ``temperature_residual``, ``temperature_pw`` (with ``mode``): K (PW data);
 - ``source_profile``: 1-based profile number in its file (``file_source``);
@@ -257,6 +261,8 @@ Change log
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
 2026/11/26 [Claude] docstring: Validation updated to the current MATLAB reference
+2026/11/26 [Claude] ACE/GNSS pressure to hPa; GNSS fills, times, positions, one copy
+  per occultation (Q9-Q11; keep_duplicate_occultations)
 
 """
 
@@ -392,6 +398,7 @@ def load_limb_sounders(
     interp_type="linear",
     extrapolate=False,
     sample_path=None,
+    keep_duplicate_occultations=False,
 ):
     """Load profile data as an xarray.Dataset. See the module docstring."""
     options = {k: v for k, v in locals().items() if k not in ("time_range",
@@ -608,7 +615,7 @@ def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
     check_flags(options, ("original_z", "keep_outliers", "verbose", "date_warning",
                           "hindley_pws", "ignore_non_modal", "file_source", "dx",
-                          "extrapolate"))
+                          "extrapolate", "keep_duplicate_occultations"))
     check_time_handling(options)
     check_additional_vars(options)
     additional = options["additional_vars"]

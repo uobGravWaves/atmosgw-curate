@@ -5,6 +5,17 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- ACE and GNSS pressure converted to hPa: the files hold atmospheres (ACE)
+  and pascals (GNSS), and were returned labelled hPa (Q9). GNSS: profiles
+  without positions take their `MetaData` position at every level; JPL
+  times, rounded down to the hour in the files, take the occultation id's
+  time; the netCDF fill value 9.97e36 becomes NaN (Q10); an occultation held
+  by more than one processing centre is returned once, the copy with
+  positions and a good time and the finest original resolution (`PTRes`),
+  unless the new option `keep_duplicate_occultations` (Q11). The same for
+  GNSS planetary-wave files. Changes results against 0.5.1 and MATLAB for
+  ACE and GNSS only; every other instrument bit-identical (36 real-data
+  cases). [Claude]
 
 ## [0.5.1] - 2026-11-26
 - Pinned as the last release whose limb and nadir loaders reproduce the

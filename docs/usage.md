@@ -262,3 +262,8 @@ folder).
   angle as AIRS.
 - HIRDLS and MLS times are converted without leap seconds (a few seconds).
 - MLS heights come from a standard atmosphere on MLS's pressure levels.
+- GNSS: the group's merged files hold the same occultation from several
+  processing centres; one copy is returned (`keep_duplicate_occultations`
+  for all). JPL profiles have no per-level positions (their profile
+  position is used at every level) and hour-rounded times (the occultation
+  id's time is used). See Q9-Q11 in `docs/quirks.md`.

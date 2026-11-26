@@ -43,6 +43,16 @@ Tolerances: bit-identical, except:
   days absolute, one unit in the last place of a datenum (10 microseconds).
 NaN patterns, shapes and the number of profiles must match exactly.
 
+Deliberate differences from MATLAB since 0.5.1 (docs/quirks.md; the last
+release that reproduces MATLAB is 0.5.1): the MATLAB output of the affected
+cases is changed as documented before the comparison (_python_changes):
+ACE pressure x 1013.25 (Q9); GNSS pressure / 100 (Q9), positions from
+MetaData for profiles with none (Q10; then 1e-12 degrees, as the longitude
+goes through unwrap and wrap), times from the occultation id where the file's
+is hour-rounded (Q10), and only the rows Python keeps (Q11: one copy per
+occultation; a profile given a MetaData position outside a box is left out).
+The rows Python leaves out are checked to be exactly those.
+
 Real-data cases use the MATLAB test's dates: 2007-01-01 (and -02) for most;
 2007-01-02 for MIPAS, 2007-06-01 for SOFIE and 2007-01-23 for ALOMAR; and,
 added after the sweep of tests/matlab/sweep (2026-11-25), 2005-01-15 for
@@ -53,11 +63,13 @@ Skipped (not passed) if reference_dir is not set or the files are absent.
 """
 
 import hashlib
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs.limb import _load_limb_arrays
 from atmosgw.curate.paths import DataDirNotSetError, dataset_dir, reference_dir
 from atmosgw.curate.readers import read_mat
@@ -215,8 +227,92 @@ def test_real_data_against_matlab(reference, case):
     dataset, kind, args, options, tol = REAL[case]
     if not dataset_dir(dataset, kind, must_exist=False).is_dir():
         pytest.skip(f"no {dataset} {kind} data")
-    got, _ = _load_limb_arrays(*args, **_defaults(options))
-    assert_same_as_matlab(got, reference[case], _interp_pressure_tol(tol, options))
+    want = reference[case]
+    tol = _interp_pressure_tol(tol, options)
+    if dataset in ("ACE", "GNSS"):
+        got, want, tol = _python_changes(dataset, args, options, want, tol)
+    else:
+        got, _ = _load_limb_arrays(*args, **_defaults(options))
+    assert_same_as_matlab(got, want, tol)
+
+
+def _python_changes(dataset, args, options, want, tol):
+    """(got, want, tol) for ACE and GNSS: the MATLAB output with the
+    deliberate differences applied (see the module docstring)."""
+    want = {k: (np.array(v, dtype=float) if k not in ("OriginalFiles",) else v)
+            for k, v in want.items()}
+    if dataset == "ACE":
+        got, _ = _load_limb_arrays(*args, **_defaults(options))
+        want["Pres"] = want["Pres"] * 1013.25
+        return got, want, {**tol, "Pres": tol.get("Pres", ("rtol", PRESSURE_RTOL))}
+
+    # GNSS: which file row each profile is (Python: from its SourceProf)
+    got, _ = _load_limb_arrays(*args, **_defaults({**options, "file_source": True}))
+    got_rows = np.asarray(got["SourceProf"])[:, 0].astype(int) - 1
+    if not options.get("file_source"):
+        for name in ("SourceProf", "SourceFile", "OriginalFiles"):
+            got.pop(name)
+    day = args[0]
+    year, doy = day[:4], (np.datetime64(day) - np.datetime64(day[:4] + "-01-01")
+                          ).astype(int) + 1
+    content = read_mat(dataset_dir("GNSS") / year / f"merged_ro_{year}_{doy:03d}.mat")
+    meta = content["MetaData"]
+    lat_file = np.asarray(content["Lat"], dtype=float)
+    lon_file = np.asarray(content["Lon"], dtype=float)
+    no_position = ~(np.isfinite(lat_file) & np.isfinite(lon_file)).any(axis=1)
+    if "SourceProf" in want:
+        want_rows = want["SourceProf"][:, 0].astype(int) - 1
+    else:  # MATLAB's rows: the box test on the file's positions (NaN kept)
+        want_rows = np.flatnonzero(_matlab_box(lat_file, lon_file, options))
+
+    # rows left out by Python: repeated occultations, or (with a box) profiles
+    # whose MetaData position is outside it
+    occid = meta["occid"].astype(str).to_numpy()
+    kept = set(got_rows.tolist())
+    assert kept <= set(want_rows.tolist())
+    for row in sorted(set(want_rows.tolist()) - kept):
+        repeated = any(r in kept for r in np.flatnonzero(occid == occid[row]))
+        outside = no_position[row] and not _matlab_box(
+            np.array([[meta["latitude"][row]]], dtype=float),
+            np.array([[meta["longitude"][row]]], dtype=float), options)[0]
+        assert repeated or outside, f"file row {row} left out without reason"
+    index = np.searchsorted(want_rows, got_rows)
+    want = {k: (v[index] if k != "OriginalFiles" else v) for k, v in want.items()}
+
+    want["Pres"] = want["Pres"] / 100
+    # times: the occultation id's where the file's is hour-rounded
+    file_time = np.asarray(meta["time"], dtype=float)
+    stamps = [o[-12:] for o in occid]
+    id_time = np.array([datenum(int(s[:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]),
+                                int(s[10:12])) for s in stamps])
+    minutes = np.abs(file_time - id_time) * 1440
+    on_hour = np.abs(file_time * 24 - np.round(file_time * 24)) < 1e-7
+    off = (minutes > 10) | (on_hour & (minutes > 1))
+    present = np.isfinite(want["Time"])  # (points the interpolation reaches)
+    for i, row in enumerate(got_rows):
+        if off[row]:
+            want["Time"][i] = np.where(present[i], id_time[row], np.nan)
+        if no_position[row]:
+            want["Lat"][i] = np.where(present[i], meta["latitude"][row], np.nan)
+            want["Lon"][i] = np.where(present[i], meta["longitude"][row], np.nan)
+    return got, want, {**tol, "Lat": ("atol", POSITION_ATOL),
+                       "Lon": ("atol", POSITION_ATOL),
+                       "Pres": tol.get("Pres", ("rtol", PRESSURE_RTOL)),
+                       "Time": ("atol", TIME_ATOL)}
+
+
+def _matlab_box(lat, lon, options):
+    """MATLAB's profile box test: a profile is kept unless its latitude or
+    longitude extremes lie wholly outside the ranges (NaN-only profiles kept)."""
+    la0, la1 = options.get("lat_range", (-90, 90))
+    lo0, lo1 = options.get("lon_range", (-180, 180))
+    with np.errstate(invalid="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        outside = ((np.nanmin(lon, axis=1) > max(lo0, lo1))
+                   | (np.nanmax(lon, axis=1) < min(lo0, lo1))
+                   | (np.nanmin(lat, axis=1) > max(la0, la1))
+                   | (np.nanmax(lat, axis=1) < min(la0, la1)))
+    return ~outside
 
 
 def _interp_pressure_tol(tol, options):
