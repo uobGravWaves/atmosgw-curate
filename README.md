@@ -1,77 +1,114 @@
 # AtmosGW Curate
 
-Python tools for loading, standardising and analysing observations of
-**atmospheric gravity waves** from satellites and other instruments.
+Python tools that load observations of atmospheric gravity waves, from
+satellites and ground-based instruments, into common documented formats.
+Each value records why it is missing or how it was obtained, and each
+Dataset records how it was loaded. Most of the loading code is ported from
+the group's MATLAB code and checked against it. Wave analysis (a general
+detrender, Stockwell wrappers) is planned but not yet here.
 
-> **Status: pre-alpha (0.x), with three working loaders.**
-> - `obs.load_limb_sounders` (port of `get_limbsounders`): ACE, GNSS, HIRDLS,
->   MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, sampler output and files of
->   your own, as profiles.
-> - `obs.load_nadir_sounders` (port of `prep_airs_3d`, without its
->   detrending): AIRS 3-D retrievals, AIRS 2-D brightness temperatures and
->   IASI 3-D retrievals, as swaths (`data.to_profiles` turns them into
->   profiles).
-> - `obs.load_time_height` (new code): the ALOMAR lidar as a [time x level]
->   series at its site (also convertible to profiles).
->
-> All return the common formats of `docs/design/data_formats.md` (version 1,
-> a proposal). See `docs/usage.md` to get started.
+Status: pre-alpha (0.x). The data formats are version 1 proposals.
 
-## Validation status
+## Quick start
 
-- **Values against MATLAB.** `load_limb_sounders` matches the MATLAB
-  `get_limbsounders` in its regression cases and in a 1,420-call real-data
-  sweep at 0.3.4 (`tests/matlab/sweep/README.md`); checked by C. Wright on
-  2026-11-25 (SABER, HIRDLS). `load_nadir_sounders` matches `prep_airs_3d` for
-  AIRS (dateline, midnight, native and regridded) and, for IASI, wherever
-  Python keeps a value (its default screen differs by design).
-  `load_time_height` has no MATLAB equivalent: for ALOMAR it gives the same
-  values and rows as `load_limb_sounders(..., original_z=True)` on 34 dates
-  across 2003-2026 (`tests/test_time_height_alomar.py`). Each reference
-  file is pinned to the MATLAB commits named in its test's header
-  (`tests/test_limb_matlab.py`, `tests/test_nadir_matlab.py`).
-- **Metadata (data states, `origin`, `availability`, attributes).** MATLAB has
-  none of this, so it is checked differently: by the shared rules in
-  `docs/design/data_formats.md` section 6.3, the cross-loader tests
-  `tests/test_states_conformance.py`, and real-data audits of the state counts.
-  It is newer than the value checks and still being reviewed.
-- **Scientific changes from MATLAB** (e.g. log-pressure interpolation, the
-  1976 standard atmosphere) are listed with their sizes in `CHANGELOG.md` and
-  `docs/quirks.md`; reproducing an older result needs the MATLAB baseline
-  named there.
-
-## The AtmosGW family
-
-AtmosGW is a small family of packages that share one import namespace:
-
-| Package (pip name) | Import as | Purpose | Status |
-|---|---|---|---|
-| `atmosgw-curate` | `atmosgw.curate` | Load and standardise observations; extract gravity-wave perturbations and properties; shared data formats | This repository; loaders working, analysis to come |
-| `atmosgw-fuse` | `atmosgw.fuse` | Combine curated datasets from multiple instruments | Not started |
-
-Curate holds everything shared (data formats, instrument characterisations,
-global-context interface). Fuse depends on Curate, never the other way round.
-
-The 2-D/3-D Stockwell transform used for wave analysis is a separate,
-general-purpose package outside this family.
-
-## Installation (development)
+Requires Python 3.11 or later.
 
 ```bash
 git clone https://github.com/uobGravWaves/atmosgw-curate.git
 cd atmosgw-curate
-uv sync --extra dev        # exact versions from uv.lock
-uv run pytest
-uv run ruff check .
+uv sync --extra dev                  # exact versions from uv.lock
+export ATMOSGW_DATA=/path/to/Data    # the data root: see "Where the data are"
+uv run python
 ```
 
-`pip install -e ".[dev]"` also works, with the newest allowed versions
-instead of the locked ones. Requires Python 3.11 or later.
+```python
+from atmosgw.curate.obs import load_limb_sounders
 
-## Using it
+ds = load_limb_sounders("2007-01-01", "SABER")   # one day, 18-60 km every 0.5 km
+ds.temperature                                   # (profile, level), K
+ds.temperature_flag                              # 0 for a plain good value; else why not
+ds.attrs["files_read"]                           # the record of the load
+```
 
-See `docs/usage.md` for loading limb profiles (`obs.load_limb_sounders`) and
-nadir swaths (`obs.load_nadir_sounders`), and reading what they return.
+`docs/usage.md` goes on from here.
+
+## What it does today
+
+| Function | Instruments | Returns | Origin |
+|---|---|---|---|
+| `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, Wright and Hindley sampler output, your own files in the same format; planetary-wave-filtered versions | profiles, (profile, level) | port of MATLAB `get_limbsounders` |
+| `obs.load_nadir_sounders` | AIRS 3-D retrievals, AIRS 2-D brightness temperatures, IASI 3-D retrievals | swaths, (along_track, cross_track, level) | port of MATLAB `prep_airs_3d`, without its detrending and smoothing |
+| `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
+| `data.to_profiles` | swaths and time-height series | profiles | new code |
+
+Each returns an `xarray.Dataset` in a format defined in
+`docs/design/data_formats.md`. The supporting modules (MATLAB-compatible
+dates and `interp1`, the U.S. Standard Atmosphere 1976, great-circle
+geometry, file readers) are described in their own docstrings:
+`help(atmosgw.curate.<module>)`.
+
+## What has been checked
+
+**`load_limb_sounders` against MATLAB `get_limbsounders`.**
+`tests/test_limb_matlab.py` compares every case of a pinned MATLAB
+reference file (synthetic and real data, every instrument). The test's
+header names the file and the MATLAB commits; the test pins the file's
+SHA-256. A by-hand sweep
+at package version 0.3.4 compared 1,420 real-data calls over every
+instrument and year with data (`tests/matlab/sweep/README.md`). Both compare
+the private layer `_load_limb_arrays`, which has MATLAB names and datenum
+times; they do not compare the public Dataset. Results are bit-identical, or
+within last-bit tolerances stated in the tests. C. Wright compared the
+outputs with MATLAB's on 2026-11-25 (SABER, HIRDLS); the code has not been
+reviewed line by line.
+
+**`load_nadir_sounders` against MATLAB `prep_airs_3d`.**
+`tests/test_nadir_matlab.py` compares the private layer `_load_nadir_arrays`
+(MATLAB-like arrays, datenum times) with MATLAB reference outputs. The test's
+header names the reference and the MATLAB commit.
+- AIRS 3-D, 2007-01-01: options, the dateline and midnight, on the native
+  and the regridded grid; within stated last-bit tolerances.
+- IASI 3-D, 2007-11-06 and 07 (two granules, load-only, midnight), with
+  `screen="pooled"`, MATLAB's screen: identical wherever Python has a value.
+  MATLAB refills screened points; Python leaves them NaN and flagged (under
+  1 % of points in these granules). The default rolling screen differs by
+  design and is not compared.
+- AIRS 2-D: not compared with MATLAB. The automated tests use synthetic
+  files in the files' layout; during development the core was also run on
+  L. Hoffmann's real files through a throwaway reader
+  (`docs/design/nadir_loader.md`, checkpoint 5).
+
+**`load_time_height`** has no MATLAB equivalent. For ALOMAR,
+`tests/test_time_height_alomar.py` compares its public Dataset with that of
+`load_limb_sounders(..., "ALOMAR", original_z=True)`: the same values, rows
+and states on five date ranges. A wider run on 34 dates across 2003-2026
+was made once (2026-11-26).
+
+**Metadata** (data states, `origin`, `availability`, attributes) has no
+MATLAB counterpart. It is checked against the shared rules
+(`docs/design/data_formats.md` section 6.3) by
+`tests/test_states_conformance.py`, and by real-data audits of the state
+counts. It is newer than the value checks and still being reviewed.
+
+**Deliberate scientific changes from MATLAB**, such as log-pressure
+interpolation and the 1976 standard atmosphere, are listed with their sizes
+in `docs/quirks.md` and `CHANGELOG.md`. Reproducing an older result needs
+the MATLAB baseline named there.
+
+Each module's Validation section says how that module was checked.
+
+## Where to find the detail
+
+| Document | What it holds |
+|---|---|
+| `docs/usage.md` | how to load data and read what comes back |
+| loader docstrings (`help(load_limb_sounders)` ...) | every option, output variable and attribute |
+| `docs/design/data_formats.md` | the profile, swath and time_height formats; data states |
+| `docs/design/nadir_loader.md` | design of the nadir loader and its open items |
+| `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q8), with sizes |
+| `docs/theory/relations.md` | physical relations [R1]-[R3], their sources and checks |
+| `CHANGELOG.md` | changes by version |
+| `CONTRIBUTING.md` | package layout, style, porting, documentation and tests |
 
 ## Where the data are
 
@@ -94,63 +131,28 @@ raw = "E:/big_disk/saber"     # absolute: used as it is
 pws = "SABER_v2/pws"          # relative: under data_dir
 ```
 
-Tests that compare against MATLAB reference outputs look for them in
-`reference_dir` (set in the same file; relative paths are under `data_dir`),
-and skip if it is not set.
+The full lookup rules are in `help(atmosgw.curate.paths)`.
 
-## Planned layout
+## The AtmosGW family
 
-Agree changes with the maintainers before adding to this. Folders are added
-only when code for them exists.
+AtmosGW packages share the import namespace `atmosgw`. This package,
+`atmosgw-curate` (`atmosgw.curate`), loads and standardises observations
+and holds everything shared: data formats, instrument characterisations and
+the global-context interface. `atmosgw-fuse` (`atmosgw.fuse`, not started)
+will combine curated datasets from several instruments; it depends on
+Curate, never the other way round. The 2-D/3-D Stockwell transform is a
+separate, general-purpose package.
 
-```
-src/atmosgw/curate/
-    paths.py, datasets.toml   where the data are
-    matlab_time.py            MATLAB-compatible dates
-    matlab_compat.py          MATLAB-compatible interp1, unwrap, wrapToPi
-    atmosphere.py             height <-> pressure (approximate)
-    geodesy.py                great-circle distance, azimuth, reckon
-    profiles.py               join, select, interpolate, clip and mask profiles
-    swath.py                  distances, regridding and vertical grids of swaths
-    solar.py                  solar zenith angle; AIRS/IASI day-night switch
-    readers.py                find files; read .mat, HDF5 and netCDF files
-    data/         shared data formats: swath and profile formats, data
-                  states, validate, to_profiles (proposal)
-    obs/          instrument loaders: load_limb_sounders (port of the MATLAB
-                  get_limbsounders); load_nadir_sounders (AIRS, IASI; port
-                  of prep_airs_3d; preliminary)
-    instrument/   instrument characterisations (CPs)
-    context/      global context (GC) interface
-    analysis/     detrending, Stockwell wrappers
-    retrieval/    parameter engine
-    sampling/     sampler and synthetic observations
-```
+## Licence, citation and contact
 
-**Important:** `atmosgw` is a namespace package. Never add
-`src/atmosgw/__init__.py`; doing so would stop `atmosgw-curate` and
-`atmosgw-fuse` being installed together. A test enforces this.
+BSD-3-Clause; copyright Corwin Wright and the University of Bath (`LICENSE`).
+To cite the package, use `CITATION.cff` (GitHub's "Cite this repository"
+button). There is no DOI yet. Where a result depends on a physical
+relation, also cite its source (`docs/theory/relations.md`).
 
-## Conventions
-
-- PEP 8 naming throughout, including inside functions; enforced by `ruff`
-  (rule set `N`).
-- Every function follows the documentation checklist in `CONTRIBUTING.md`.
-- Semantic versioning; stays at 0.x until the ports match the MATLAB
-  reference outputs.
-
-## Licence and citation
-
-BSD-3-Clause; copyright Corwin Wright and the University of Bath. See `LICENSE`. Citation details are in `CITATION.cff`
-(GitHub's "Cite this repository" button). A Zenodo DOI will be added with the
-first release.
-
-## Trademarks
+Questions and bug reports: GitHub issues, or Corwin Wright, University of
+Bath.
 
 MATLAB is a registered trademark of The MathWorks, Inc. This package is
 independent of MathWorks; its MATLAB-compatible functions are written from
 public documentation.
-
-## Contact
-
-Corwin Wright, University of Bath. Please use GitHub issues for questions and
-bug reports.

@@ -255,7 +255,7 @@ As MATLAB, so the step-by-step core can be compared with it:
    -999, -9999, 0/0 positions, zero, stray and misdated times), whose
    positions and times are then `bad_geolocation`; scans with any such
    position or time are their own segments, not regridded;
-3. IASI screen (per height, 3 x IQR) and the 100-400 K range check, setting
+3. IASI screen (`obs._screen`; default rolling 5 x IQR) and the 100-400 K range check, setting
    their states; flagged points become NaN. (MATLAB refills IASI points from
    the nearest along-track value; Python does not, by design. The MATLAB
    comparison is therefore made on the screened values before MATLAB's

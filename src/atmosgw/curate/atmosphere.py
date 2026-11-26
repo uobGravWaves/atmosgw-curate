@@ -1,8 +1,6 @@
 """
 Conversion between height and pressure with the U.S. Standard Atmosphere, 1976.
 
-Purpose
--------
 Convert altitude to pressure and back, for datasets that give only one of the
 two. Ports of the group's MATLAB ``h2p`` and ``p2h``, which since 2026-11-25
 (both languages) implement the U.S. Standard Atmosphere, 1976 [R1] instead of
@@ -22,8 +20,9 @@ input. Always computed in float64.
 
 Science
 -------
-All references are to [R1] (NASA-TM-X-74335, 1976); pages are its printed
-page numbers.
+All references are to [R1], the U.S. Standard Atmosphere, 1976
+(NOAA-S/T 76-1562 / NASA-TM-X-74335; ``docs/theory/relations.md``); pages are
+its printed page numbers.
 
 Up to 86 km geometric (84.852 km' geopotential), the standard's defining
 equations:
@@ -75,10 +74,11 @@ Validation
 ``h2p.m`` and ``p2h.m``, and known answers from Table I of [R1]; round trip.
 Tolerances stated in the test.
 
-AI involvement
---------------
-Written by Claude from the standard's document (constants and equations
-checked against it, as above), to be reviewed by C. Wright.
+Status
+------
+Implements the standard. Written by Claude from the standard's document
+(constants and equations checked against it, as above); to be reviewed by
+C. Wright.
 
 Usage
 -----
@@ -86,19 +86,12 @@ Usage
 >>> round(float(height_to_pressure(11.0)), 2)
 227.0
 
-Status
-------
-Implements the standard; to be reviewed by C. Wright.
-
 Change log
 ----------
 2026/11/24 [Claude] initial version (port of h2p.m and p2h.m)
 2026/11/24 [Claude] pressure_to_height computes in float32 for float32 input, as MATLAB
 2026/11/25 [Claude] U.S. Standard Atmosphere 1976 to 149 km (Q1-Q3), as new h2p.m/p2h.m
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``) and [R1].
 """
 
 import numpy as np

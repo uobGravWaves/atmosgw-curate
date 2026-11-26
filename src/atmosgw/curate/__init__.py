@@ -1,9 +1,14 @@
-"""AtmosGW Curate: loading, standardising and analysing atmospheric gravity-wave
-observations.
+"""AtmosGW Curate: atmospheric gravity-wave observations in common formats.
+
+Loaders are in ``atmosgw.curate.obs`` (``load_limb_sounders``,
+``load_nadir_sounders``, ``load_time_height``); the formats, data states and
+``to_profiles`` are in ``atmosgw.curate.data``. Each module's docstring
+describes its options, science and validation.
 
 Part of the AtmosGW family of packages (``atmosgw.curate``, later
-``atmosgw.fuse``). Status: pre-alpha skeleton; no scientific code yet and not
-validated against the MATLAB reference implementation.
+``atmosgw.fuse``). Status: pre-alpha (0.x). The ported loaders are checked
+against the group's MATLAB code; what has been checked is listed in the
+repository's ``README.md``.
 """
 
 from importlib.metadata import PackageNotFoundError, version

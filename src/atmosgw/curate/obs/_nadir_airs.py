@@ -39,11 +39,12 @@ Differences from MATLAB, by design: a missing granule is skipped and recorded
 (MATLAB fails the whole call); granules are returned in time order; the fill
 handling above (MATLAB reads fill values as data, and crashes regridding them).
 
-2026/11/26 [Claude] fill values, bad times to NaN; fill granules recorded, not dropped
-
 Note: the daily files on eepc-0184 store temperature rounded to whole kelvin
 (``merge_airs_into_daily.sh``); the granule files have full precision. Both
 are read the same way (``readers.read_netcdf`` applies any scale factor).
+
+Change log:
+2026/11/26 [Claude] fill values, bad times to NaN; fill granules recorded, not dropped
 """
 
 import os

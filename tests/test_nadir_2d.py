@@ -1,9 +1,10 @@
 """2-D products in load_nadir_sounders, through a stand-in instrument.
 
-No 2-D reader exists yet: these tests register a stand-in reader that returns
-synthetic brightness temperatures [cross x along x channel], to check that the
-core handles 2-D data (no levels; one or several channels) and that its output
-follows the swath format. Exact checks only.
+These tests register a stand-in reader that returns synthetic brightness
+temperatures [cross x along x channel], to check that the core handles 2-D
+data (no levels; one or several channels) and that its output follows the
+swath format, independently of the AIRS 2-D reader (tested in
+test_nadir_airs2d.py). Exact checks only.
 """
 
 import types

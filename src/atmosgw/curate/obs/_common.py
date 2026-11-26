@@ -1,8 +1,6 @@
 """
 Internal helpers shared by the limb and nadir loaders.
 
-Purpose
--------
 The parts of loading that are the same for every instrument family, so that
 ``load_limb_sounders`` and ``load_nadir_sounders`` treat times, options and
 the record of a load the same way:
@@ -27,9 +25,10 @@ times; see ``limb.py`` and ``nadir.py``.
 
 Science
 -------
-No scientific processing, apart from the temperature limits of
-``outside_physical_range`` (100 K and 400 K below 100 km, from the MATLAB
-loaders).
+The temperature limits of ``outside_physical_range``, from the MATLAB
+loaders: below 100 K, or above 400 K (only below 100 km when heights are
+passed, as by the limb and time-height loaders; the nadir loader passes
+none, so at any height).
 
 Origin
 ------
@@ -44,8 +43,8 @@ Validation
 Through the loaders' tests (``tests/test_limb_*.py``, ``tests/test_nadir_*.py``);
 the move left both loaders' outputs bit-identical.
 
-AI involvement
---------------
+Status
+------
 AI-moved (Claude); to be reviewed by C. Wright.
 
 Change log

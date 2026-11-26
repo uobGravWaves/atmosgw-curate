@@ -225,12 +225,12 @@ Initial registry (proposal), in three groups:
 |---|---|---|---|
 | | **No value: never there** | | |
 | 1 | `no_observation` | NaN | nothing measured here: outside the swath, above or below a profile's measured values, padding between profiles, a gap between segments |
-| 2 | `missing` | NaN | a measurement was expected but the file has none (fill value, missing scan) |
+| 2 | `missing` | NaN | a gap inside what was measured: a fill value or NaN at a scanned point, or between a profile's first and last value (see 6.3) |
 | 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
 | | **No value: removed as bad** | | |
 | 8 | `bad_geolocation` | NaN | latitude or longitude outside its range |
-| 16 | `outside_physical_range` | NaN | temperature < 100 K, or > 400 K below 100 km |
-| 32 | `statistical_outlier` | NaN | outside 3 x IQR of its height level (IASI screen) |
+| 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
+| 32 | `statistical_outlier` | NaN | marked by the instrument's statistical screen (`obs._screen`; IASI default: more than 5 x IQR beyond the quartiles of its height level in a rolling 10-min window, day and night separately; AIRS: none) |
 | 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad |
 | | **Value present, but qualified** | | |
 | 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |

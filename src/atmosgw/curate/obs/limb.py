@@ -1,8 +1,6 @@
 """
 Load limb-sounder and other profile data in a common format.
 
-Purpose
--------
 Load temperature profiles from several instruments (ACE-FTS, GNSS radio
 occultation, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar), from
 planetary-wave-filtered versions of them, from the output of the Wright and
@@ -14,9 +12,6 @@ Port of the MATLAB ``get_limbsounders`` (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78), the group's own code. AIRS and
 IASI, which the MATLAB function can also load, are loaded by
 ``load_nadir_sounders`` instead.
-
-Status of the port: complete for every instrument above. It matches all 33
-cases of the MATLAB reference outputs (see Validation).
 
 Inputs and outputs
 ------------------
@@ -116,30 +111,30 @@ variable (``temperature``, ``pressure``, ``temperature_residual``,
 (latitude or longitude out of range), ``outside_physical_range`` (temperature
 < 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
 ``height_range``, with ``original_z``; interpolated data are only on the
-height scale); as in
-MATLAB, a point removed for one variable is removed (and flagged) in all of
-them. With ``keep_outliers`` the values are kept and the states still set.
-Every other NaN is ``missing`` if it lies between the profile's first and
-last value of that variable (a gap in what was measured, e.g. a fill value),
-and ``no_observation`` otherwise (above or below the profile, or padding
-between profiles of different lengths). With ``extrapolate``, points outside
-a profile's own heights are ``extrapolated`` (where they have a value).
-``origin``:
-"retrieved", except "derived" for planetary-wave data, for Sampler data (from
-a model) and for pressure estimated from height, and "mixed" when only some
-of the pressures in the output are estimated (files without pressure);
-values computed this way also have the ``derived`` state. With no profiles,
-pressure counts as "retrieved".
-Data variables keep their type (float64 from most readers; the profile format
-allows float32 or float64).
+height scale). As in MATLAB, a point removed for one variable is removed
+(and flagged) in all of them. With ``keep_outliers`` the values are kept and
+the states still set. Every other NaN is ``missing`` if it lies between the
+profile's first and last value of that variable (a gap in what was
+measured, e.g. a fill value), and ``no_observation`` otherwise (above or
+below the profile, or padding between profiles of different lengths). With
+``extrapolate``, points outside a profile's own heights are ``extrapolated``
+(where they have a value).
+
+``origin``: "retrieved", except "derived" for planetary-wave data, for
+Sampler data (from a model) and for pressure estimated from height, and
+"mixed" when only some of the pressures in the output are estimated (files
+without pressure); values computed this way also have the ``derived`` state.
+With no profiles, pressure counts as "retrieved". Data variables keep their
+type (float64 from most readers; the profile format allows float32 or
+float64).
 
 Attributes of the Dataset, recording the load: ``format`` ("profile"),
 ``format_version`` (1), ``product`` ("temperature"), ``characterisation``
 (``<instrument>-TEMPERATURE-placeholder/0``, until the characterisation
 packages exist), ``availability`` (optional variables of the format not in
 the Dataset, and why), ``state_counts`` (points in each state, per
-variable), ``instrument``, ``data``
-("raw" or "planetary-wave-filtered"), ``heights`` ("interpolated" or
+variable), ``instrument``, ``data`` ("raw" or "planetary-wave-filtered"),
+``heights`` ("interpolated" or
 "original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
 ``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
 string; infinities as "inf"), ``files_read`` (file names, comma-separated),
@@ -202,25 +197,31 @@ Origin
 ------
 Port of ``get_limbsounders.m`` and its modules (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78; C. Wright, with changes by Claude
-on 2026-11-22), the group's own code.
+on 2026-11-22), the group's own code. The fixes made since in both languages
+(Q1-Q8 in ``docs/quirks.md``) are in the MATLAB commits of the reference used
+for Validation.
 
 Validation
 ----------
-``tests/test_limb_matlab.py``: the private layer against the MATLAB reference
-outputs (``get_limbsounders_reference.mat``, made 2026-11-22 with MATLAB
-R2024b Update 6 from MultiInstrumentFunctions@78eef78 and
-MatlabFunctions@c943399), case by case: all 33 cases (14 synthetic, 19 real
-data, for every instrument). 11 cases are bit-identical in every field; the
-rest differ only in HIRDLS positions (within 7.1e-14 degrees, from the
-geolocation correction's trig functions), in distances derived from them,
-and in pressure computed from height (within 4.9e-16 relative).
+``tests/test_limb_matlab.py``: the private layer ``_load_limb_arrays``
+(MATLAB names, datenum times), not the public Dataset, against every case of
+the MATLAB reference outputs (``get_limbsounders_reference.mat``, 37 cases,
+synthetic and real data, every instrument; made 2026-11-25 with MATLAB R2024b
+Update 6 from MultiInstrumentFunctions@52518fc and MatlabFunctions@3b84a6b;
+pinned by SHA-256 in the test). Bit-identical except in the last bits of
+HIRDLS positions (geolocation trig), ``dx`` (haversine trig), times
+converted from POSIX seconds (ALOMAR), and pressure or heights computed
+through log and exp; each tolerance, and the largest difference seen, is in
+the test's docstring. A by-hand sweep of 1,420 real-data calls at 0.3.4
+(``tests/matlab/sweep/README.md``) compares the same layer.
 ``tests/test_limb_known.py``: the known-answer checks of the MATLAB test, on
-synthetic files and real data. Tolerances are stated in the tests.
+synthetic files and real data.
 
-AI involvement
---------------
-AI-ported (Claude) from the MATLAB. Checked by C. Wright on 2026-11-25 by
-comparing its outputs with the MATLAB function's (SABER, HIRDLS); the code
+Status
+------
+Matches the MATLAB reference outputs (see Validation); first released in
+0.1.0. AI-ported (Claude) from the MATLAB. Checked by C. Wright on 2026-11-25
+by comparing its outputs with the MATLAB function's (SABER, HIRDLS); the code
 has not been reviewed line by line.
 
 Usage
@@ -228,11 +229,6 @@ Usage
 >>> from atmosgw.curate.obs import load_limb_sounders  # doctest: +SKIP
 >>> ds = load_limb_sounders("2007-01-01", "SABER")  # doctest: +SKIP
 >>> ds.temperature.isel(level=0)  # doctest: +SKIP
-
-Status
-------
-Matches the MATLAB reference outputs (see Validation); checked by C. Wright
-(see AI involvement). First released in 0.1.0.
 
 Change log
 ----------
@@ -254,10 +250,8 @@ Change log
 2026/11/25 [Claude] clearer error for dates that do not exist (e.g. "2022-01-34")
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
+2026/11/26 [Claude] docstring: Validation updated to the current MATLAB reference
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import warnings

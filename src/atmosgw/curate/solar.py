@@ -1,8 +1,6 @@
 """
 Solar zenith angle, and the AIRS day/night retrieval switch.
 
-Purpose
--------
 The solar zenith angle at given times and places, and whether the AIRS
 three-dimensional temperature retrieval (Hoffmann and Alexander) used its
 day or night set-up there. Port of ``which_airs_retrieval.m``.
@@ -54,9 +52,9 @@ Validation
 the Tropic of Cancer at noon at the June solstice; the angle and its
 supplement on opposite sides of the Earth). Tolerances stated in the test.
 
-AI involvement
---------------
-AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
+Status
+------
+Preliminary. AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
 
 Usage
 -----
@@ -66,17 +64,10 @@ Usage
 >>> bool(solar_zenith_angle(t, 23.4, 0.0) < 1)
 True
 
-Status
-------
-Preliminary.
-
 Change log
 ----------
 2026/11/25 [Claude] initial version
 
-How to cite
------------
-Cite the package (see ``CITATION.cff``).
 """
 
 import numpy as np
