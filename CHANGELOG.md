@@ -5,6 +5,17 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Formats and conversion: a saved file read back with `xr.load_dataset`
+  (times as datetime64[ns]) passes `validate`; extras' own dimensions
+  (`<name>_dim<k>`) are accepted; an empty planetary-wave result keeps its
+  `mode` dimension; `to_profiles` keeps a swath's or series' own pressure and
+  temperature uncertainty (it always estimated pressure) and no longer shares
+  memory with its input. `help(load_limb_sounders)` (and the other two
+  loaders) shows the full documentation. Docs: data products and layouts in
+  the README, pip and Windows set-up, the 0.5.1 pin, quality flags not
+  applied, reading saved files; stale status lines corrected. CI: Windows
+  and Python 3.12, doctests, skip reasons. `pandas` declared (>= 3.0).
+  [Claude]
 - Regridded nadir swaths (Q14): each value's position is that of the native
   pixels it comes from (new attribute `geolocation`; the regular-grid
   positions were up to 72 km off at the swath edges); the cross-track axis is

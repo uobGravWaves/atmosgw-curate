@@ -21,6 +21,12 @@ export ATMOSGW_DATA=/path/to/Data    # the data root: see "Where the data are"
 uv run python
 ```
 
+Without `uv`: `pip install -e ".[dev]"` in a virtual environment. On Windows
+(PowerShell), set the data root with `$env:ATMOSGW_DATA = "D:\Data"`, or
+put it in `C:\Users\<you>\.config\atmosgw\config.toml`. A data folder
+that does not exist is an error; days or files that are missing are listed
+in `ds.attrs["files_not_found"]`, with a warning.
+
 ```python
 from atmosgw.curate.obs import load_limb_sounders
 
@@ -48,6 +54,13 @@ geometry, file readers) are described in their own docstrings:
 `help(atmosgw.curate.<module>)`.
 
 ## What has been checked
+
+0.5.1 is the last release that reproduces the MATLAB loaders. Later
+releases fix problems found in review that the MATLAB loaders share (ACE and
+GNSS pressure units, GNSS times and repeated occultations, box selection,
+bad points blended by interpolation, nadir positions and spacing: Q9-Q14 in
+[`docs/quirks.md`](docs/quirks.md)); to reproduce a MATLAB-era result,
+install 0.5.1.
 
 In brief; [`docs/validation.md`](docs/validation.md) has the full record,
 with versions, dates and what was not covered.
@@ -86,6 +99,26 @@ with versions, dates and what was not covered.
 | `CONTRIBUTING.md` | package layout, style, porting, documentation and tests |
 
 ## Where the data are
+
+The loaders read the group's copies of each product, in these layouts under
+the dataset's folder (`datasets.toml`); a product in another layout or
+version is not found, or not checked (see each reader's docstring:
+`help(atmosgw.curate.obs._limb_saber)` ...). The version each file states is
+recorded in `ds.attrs["source_versions"]`.
+
+| Instrument | Files (as checked) | Layout under the dataset folder |
+|---|---|---|
+| ACE-FTS | v5.2, the group's daily MAT-files | `yyyy/ace_v52_yyyydddd.mat` |
+| GNSS RO | the group's merged daily MAT-files (several centres; JPL, UCAR, ROM SAF) | `yyyy/merged_ro_yyyy_ddd.mat` |
+| HIRDLS | NASA L2 v7 (HDF-EOS5) | any path containing `_yyyydddd` |
+| MLS | NASA L2GP Temperature v5/v6 (HDF-EOS5); newest of several | any path containing `_yyyydddd` |
+| MIPAS | Oxford retrieval v1.40 (netCDF, CEDA) | any path containing `_yyyymmdd_nom` |
+| SABER | GATS custom Level 2A monthly Temp_O3_H2O files (v2.07, v2.08) | any path containing `<Month><yyyy>` |
+| SOFIE | GATS Level 2 v1.3 (netCDF) | any path containing `Level2_yyyyddd` |
+| ALOMAR lidar | yearly HDF5, V2026-07-27 | `yyyy_V2026-07-27_file4juli.h5` |
+| AIRS 3-D | L. Hoffmann's retrieval: the group's daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
+| AIRS 2-D | L. Hoffmann's brightness-temperature granule files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
+| IASI 3-D | L. Hoffmann's retrieval, orbit files | `yyyy/ddd/iasi_yyyymmddhhmmss.nc` |
 
 Loaders find instrument data under a data root folder, set once per machine
 by either:

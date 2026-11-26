@@ -15,7 +15,8 @@ repository.
 
 Against MATLAB [`get_limbsounders`][get_limbsounders]:
 
-- **`tests/test_limb_matlab.py`** (every `pytest` run): 37 reference cases,
+- **`tests/test_limb_matlab.py`** (run by `pytest` when the reference files
+  and data are installed; skipped otherwise, as on GitHub): 37 reference cases,
   14 synthetic and 23 real data, every instrument. Real-data dates are
   2007-01-01 and 02 for most instruments, MIPAS 2007-01-02, SOFIE
   2007-06-01, ALOMAR 2007-01-23 and 2005-01-15 (to 120 km), and MLS
@@ -55,7 +56,8 @@ nearest point along track: screened points, and NaNs already in the files
 (up to about 10 % of profiles on some days, e.g. 2007-05-31). Python leaves
 them NaN and flagged, so IASI is compared wherever Python has a value.
 
-- **`tests/test_nadir_matlab.py`** (every `pytest` run), reference made
+- **`tests/test_nadir_matlab.py`** (run when the reference files and data are
+  installed), reference made
   2026-11-25 from MatlabFunctions@059037e. AIRS 3-D, 8 cases on 2007-01-01:
   default, spacing, nearest, no vertical interpolation, day/night,
   load-only, the dateline and midnight. Load-only is bit-identical; the rest

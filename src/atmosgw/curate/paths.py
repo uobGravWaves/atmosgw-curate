@@ -79,9 +79,9 @@ Preliminary. AI-originated (Claude), to be reviewed by C. Wright.
 Usage
 -----
 >>> from atmosgw.curate.paths import dataset_dir, local_data_dir
->>> saber_dir = dataset_dir("SABER")            # e.g. <data root>/SABER/raw
->>> saber_pws = dataset_dir("SABER", "pws")
->>> root = local_data_dir()
+>>> saber_dir = dataset_dir("SABER")  # doctest: +SKIP
+>>> saber_pws = dataset_dir("SABER", "pws")  # doctest: +SKIP
+>>> root = local_data_dir()  # doctest: +SKIP
 
 Change log
 ----------

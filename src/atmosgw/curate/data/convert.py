@@ -15,10 +15,12 @@ Inputs and outputs
   ``level`` is kept.
 - ``latitude``, ``longitude``, ``time`` are repeated over levels;
   ``altitude`` is repeated over profiles (or reshaped, if it varies by point).
-- ``temperature`` and its flag are reshaped. ``pressure`` (which the profile
-  format requires and nadir retrievals here do not provide) is estimated from
-  altitude with ``atmosphere.height_to_pressure`` (U.S. Standard Atmosphere
-  1976 [R1]): ``origin`` "derived", and the ``derived`` state at every point.
+- ``temperature`` and its flag (and ``temperature_uncertainty``, if
+  present) are reshaped. ``pressure`` (which the profile format requires):
+  the swath's own, with its flag and attributes, if it has one; otherwise
+  (as for AIRS and IASI here) estimated from altitude with
+  ``atmosphere.height_to_pressure`` (U.S. Standard Atmosphere 1976 [R1]):
+  ``origin`` "derived", and the ``derived`` state at every point.
 - Per profile: ``swath_along``, ``swath_cross`` (1-based positions in the
   swath), ``granule``, ``granule_day``, ``segment``, and ``day_retrieval`` and
   ``source_row`` if present.
@@ -42,8 +44,9 @@ From "time_height" (``load_time_height``):
 - ``latitude``, ``longitude`` (the site) and ``time`` are repeated over
   levels, ``altitude`` over profiles.
 - ``temperature``, its flag and ``temperature_uncertainty`` are kept as
-  they are. ``pressure`` is estimated from altitude as for swaths, in the
-  temperature's type, with ``origin`` "derived" and the ``derived`` state.
+  they are (copied). ``pressure``: the series' own if it has one, else
+  estimated from altitude as for swaths, in the temperature's type, with
+  ``origin`` "derived" and the ``derived`` state.
 - ``session`` is kept per profile; ``source_profile`` and ``source_file``
   (``file_source=True``) are repeated over levels, and ``original_files`` is
   kept.
@@ -76,7 +79,8 @@ Proposal. AI-originated (Claude); to be reviewed by C. Wright.
 Usage
 -----
 >>> from atmosgw.curate.data.convert import to_profiles  # doctest: +SKIP
->>> profiles = to_profiles(load_nadir_sounders("2007-01-01", "AIRS"))  # doctest: +SKIP
+>>> profiles = to_profiles(load_nadir_sounders(
+...     ["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS"))  # doctest: +SKIP
 
 Change log
 ----------
@@ -128,12 +132,10 @@ def _swath_to_profiles(ds):
         altitude = np.broadcast_to(altitude, (n_prof, n_lev)).copy()
     else:
         altitude = altitude.reshape(n_prof, n_lev)
-    temp = ds["temperature"].values.reshape(n_prof, n_lev)
-    temp_flag = ds["temperature_flag"].values.reshape(n_prof, n_lev)
-    pressure = np.asarray(height_to_pressure(altitude), dtype=np.float32)
-    pressure_flag = states.new_flags(pressure.shape)
-    states.set_state(pressure_flag, np.isfinite(pressure), "derived")
-    states.set_state(pressure_flag, ~np.isfinite(pressure), "no_observation")
+    temp = ds["temperature"].values.reshape(n_prof, n_lev).copy()
+    temp_flag = ds["temperature_flag"].values.reshape(n_prof, n_lev).copy()
+    pressure, pressure_flag, pressure_attrs = _pressure(
+        ds, altitude, np.float32, lambda name: ds[name].values.reshape(n_prof, n_lev))
 
     along, cross = np.meshgrid(np.arange(1, n_along + 1), np.arange(1, n_cross + 1),
                                indexing="ij")
@@ -144,11 +146,7 @@ def _swath_to_profiles(ds):
         "altitude": (pl, altitude.astype(np.float64), ds["altitude"].attrs),
         "temperature": (pl, temp, ds["temperature"].attrs),
         "temperature_flag": (pl, temp_flag, ds["temperature_flag"].attrs),
-        "pressure": (pl, pressure, {
-            "units": "hPa", "standard_name": "air_pressure", "origin": "derived",
-            "ancillary_variables": "pressure_flag",
-            "comment": "estimated from altitude with atmosphere.height_to_pressure "
-                       "(U.S. Standard Atmosphere 1976) by data.convert.to_profiles"}),
+        "pressure": (pl, pressure, pressure_attrs),
         "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
         "swath_along": (("profile",), along.reshape(n_prof).astype(np.int32),
                         {"long_name": "along-track position in the swath (1-based)"}),
@@ -162,6 +160,10 @@ def _swath_to_profiles(ds):
     if "day_retrieval" in ds:
         out["day_retrieval"] = (("profile",), per_point("day_retrieval"),
                                 ds["day_retrieval"].attrs)
+    if "temperature_uncertainty" in ds:  # (supplied: kept)
+        out["temperature_uncertainty"] = (pl, ds["temperature_uncertainty"].values
+                                          .reshape(n_prof, n_lev).copy(),
+                                          ds["temperature_uncertainty"].attrs)
     if "source_file" in ds:  # row value over cross-track positions and levels
         out["source_file"] = (pl, over_levels(np.repeat(ds["source_file"].values,
                                                         n_cross)),
@@ -178,8 +180,9 @@ def _swath_to_profiles(ds):
     availability = {n: swath_availability.get(n, "not_requested") for n in tracked}
     if "source_profile" in availability:
         availability["source_profile"] = "not_provided"
-    availability.update({"temperature_uncertainty": "not_provided",
-                         "pressure_uncertainty": "not_provided"})
+    for name in ("temperature_uncertainty", "pressure_uncertainty"):
+        if name not in result:
+            availability[name] = swath_availability.get(name, "not_provided")
     result.attrs = dict(ds.attrs)
     for name in ("spatial_dims", "grid_spacing_km", "grid"):
         result.attrs.pop(name, None)
@@ -206,11 +209,9 @@ def _time_height_to_profiles(ds):
 
     altitude = np.broadcast_to(ds["altitude"].values, (n_prof, n_lev)).astype(
         np.float64)
-    temp = ds["temperature"].values
-    pressure = np.asarray(height_to_pressure(altitude), dtype=temp.dtype)
-    pressure_flag = states.new_flags(pressure.shape)
-    states.set_state(pressure_flag, np.isfinite(pressure), "derived")
-    states.set_state(pressure_flag, ~np.isfinite(pressure), "no_observation")
+    temp = ds["temperature"].values.copy()  # (a copy: the input is not shared)
+    pressure, pressure_flag, pressure_attrs = _pressure(
+        ds, altitude, temp.dtype, lambda name: ds[name].values.copy())
 
     def site(name):  # the site position at every point
         return np.full((n_prof, n_lev), float(ds[name].values))
@@ -221,18 +222,14 @@ def _time_height_to_profiles(ds):
         "time": (pl, over_levels(ds["time"].values), ds["time"].attrs),
         "altitude": (pl, altitude, ds["altitude"].attrs),
         "temperature": (pl, temp, ds["temperature"].attrs),
-        "temperature_flag": (pl, ds["temperature_flag"].values,
+        "temperature_flag": (pl, ds["temperature_flag"].values.copy(),
                              ds["temperature_flag"].attrs),
-        "pressure": (pl, pressure, {
-            "units": "hPa", "standard_name": "air_pressure", "origin": "derived",
-            "ancillary_variables": "pressure_flag",
-            "comment": "estimated from altitude with atmosphere.height_to_pressure "
-                       "(U.S. Standard Atmosphere 1976) by data.convert.to_profiles"}),
+        "pressure": (pl, pressure, pressure_attrs),
         "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
     }
     if "temperature_uncertainty" in ds:
-        out["temperature_uncertainty"] = (pl, ds["temperature_uncertainty"].values,
-                                          ds["temperature_uncertainty"].attrs)
+        out["temperature_uncertainty"] = (pl, ds["temperature_uncertainty"].values
+                                          .copy(), ds["temperature_uncertainty"].attrs)
     if "session" in ds:
         out["session"] = (("profile",), ds["session"].values, ds["session"].attrs)
     for name in ("source_profile", "source_file"):  # (time,) -> (profile, level)
@@ -248,7 +245,8 @@ def _time_height_to_profiles(ds):
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
                if s.get("tracked") and n not in result]
     availability = {n: th_availability.get(n, "not_requested") for n in tracked}
-    availability["pressure_uncertainty"] = "not_provided"
+    if "pressure_uncertainty" not in result:
+        availability["pressure_uncertainty"] = "not_provided"
     if "temperature_uncertainty" not in result:
         availability["temperature_uncertainty"] = th_availability.get(
             "temperature_uncertainty", "not_provided")
@@ -261,3 +259,20 @@ def _time_height_to_profiles(ds):
             {n: result[f"{n}_flag"].values for n in ("temperature", "pressure")}),
     })
     return result
+
+
+def _pressure(ds, altitude, dtype, take):
+    """(pressure, its flag, its attributes) as profiles: the Dataset's own if
+    it has one (take(name) reshapes a variable), else estimated from altitude
+    with the U.S. Standard Atmosphere 1976, marked derived."""
+    if "pressure" in ds and "pressure_flag" in ds:
+        return take("pressure"), take("pressure_flag"), dict(ds["pressure"].attrs)
+    pressure = np.asarray(height_to_pressure(altitude), dtype=dtype)
+    flag = states.new_flags(pressure.shape)
+    states.set_state(flag, np.isfinite(pressure), "derived")
+    states.set_state(flag, ~np.isfinite(pressure), "no_observation")
+    return pressure, flag, {
+        "units": "hPa", "standard_name": "air_pressure", "origin": "derived",
+        "ancillary_variables": "pressure_flag",
+        "comment": "estimated from altitude with atmosphere.height_to_pressure "
+                   "(U.S. Standard Atmosphere 1976) by data.convert.to_profiles"}

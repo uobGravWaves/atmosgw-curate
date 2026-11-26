@@ -164,8 +164,8 @@ Preliminary. AI-ported (Claude) from the MATLAB; to be reviewed by C. Wright.
 Usage
 -----
 >>> from atmosgw.curate.obs import load_nadir_sounders  # doctest: +SKIP
->>> ds = load_nadir_sounders("2007-01-01T05:00", "AIRS",
-...                          time_handling="strict")  # doctest: +SKIP
+>>> ds = load_nadir_sounders(["2007-01-01T05:00", "2007-01-01T06:00"],
+...                          "AIRS")  # doctest: +SKIP
 
 Change log
 ----------
@@ -283,7 +283,7 @@ def load_nadir_sounders(
     date_warning=True,
     verbose=False,
 ):
-    """Load nadir-sounder swaths as an xarray.Dataset. See the module docstring."""
+    # (the module docstring, so that help(load_nadir_sounders) shows it all)
     options = {k: v for k, v in locals().items() if k not in ("time_range",
                                                               "instrument")}
     call = {"time_range": time_range, "instrument": instrument, **options}
@@ -962,5 +962,7 @@ def _to_dataset(data, settings, call=None):
     }
     return ds
 
+
+load_nadir_sounders.__doc__ = __doc__
 
 __all__ = ["load_nadir_sounders", "INSTRUMENTS"]
