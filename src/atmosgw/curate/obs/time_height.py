@@ -69,7 +69,10 @@ its uncertainty). ``availability`` lists ``pressure`` and the winds as
 ``characterisation``, ``data``, ``preprocessing``, ``heights`` "original",
 ``site_name``, ``time_range``, ``availability``, ``source``,
 ``atmosgw_curate_version``, ``options``, ``files_read``,
-``files_not_found``, ``multiple_matches``, ``state_counts``).
+``source_versions`` (the data version each file states, with counts),
+``files_not_found`` and ``files_without_data`` (warned),
+``multiple_matches``, ``state_counts``; with ``file_source``,
+``original_file_version`` beside ``original_files``).
 
 ``data.to_profiles`` turns the output into the profile format (one profile
 per row, pressure estimated from height).

@@ -232,23 +232,25 @@ Initial registry (proposal), in three groups:
 | 2 | `missing` | NaN | a gap inside what was measured: a fill value or NaN at a scanned point, or between a profile's first and last value (see 6.3) |
 | 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
 | | **No value: removed as bad** | | |
-| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range |
+| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width) |
 | 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
 | 32 | `statistical_outlier` | NaN | marked by the instrument's statistical screen (`obs._screen`; IASI default: more than 5 x IQR beyond the quartiles of its height level in a rolling 10-min window, day and night separately; AIRS: none) |
-| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad |
+| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km) |
 | | **Value present, but qualified** | | |
 | 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
-| 512 | `extrapolated` | value | outside the source data's coverage |
-| 1024 | `a_priori_dominated` | value | the retrieval has little information here (reserved: set from the CP's averaging kernels once available) |
+| 512 | `extrapolated` | value | outside the source data's coverage (with `extrapolate`; nadir: also cross-track edge columns taking a segment's edge value) |
+| 1024 | `a_priori_dominated` | value | the retrieval has little information here, as the provider marks it (with `instrument_qc`: HIRDLS negative precision); later perhaps also from the CPs' averaging kernels |
 
 Several bits can be set together (e.g. `derived` and `extrapolated`). With
 `keep_outliers`, points in the "removed as bad" group keep their values,
 and their bits are still set.
 
-Instruments' own QC variables are passed through unchanged as their own
-variables (e.g. `airs_temperature_qc`), with a `comment` naming the state
-they feed.
+Instruments' own quality variables are not output unless asked for with
+`additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
+are implemented (`instrument_qc`, limb: MLS, SOFIE, HIRDLS), they set
+`instrument_flag` or `a_priori_dominated`; the rule and its source are in the
+temperature's `comment` and in `docs/quirks.md` (Q15, Q17).
 
 ### 6.3 Shared rules (both formats)
 

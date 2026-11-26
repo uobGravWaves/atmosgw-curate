@@ -131,8 +131,13 @@ variable (``temperature``, ``pressure``, ``temperature_residual``,
 (latitude or longitude out of range), ``outside_physical_range`` (temperature
 < 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
 ``height_range``, with ``original_z``; interpolated data are only on the
-height scale). As in MATLAB, a point removed for one variable is removed
-(and flagged) in all of them. With ``keep_outliers`` the values are kept and
+height scale), ``instrument_flag`` (with ``instrument_qc``: MLS values failing
+its data quality documents' rules, SOFIE heights outside 15-88 km; Q15,
+Q17) and, kept with their values, ``a_priori_dominated`` (with
+``instrument_qc``: HIRDLS values with negative precision; Q17). When
+interpolating, a height that uses a file point with one of these states
+gets the state too (Q13). As in MATLAB, a point removed for one variable is
+removed (and flagged) in all of them. With ``keep_outliers`` the values are kept and
 the states still set. Every other NaN is ``missing`` if it lies between the
 profile's first and last value of that variable (a gap in what was
 measured, e.g. a fill value), and ``no_observation`` otherwise (above or

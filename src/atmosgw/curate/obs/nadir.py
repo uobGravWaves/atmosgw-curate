@@ -75,6 +75,12 @@ Options (type, default; MATLAB name):
 start of each segment) and ``distance_cross`` on a regular grid; optional
 variables as requested. Variables that do not exist are listed in the
 ``availability`` attribute (e.g. the satellite position: ``not_in_files``).
+Attributes recording the load, as ``load_limb_sounders`` (``files_read``,
+``source_versions``: AIRS and IASI files state none; ``files_not_found`` and
+``files_without_data``, warned; ``multiple_matches``, ``options`` ...), plus
+``grid``, ``grid_spacing_km``, ``spatial_dims``, ``screen`` and
+``geolocation`` (how the positions were made; see below). With
+``file_source``, ``original_file_version`` is beside ``original_files``.
 
 Positions of a regridded swath (Q14 in ``docs/quirks.md``): each value's
 latitude and longitude are those of the native pixels it is interpolated
@@ -116,8 +122,10 @@ Science
 - Regridding and vertical grid: ``swath.regrid``, ``swath.regular_levels``,
   ``swath.interpolate_levels`` (see ``swath``), as MATLAB.
 - States (``data.states``): fill values in the files are ``missing``;
-  positions outside [-90, 90] / [-180, 180] or not finite, or a missing
-  time, are ``bad_geolocation``; temperatures below 100 K or above 400 K are
+  positions outside [-90, 90] / [-180, 180] or not finite, a missing time,
+  or a scan whose width is more than 20 % from the median (Q14), are
+  ``bad_geolocation``; regridded cross-track points taking a segment's edge
+  value are ``extrapolated`` (Q14); temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (IASI also at exactly 100 K, its retrieval's
   lower bound; proposal: MATLAB applies this only to IASI; for AIRS it
   changes nothing where no such values exist, as in the test granules);
