@@ -168,30 +168,40 @@ def gnss_fixes(inst_data, inst_info, keep_duplicates=False):
     if meta is None or len(meta) != n_prof:
         return np.arange(n_prof)
     meta = meta.copy()
+    for column in ("latitude", "longitude", "time"):  # (fill values here too)
+        if column in meta:
+            value = np.asarray(meta[column], dtype=float)
+            meta[column] = np.where(np.abs(value) >= GNSS_FILL, np.nan, value)
+    meta["occid"] = meta["occid"].fillna("").astype(str)
     inst_data["MetaData"] = meta
 
     # times: the id's where the file's is more than ID_TIME_MINUTES away
     file_time = np.asarray(meta["time"], dtype=float)
     id_time = np.full(n_prof, np.nan)
-    for k, occ in enumerate(meta["occid"].astype(str)):
+    for k, occ in enumerate(meta["occid"]):
         found = _ID_TIME.search(occ)
         if found:
-            s = found.group(1)
-            id_time[k] = datetime_to_datenum(np.datetime64(
-                f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}", "m"))
+            stamp = found.group(1)
+            try:
+                id_time[k] = datetime_to_datenum(np.datetime64(
+                    f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}T{stamp[8:10]}:"
+                    f"{stamp[10:12]}", "m"))
+            except ValueError:  # (digits that are not a date: no id time)
+                pass
     def on_hour(t):  # (to within 0.4 ms)
         return np.abs(t * 24 - np.round(t * 24)) < 1e-7
 
     with np.errstate(invalid="ignore"):
         minutes = np.abs(file_time - id_time) * 1440
         off = np.isfinite(id_time) & (
-            (minutes > ID_TIME_MINUTES)
+            (minutes > ID_TIME_MINUTES) | ~np.isfinite(file_time)
             | (on_hour(file_time) & ~on_hour(id_time) & (minutes > 1)))
     if off.any():
         meta["time"] = np.where(off, id_time, file_time)
         if "Time" in inst_data:  # (PW files: one time per point)
             time = np.asarray(inst_data["Time"], dtype=float).copy()
-            time[off] = id_time[off, None]
+            fix = off[:, None] & np.isfinite(time)  # (levels with a time only)
+            time[fix] = np.broadcast_to(id_time[:, None], time.shape)[fix]
             inst_data["Time"] = time
         note(inst_info, "Time", "GNSS profiles whose MetaData time is more than "
                                 f"{ID_TIME_MINUTES:g} min from the time in their "
@@ -204,20 +214,20 @@ def gnss_fixes(inst_data, inst_info, keep_duplicates=False):
     lat = np.asarray(inst_data["Lat"], dtype=float)
     lon = np.asarray(inst_data["Lon"], dtype=float)
     has_position = (np.isfinite(lat) & np.isfinite(lon)).any(axis=1)
-    none = ~has_position
-    if none.any():
+    meta_lat = np.asarray(meta["latitude"], dtype=float)
+    meta_lon = np.asarray(meta["longitude"], dtype=float)
+    filled = ~has_position & np.isfinite(meta_lat) & np.isfinite(meta_lon)
+    if filled.any():
         lat, lon = lat.copy(), lon.copy()
-        lat[none] = np.asarray(meta["latitude"], dtype=float)[none, None]
-        lon[none] = np.asarray(meta["longitude"], dtype=float)[none, None]
+        lat[filled] = meta_lat[filled, None]
+        lon[filled] = meta_lon[filled, None]
         inst_data["Lat"], inst_data["Lon"] = lat, lon
-        _count_note(inst_info, "gnss_metadata_positions", int(none.sum()))
 
     # one copy of each occultation
-    if keep_duplicates:
-        return np.arange(n_prof)
-    occid = meta["occid"].astype(str).to_numpy()
-    ids, first, counts = np.unique(occid, return_index=True, return_counts=True)
-    if not np.any(counts > 1):
+    occid = meta["occid"].to_numpy()
+    ids, counts = np.unique(occid[occid != ""], return_counts=True)
+    if keep_duplicates or not np.any(counts > 1):
+        _count_note(inst_info, "gnss_metadata_positions", int(filled.sum()))
         return np.arange(n_prof)
     resolution = np.full(n_prof, np.inf)
     if "PTRes" in inst_data:
@@ -235,13 +245,19 @@ def gnss_fixes(inst_data, inst_info, keep_duplicates=False):
         keep[best] = True
     rows = np.flatnonzero(keep)
     for name, value in list(inst_data.items()):
-        if name == "MSL_alt":
+        if name in ("MSL_alt", "Settings", "Note"):
             continue
         if hasattr(value, "iloc") and len(value) == n_prof:
             inst_data[name] = value.iloc[rows].reset_index(drop=True)
         elif isinstance(value, np.ndarray) and value.ndim >= 1 \
                 and value.shape[0] == n_prof:
             inst_data[name] = value[rows]
+        elif np.ndim(value) >= 1 and n_prof in np.shape(value)[1:]:
+            raise ValueError(
+                f"GNSS variable {name!r} has shape {np.shape(value)}, with profiles "
+                "not along its first dimension, so repeated occultations cannot be "
+                "removed from it; use keep_duplicate_occultations=True.")
+    _count_note(inst_info, "gnss_metadata_positions", int(filled[rows].sum()))
     _count_note(inst_info, "gnss_duplicates_removed", int(n_prof - rows.size))
     return rows
 
@@ -258,12 +274,15 @@ def note_gnss_counts(inst_info):
     n = counts.get("gnss_metadata_positions", 0)
     if n:
         for name in ("Lat", "Lon"):
-            note(inst_info, name, f"{n} profiles with no position in the file take "
-                                  "their MetaData position at every level")
+            note(inst_info, name, f"{n} profiles of the files read (before time and "
+                                  "box selection) have no position in the file and "
+                                  "take their MetaData position at every level")
     n = counts.get("gnss_duplicates_removed", 0)
     if n:
-        note(inst_info, "Temp", f"{n} repeated copies of occultations (the same "
-                                "occultation id from several processing centres) "
-                                "left out: per occultation, the copy with per-level "
-                                "positions and a good time, then the finest "
-                                "original resolution (PTRes), is kept")
+        for name in ("Temp", "Temp_Residual", "Temp_PW"):
+            note(inst_info, name, f"{n} repeated copies of occultations (the same "
+                                  "occultation id from several processing centres) "
+                                  "left out of the files read: per occultation, the "
+                                  "copy with per-level positions and a good time, "
+                                  "then the finest original resolution (PTRes), is "
+                                  "kept")

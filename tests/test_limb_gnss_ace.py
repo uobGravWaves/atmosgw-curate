@@ -125,7 +125,7 @@ def test_gnss_positions_from_metadata(gnss):
     # profiles with positions in the file keep them
     np.testing.assert_array_equal(ds.latitude.values[0],
                                   np.float32(META_LAT[0]).astype(float))
-    assert ds.latitude.attrs["comment"].startswith("3 profiles with no position")
+    assert ds.latitude.attrs["comment"].startswith("3 profiles of the files read")
 
 
 def test_gnss_hour_rounded_times_take_the_id_time(gnss):
@@ -157,6 +157,50 @@ def test_gnss_fixes_unit():
     assert rows.tolist() == [0, 3, 4, 5]
     assert len(content["MetaData"]) == 4 and content["Lat"].shape == (4, 4)
     assert np.isnan(content["Temp"][3, 2]) and np.isnan(content["Pres"][3, 2])
+
+
+def test_gnss_fixes_bad_ids_fills_and_missing_times():
+    content = _gnss_content()
+    meta = content["MetaData"]
+    meta.loc[0, "occid"] = None              # missing id: no id time, not repeated
+    meta.loc[3, "occid"] = "champ-G02-200701019960"  # not a date
+    meta.loc[4, "latitude"] = 9.96921e36     # fill in MetaData: no position
+    meta.loc[5, "time"] = np.nan             # no file time: the id's
+    rows = _limb_ace_gnss.gnss_fixes(content, {"inst": "GNSS"})
+    assert rows.tolist() == [0, 1, 2, 3, 4, 5]  # (no repeated id left)
+    assert np.all(np.isnan(content["Lat"][4]))
+    assert abs(content["MetaData"]["time"][5] - datenum(2007, 1, 1, 4, 12)) < 1e-9
+
+
+def _real_gnss(day, **options):
+    try:
+        folder = dataset_dir("GNSS")
+    except (DataDirNotSetError, FileNotFoundError) as error:
+        pytest.skip(f"no GNSS data: {error}")
+    if not os.path.isdir(folder):
+        pytest.skip("no GNSS data")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return load_limb_sounders(day, "GNSS", original_z=True,
+                                  additional_vars=["MetaData"], **options)
+
+
+@pytest.mark.parametrize("day", [D1, "2020-01-10"])
+def test_real_gnss_times_ids_and_positions(day):
+    # independent of the rules: every time returned is within 6 min of its
+    # occultation id's time, every id is returned once, every profile placed
+    ds = _real_gnss(day)
+    assert ds.sizes["profile"] > 0
+    ids = ds["MetaData_occid"].values.astype(str)
+    assert len(set(ids)) == ids.size
+    stamp = np.array([i[-12:] for i in ids])
+    id_time = np.array([f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}"
+                        for s in stamp], dtype="datetime64[us]")
+    minutes = np.abs((ds.time.values[:, 0] - id_time) / np.timedelta64(1, "m"))
+    assert minutes.max() < 6
+    assert np.all(np.isfinite(ds.latitude.values).any(axis=1))
+    all_copies = _real_gnss(day, keep_duplicate_occultations=True)
+    assert all_copies.sizes["profile"] > ds.sizes["profile"]
 
 
 # real data: pressure against the standard atmosphere, every limb instrument
