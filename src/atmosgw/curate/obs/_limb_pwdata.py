@@ -20,6 +20,10 @@ in the file (the MATLAB code copies it directly rather than through
 ``Temp_PW``, MATLAB would then interpolate it in single precision, which is
 not reproduced here; the HIRDLS and SABER PW files checked (2007d001,
 2017d050) hold double precision, so this does not arise for them.
+
+GNSS PW files get the same corrections as the raw GNSS files
+(``_limb_ace_gnss.gnss_fixes``: fill values, times, positions, repeated
+occultations); their pressure is estimated from height, as before.
 """
 
 import os
@@ -34,6 +38,7 @@ from atmosgw.curate.obs._common import (
     record,
     year_and_day,
 )
+from atmosgw.curate.obs._limb_ace_gnss import gnss_fixes, note_gnss_counts
 from atmosgw.curate.obs._limb_tools import conform_vars, note_estimated_pres
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import find_files, read_mat
@@ -70,6 +75,10 @@ def load(settings, inst_info, var_names):
         inst_data = read_mat(path)
         file_list.append(os.path.basename(path))
         file_count = len(file_list)
+        rows = np.arange(np.shape(inst_data["Lat"])[0])  # file rows (0-based)
+        if inst_info["inst"] == "GNSS":  # (as the raw GNSS files)
+            rows = gnss_fixes(inst_data, inst_info,
+                              settings.get("keep_duplicate_occultations", False))
 
         store = {}
         estimated = "Pres" not in inst_data
@@ -80,8 +89,8 @@ def load(settings, inst_info, var_names):
             if name == "PresEstimated":  # (for the output's data states)
                 inst_data[name] = np.full(np.shape(inst_data["Alt"]), float(estimated))
             if name == "SourceProf":
-                n_prof, n_lev = np.shape(inst_data["Lat"])[:2]
-                profile = np.arange(1, n_prof + 1, dtype=float)  # 1-based
+                n_lev = np.shape(inst_data["Lat"])[1]
+                profile = (rows + 1).astype(float)  # 1-based row in the file
                 inst_data["SourceProf"] = np.tile(profile.reshape(-1, 1), (1, n_lev))
             if name == "SourceFile":
                 inst_data["SourceFile"] = np.full(np.shape(inst_data["Lat"]),
@@ -91,6 +100,7 @@ def load(settings, inst_info, var_names):
             store[name] = inst_data[name]
         days.append(conform_vars(store, settings))
 
+    note_gnss_counts(inst_info)
     data = concat_profiles(days, var_names)
     if len(days) == 1:
         data["Temp_PW"] = days[0]["Temp_PW"]  # keeps the file's number type

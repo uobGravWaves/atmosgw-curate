@@ -42,6 +42,11 @@ Against MATLAB [`get_limbsounders`][get_limbsounders]:
 Each deliberate change from MATLAB (Q1-Q8) was measured before and after;
 the sizes are in [`quirks.md`](quirks.md).
 
+0.5.1 is the last release that reproduces `get_limbsounders`. Later changes
+made in Python only (Q9-Q11, ACE and GNSS) are applied to the MATLAB output
+in `tests/test_limb_matlab.py` before the comparison, so the rest is still
+checked against MATLAB; to reproduce a MATLAB-era result, install 0.5.1.
+
 ## `load_nadir_sounders`
 
 Against MATLAB [`prep_airs_3d`][prep_airs_3d]. IASI is run with
