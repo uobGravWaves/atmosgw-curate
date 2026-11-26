@@ -257,7 +257,8 @@ back = xr.load_dataset("/path/to/output.nc")   # times come back as datetime64[n
 validate(back, back.attrs["format"])           # still valid
 ```
 
-A day of AIRS or IASI regridded is several GB in memory. Save to a disk with
+A regridded day of AIRS is 0.6 GB returned and needs about 2.6 GB while
+loading (2007-01-01); IASI is similar. Save to a disk with
 room (on the group's Linux machine, under `~/Data/<you>/`, not your home
 folder).
 
