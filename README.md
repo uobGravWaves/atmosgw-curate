@@ -157,7 +157,9 @@ button). There is no DOI yet. Where a result depends on a physical
 relation, also cite its source (`docs/theory/relations.md`).
 
 Questions and bug reports: GitHub issues, or Corwin Wright, University of
-Bath.
+Bath. With a report, please paste the output's `ds.attrs` (the call's
+options, the package version, the files read and their data versions):
+with them, most problems can be reproduced.
 
 MATLAB is a registered trademark of The MathWorks, Inc. This package is
 independent of MathWorks; its MATLAB-compatible functions are written from

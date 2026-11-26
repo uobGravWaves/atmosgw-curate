@@ -123,13 +123,57 @@ def test_q13_smooth_methods_with_bad_points_do_not_crash(tmp_path, method):
     _write(tmp_path, [250.0, 50.0, 50.0, 50.0], heights=(20, 22, 24, 26))
     ds = _load(tmp_path, height_scale=[21.0, 25.0], interp_type=method)
     assert np.all(np.isnan(ds.temperature.values))
-    # a bad point at the top: the heights its extrapolation reaches are marked
+    # a bad point at the top: the heights it reaches are marked; beyond the
+    # profile there is no value unless extrapolate (Q18), and then the heights
+    # its extrapolation reaches are marked too
     _write(tmp_path, [250.0, 240.0, 230.0, 50.0], heights=(20, 22, 24, 26))
     ds = _load(tmp_path, height_scale=[21.0, 25.0, 27.0], interp_type=method)
     assert np.isfinite(ds.temperature.values[0, 0])
     assert np.all(np.isnan(ds.temperature.values[0, 1:]))
+    flag = ds.temperature_flag.values[0]
+    assert states.has_state(flag[1], "outside_physical_range")
+    assert states.has_state(flag[2], "no_observation")
+    ds = _load(tmp_path, height_scale=[21.0, 25.0, 27.0], interp_type=method,
+               extrapolate=True)
+    assert np.isfinite(ds.temperature.values[0, 0])
     assert np.all(states.has_state(ds.temperature_flag.values[0, 1:],
                                    "outside_physical_range"))
+
+
+@pytest.mark.parametrize("method", ["pchip", "spline", "makima"])
+def test_q18_smooth_methods_only_where_linear_gives_a_value(tmp_path, method):
+    # the reviewer's example: 220, 230, 240 K at 20, 22, 24 km gave 210 and
+    # 250 K at 18 and 26 km with flag 0
+    _write(tmp_path, [220.0, 230.0, 240.0])
+    ds = _load(tmp_path, height_scale=[18.0, 21.0, 26.0], interp_type=method)
+    t, flag = ds.temperature.values[0], ds.temperature_flag.values[0]
+    assert np.isnan(t[0]) and np.isnan(t[2]) and np.isfinite(t[1])
+    assert np.all(states.has_state(flag[[0, 2]], "no_observation"))
+    for name in ("pressure", "latitude", "longitude", "time"):  # (all variables)
+        value = ds[name].values[0]
+        missing = np.isnat(value) if value.dtype.kind == "M" else np.isnan(value)
+        assert missing[0] and missing[2] and not missing[1], name
+    # heights present, temperatures missing at the ends: not extrapolated
+    # from the values that exist
+    _write(tmp_path, [np.nan, 220.0, 230.0, 240.0, np.nan],
+           heights=(18, 20, 22, 24, 26))
+    ds = _load(tmp_path, height_scale=[19.0, 21.0, 25.0], interp_type=method)
+    t = ds.temperature.values[0]
+    assert np.isnan(t[0]) and np.isfinite(t[1]) and np.isnan(t[2])
+    # a level with a height but no temperature is not bridged
+    _write(tmp_path, [220.0, 230.0, np.nan, 250.0, 260.0],
+           heights=(20, 22, 24, 26, 28))
+    ds = _load(tmp_path, height_scale=[21.0, 23.0, 25.0, 27.0], interp_type=method)
+    t, flag = ds.temperature.values[0], ds.temperature_flag.values[0]
+    assert np.all(np.isfinite(t[[0, 3]])) and np.all(np.isnan(t[[1, 2]]))
+    assert np.all(states.has_state(flag[[1, 2]], "missing"))
+    # with extrapolate, values beyond the profile, marked extrapolated
+    _write(tmp_path, [220.0, 230.0, 240.0])
+    ds = _load(tmp_path, height_scale=[18.0, 21.0, 26.0], interp_type=method,
+               extrapolate=True)
+    assert np.all(np.isfinite(ds.temperature.values))
+    assert np.all(states.has_state(ds.temperature_flag.values[0, [0, 2]],
+                                   "extrapolated"))
 
 
 @pytest.mark.parametrize("method", ["next", "previous"])

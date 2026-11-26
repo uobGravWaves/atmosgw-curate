@@ -52,7 +52,8 @@ def load(settings, inst_info, var_names):
     note_sources(inst_info, {**FILE_NAMES, "Time": "date, time"})
     note(inst_info, "Time", "file date (yyyyddd) + time (ms since midnight)")
     file_name, event_dates, chosen = "", None, None
-    months_seen = set()  # (each month is looked up for every day, recorded once)
+    months_seen = set()  # (each month is looked up once)
+    months_reported = set()  # (and a missing one recorded once)
     days, file_list = [], []
     for k, day in enumerate(range(first, last + 1), start=1):
         if settings["verbose"]:
@@ -66,8 +67,10 @@ def load(settings, inst_info, var_names):
         if first_look:  # (the file of the month, recording duplicates)
             chosen = choose_file(found, inst_info, f"{month}{year}")
         if chosen is None:
-            # (the day before the request is only looked at: not reported)
-            if first_look and day > first:
+            # (the day before the request is only looked at: not reported;
+            # a month first seen on that day is reported for the days asked for)
+            if day > first and f"{month}{year}" not in months_reported:
+                months_reported.add(f"{month}{year}")
                 record(inst_info)["files_not_found"].append(f"{month}{year}")
             continue
 

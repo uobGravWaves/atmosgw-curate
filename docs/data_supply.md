@@ -30,7 +30,9 @@ order is used (at each level, the contents of sub-folders before the files
 beside them, each in name order) and the
 choice is warned and listed in the output attribute `multiple_matches`; the
 newest MLS version is chosen instead of the first. A file at its usual path is
-used without looking further. Do not keep two copies of a product (e.g. two
+used without looking further, except for IASI, whose files of a day are
+gathered from its day folder and anywhere else below the IASI folder (files
+in another day's folder are left out). Do not keep two copies of a product (e.g. two
 versions) under one folder unless you want this choice made for you.
 
 File names must keep the patterns below: the date is taken from the name.

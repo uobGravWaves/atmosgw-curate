@@ -150,6 +150,8 @@ def load(settings, inst_info, var_names):
 
     granules, file_list, alt = [], [], None
     fill_counts = {}
+    # (files opened, used or not: for the warning when nothing is in range)
+    record(inst_info)["files_opened"] = len(by_file)
     for (path, kind), wanted in sorted(by_file.items()):
         rows = [g - 1 for _, g in wanted] if kind == "daily" else None
         if kind == "daily":  # (granule files are the producer's, unaltered)

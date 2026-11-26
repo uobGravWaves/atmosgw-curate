@@ -68,7 +68,8 @@ Options (type, default; MATLAB name):
   and ``original_files``.
 - ``file_path`` (str or Path, None): read the files from this folder.
 - ``date_warning`` (bool, True), ``verbose`` (bool, False): as
-  ``load_limb_sounders``.
+  ``load_limb_sounders`` (including the warning when no granule's mean time
+  lies in the requested times although nothing was missing).
 
 **Output**: a Dataset in the swath format, version 1 (see
 ``data.formats``): dimensions ``(along_track, cross_track, level)``;
@@ -91,8 +92,9 @@ from, with the same weights (directions on the sphere); where there is no
 value, the regular grid's own position. ``distance_along`` and
 ``distance_cross`` are the grid's coordinates in swath distance (along the
 middle scan position, across from the middle of each scan). The cross-track
-axis is the median over all scans that can be placed; scans whose width is
-more than 20 % from the median cannot be placed (``bad_geolocation``);
+axis is the median over all scans that can be placed; scans less than half
+or more than 1.5 times the instrument's nominal width (AIRS 1785 km, IASI
+2125 km) cannot be placed (``bad_geolocation``);
 cross-track points up to half a grid step beyond a segment's own edge take
 its edge value (``extrapolated``). A segment with part of a granule gets rows
 in proportion to its scans, so its spacing is that of whole granules;
@@ -101,17 +103,17 @@ in proportion to its scans, so its spacing is that of whole granules;
 Segments: the swath is split where successive rows are more than 180 s apart
 (missing granules, or separate time ranges; not 1.5 scans, because the AIRS
 daily files store times as float32); each segment is
-regridded on its own along-track axis, all on one cross-track axis (that of
-the first segment, as MATLAB assumes every scan has the same cross-track
-geometry). Rows of different segments are not interpolated across. A scan
+regridded on its own along-track axis, all on one cross-track axis (the
+median over every scan that can be placed, Q14; MATLAB takes that of the
+first scan, assuming every scan has the same cross-track geometry). Rows of
+different segments are not interpolated across. A scan
 with any position missing or out of range, or with no valid time (fill
 values in the files, see the readers), cannot be placed: such scans form
 segments of their own, kept on the native grid output (unless a
 latitude/longitude box is given: they are never inside it) and left out of
-the regridded one (as a missing granule is); the cross-track axis is that
-of the first segment that can be
-placed. If no two successive scans can be placed, the native grid is
-returned, with a warning. A stray pixel time alone is ``bad_geolocation``
+the regridded one (as a missing granule is), and do not enter the
+cross-track axis. If no two successive scans can be placed, the native grid
+is returned, with a warning. A stray pixel time alone is ``bad_geolocation``
 but does not stop its scan being regridded (its NaN time spreads to the
 regridded times around it).
 
@@ -126,7 +128,8 @@ Science
   ``swath.interpolate_levels`` (see ``swath``), as MATLAB.
 - States (``data.states``): fill values in the files are ``missing``;
   positions outside [-90, 90] / [-180, 180] or not finite, a missing time,
-  or a scan whose width is more than 20 % from the median (Q14), are
+  or a scan less than half or more than 1.5 times the instrument's nominal
+  width (Q14), are
   ``bad_geolocation``; regridded cross-track points taking a segment's edge
   value are ``extrapolated`` (Q14); temperatures below 100 K or above 400 K are
   ``outside_physical_range`` (IASI also at exactly 100 K, its retrieval's
@@ -193,6 +196,8 @@ Change log
 2026/11/26 [Claude] positions of the values, median cross-track axis, partial-granule
   spacing, segments after a box, nearest rows (Q14)
 2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
+2026/11/26 [Claude] scan widths against a nominal width, not the median loaded (Q14);
+  warning when no granule lies in the requested times; docstring: cross-track axis
 
 """
 
@@ -224,6 +229,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_if_nothing_in_range,
     warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
@@ -234,6 +240,12 @@ from atmosgw.curate.solar import day_retrieval
 
 _FAR = datenum(9999, 999, 999)
 
+# a scan can be placed if its width is within these factors of the
+# instrument's nominal width: wide enough for real scans (which vary by under
+# 3 %) and for the synthetic test swaths, narrow enough to catch broken
+# geolocation (e.g. AIRS 2015-01-07 granule 170: scans 13.6 km wide)
+WIDTH_FACTORS = (0.5, 1.5)
+
 # instruments: dates covered (UNVERIFIED start dates), reader and geometry
 INSTRUMENTS = {
     "AIRS": {"time_range": (datenum(2002, 8, 30), _FAR),
@@ -241,6 +253,9 @@ INSTRUMENTS = {
              "dataset_kind": {"3d": "raw", "2d": "2d"},
              "dataset": "AIRS", "n_cross": 90, "rows_per_granule": 135,
              "row_seconds": 360 / 135, "max_row_gap_seconds": 180.0,
+             # nominal scan width, first to last pixel (km): the middle of the
+             # widths of 1.5e6 scans 2002-2025, 1735-1835 km (2026-11-26)
+             "scan_width_km": 1785.0,
              "products": ("3d", "2d"),
              "characterisation": {"3d": "AIRS-3D-placeholder/0",
                                   "2d": "AIRS-2D-placeholder/0"},
@@ -256,6 +271,8 @@ INSTRUMENTS["IASI"] = {
     "time_range": (datenum(2007, 5, 29), _FAR), "reader": _nadir_iasi,
     "dataset": "IASI", "n_cross": 90, "rows_per_granule": 135,
     "row_seconds": 4.0, "max_row_gap_seconds": 180.0, "products": ("3d",),
+    # (the middle of the widths of 1.1e5 scans 2008-2018, 2086-2163 km)
+    "scan_width_km": 2125.0,
     "characterisation": {"3d": "IASI-3D-placeholder/0"},
     "screen": ("rolling", {}),
     # exactly 100 K is the retrieval's lower bound, not a measurement: the
@@ -379,8 +396,12 @@ def _load_nadir_arrays(time_range, instrument, **options):
                                  else 0)
         flags = flags[:, keep]
         lat, lon = data["Lat"], data["Lon"]
-    # scans of implausible width (judged on the rows returned, as _placeable)
-    narrow = ~_plausible_width(np.asarray(lat, float), np.asarray(lon, float))
+    warn_if_nothing_in_range(settings, int(np.shape(data["Lat"])[1]), stacklevel=3,
+                             what="granules (selected whole, by their mean time)")
+    # scans of implausible width (against the instrument's nominal width, so
+    # the same whatever else is loaded)
+    narrow = ~_plausible_width(np.asarray(lat, float), np.asarray(lon, float),
+                               info["scan_width_km"])
     if narrow.any():
         states.set_state(flags, np.broadcast_to(narrow[None, :, None], flags.shape),
                          "bad_geolocation")
@@ -406,7 +427,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
         row_time = np.nanmean(np.asarray(data["Time"], float), axis=0)
     gap = np.diff(row_time) * 86400 > info["max_row_gap_seconds"]
     # and around scans that cannot be placed (any position or time missing)
-    placeable = _placeable(data)
+    placeable = _placeable(data, info["scan_width_km"])
     gap |= placeable[1:] != placeable[:-1]
     data["Segment"] = 1.0 + np.concatenate([[0.0], np.cumsum(gap)]) if n_rows else (
         np.empty(0))
@@ -420,9 +441,10 @@ def _load_nadir_arrays(time_range, instrument, **options):
     regrid = not settings["original_grid"] and _regriddable(data["Segment"],
                                                              placeable)
     if not settings["original_grid"] and not regrid and np.any(~placeable):
-        warnings.warn("No two successive scans have positions and times (fill "
-                      "values in the files): the native grid is returned.",
-                      stacklevel=3)
+        warnings.warn("No two successive scans can be placed (positions or times "
+                      "missing, e.g. fill values in the files, or scan widths "
+                      "outside the instrument's range): the native grid is "
+                      "returned.", stacklevel=3)
     if regrid:
         say("--> Regridding")
         data, flags, spacing[:2] = _regrid(data, flags, settings, info)
@@ -577,7 +599,7 @@ def _regrid(data, flags, settings, info):
     """Regrid every segment; returns (data, flags, (cross km, along km))."""
     lat, lon = data["Lat"], data["Lon"]
     segment = data["Segment"]
-    placeable = _placeable(data)
+    placeable = _placeable(data, info["scan_width_km"])
     by_median = settings.get("_cross_axis", "median") != "first_scan"
     if not by_median:
         # (MATLAB: the first scan of the first segment that can be placed;
@@ -707,33 +729,36 @@ def _regrid(data, flags, settings, info):
     return new, flags, spacing
 
 
-def _placeable(data):
+def _placeable(data, nominal_km):
     """True for each along-track row whose positions are all valid (finite and
-    in range, as for bad_geolocation), whose width is plausible and which has
-    a valid time (a stray pixel time alone does not stop regridding)."""
+    in range, as for bad_geolocation), whose width is plausible (within
+    WIDTH_FACTORS of nominal_km) and which has a valid time (a stray pixel
+    time alone does not stop regridding)."""
     lat, lon = np.asarray(data["Lat"], float), np.asarray(data["Lon"], float)
     with np.errstate(invalid="ignore"):
         ok = (np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
               & (np.abs(lon) <= 180))
     has_time = np.any(np.isfinite(np.asarray(data["Time"], float)), axis=0)
-    return np.all(ok, axis=0) & has_time & _plausible_width(lat, lon)
+    return np.all(ok, axis=0) & has_time & _plausible_width(lat, lon, nominal_km)
 
 
-def _plausible_width(lat, lon, tolerance=0.2):
-    """True for scans whose width (first to last pixel) is within tolerance of
-    the median width of the scans loaded (AIRS 2015-01-07 granule 170 has
-    scans 13.6 km wide, with temperatures of 0 K, which collapsed the whole
-    regridded swath; real scans vary by less than 3 %: AIRS 1735-1835 km in
-    1.5e6 scans 2002-2025, IASI 2086-2163 km in 1.1e5 scans 2008-2018). True
-    where the width is unknown (missing positions: handled elsewhere)."""
+def _plausible_width(lat, lon, nominal_km):
+    """True for scans whose width (first to last pixel) is within
+    WIDTH_FACTORS of the instrument's nominal width nominal_km (AIRS
+    2015-01-07 granule 170 has scans 13.6 km wide, with temperatures of 0 K,
+    which collapsed the whole regridded swath; real scans vary by less than
+    3 %). Judged scan by scan, so it does not depend on what else is loaded
+    (until 2026-11-26 it was 20 % of the median of the scans loaded, so a
+    collapsed granule loaded alone passed, and one loaded beside a healthy
+    granule of the same length could fail both: Q14). True where the width is
+    unknown (missing positions: handled elsewhere)."""
     if lat.shape[0] < 2 or lat.shape[1] == 0:
         return np.ones(lat.shape[1], dtype=bool)
     arc, _ = swath.arc_distance(lat[0], lon[0], lat[-1], lon[-1])
     width = np.deg2rad(np.asarray(arc, dtype=float)) * swath.EARTH_RADIUS_KM
-    with np.errstate(invalid="ignore"), warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        typical = np.nanmedian(width)
-        return ~(np.abs(width - typical) > tolerance * typical)
+    low, high = (f * nominal_km for f in WIDTH_FACTORS)
+    with np.errstate(invalid="ignore"):
+        return ~((width < low) | (width > high))
 
 
 def _scan_cross_distances(lat, lon):

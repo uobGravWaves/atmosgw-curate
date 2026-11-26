@@ -151,6 +151,7 @@ from atmosgw.curate.obs._common import (
     record,
     to_datenums,
     warn_if_no_data,
+    warn_if_nothing_in_range,
     warn_missing_files,
     warn_mixed_versions,
 )
@@ -211,6 +212,8 @@ def load_time_height(
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=2)
     warn_missing_files(settings, stacklevel=2, what="yearly files")
+    warn_if_nothing_in_range(settings, rows["time_posix"].size, stacklevel=2,
+                             what="measurements")
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and rows["time_posix"].size == 0):
         warnings.warn(

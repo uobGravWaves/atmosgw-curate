@@ -22,6 +22,8 @@ the record of a load the same way:
   altitude) and ``load_attrs`` (the dataset attributes recording the load),
   with ``options_json``.
 - ``warn_multiple_matches``: one warning per load when a day had several files.
+- ``warn_if_nothing_in_range``: one warning when a load returns nothing
+  although nothing was recorded as missing.
 - ``note_version``, ``versions_text``, ``warn_mixed_versions``: the data
   version each file read states, the ``source_versions`` attribute, and one
   warning per load when the files read state different versions.
@@ -63,6 +65,7 @@ Change log
 2026/11/26 [Claude] nadir_fill_to_nan, note_fill_counts: AIRS/IASI fill, bad times
 2026/11/26 [Claude] note_version, versions_text, warn_mixed_versions: source_versions
 2026/11/26 [Claude] check_lon_range: lon_range in any convention
+2026/11/26 [Claude] warn_if_nothing_in_range; locate by a name index (same files)
 """
 
 import json
@@ -328,9 +331,28 @@ def locate(inst_info, usual, name, label, root=None):
     """
     if os.path.isfile(usual):
         return usual
-    found = [p for p in find_in(inst_info, "*" + name, root)
-             if os.path.basename(p) == name]
+    found = _by_name(inst_info, root).get(name, [])
     return choose_file(found, inst_info, label)
+
+
+def _by_name(inst_info, root=None):
+    """{file name: paths below root with that name, in search order}, made
+    once per load from the folder listing (the same files, in the same order,
+    as searching the listing for each name, without one pass over a large
+    listing per file looked for)."""
+    from atmosgw.curate.readers import list_tree
+    root = str(inst_info["path"] if root is None else root)
+    listings = inst_info.setdefault("_listings", {})
+    if root not in listings:
+        listings[root] = list_tree(root)
+    index = inst_info.setdefault("_by_name", {})
+    if root not in index:
+        by_name = {}
+        for path in listings[root]:
+            if not path.endswith(os.sep):
+                by_name.setdefault(os.path.basename(path), []).append(path)
+        index[root] = by_name
+    return index[root]
 
 
 def locate_matching(inst_info, regex, root=None):
@@ -537,13 +559,51 @@ def warn_missing_files(settings, stacklevel, what="files"):
             "'files_without_data'.", stacklevel=stacklevel + 1)
 
 
+def warn_if_nothing_in_range(settings, n_returned, stacklevel, what="profiles",
+                             span=None):
+    """Warn once if a load returns nothing although nothing looked for was
+    recorded as missing: the files opened hold nothing in the requested times
+    (files_read, or the readers' count of files opened, files_opened, for
+    readers that list only the files they use), or no file was opened at all
+    (e.g. files not where they were looked for). span: (first, last) text of
+    the times the files did hold, if known. Not given for a single strict
+    instant (warned separately); silenced by date_warning=False."""
+    if n_returned or not settings.get("date_warning", True):
+        return
+    if settings.get("scalar_time") and settings.get("time_handling") == "strict":
+        return
+    if settings["record"]["files_not_found"]:  # (already warned)
+        return
+    if settings.get("time_range") is None:
+        asked = "the granules asked for"
+    else:
+        asked = " to ".join(str(datenum_to_datetime(t, "ms"))[:19]
+                            for t in settings["time_range"])
+    opened = max(len(settings["files_read"]),
+                 settings["record"].get("files_opened", 0))
+    if opened:
+        text = (f"The {opened} {settings['instrument']} file(s) read hold no "
+                f"{what} in the requested times ({asked})")
+        if span is not None:
+            text += f"; their {what} lie between {span[0]} and {span[1]}"
+        text += ("; the Dataset is empty. Check the dates (and, for files of "
+                 "your own, that their times are right).")
+    else:
+        text = (f"No {settings['instrument']} file was read for {asked}, and "
+                "none was recorded as missing; the Dataset is empty. Check the "
+                f"data folder ({settings.get('data_path', '?')}) and its layout "
+                "(docs/data_supply.md).")
+    warnings.warn(text, stacklevel=stacklevel + 1)
+
+
 def warn_multiple_matches(settings, stacklevel):
     """Warn once per load if any day had more than one matching file (all are
     listed in settings["record"]["multiple_matches"] and the output attribute)."""
     multiple = settings["record"]["multiple_matches"]
     if multiple:
+        days = len({line.split(":", 1)[0] for line in multiple})
         warnings.warn(
-            f"{len(multiple)} day(s) had more than one matching "
+            f"{days} day(s) had more than one matching "
             f"{settings['instrument']} file; one was used for each (e.g. "
             f"{multiple[0]}). All are listed in "
             "the output attribute 'multiple_matches'.",
