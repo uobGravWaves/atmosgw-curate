@@ -7,13 +7,17 @@ commit f1a78c0, which includes the November 2026 fixes).
 
 Files, below the IASI folder (``datasets.toml``, ``IASI`` ``raw``):
 ``YYYY/DDD/iasi_YYYYMMDDhhmmss.nc``, one per orbit dump, named by the start
-of its first scan. A day with no ``YYYY/DDD`` folder uses the files of that
-date anywhere below the IASI folder (a flat folder, or other nesting).
-Only names whose date matches the folder's day are used (the 2007/149
-folder also holds 2008-12-24 files). Files are back-to-back (the next
-starts one 8-s scan after the last ends; checked at 67 boundaries,
-2007-2016), so a file covers [its start, the next file's start). Files of the
-day before and after are listed too, as orbits cross midnight.
+of its first scan. A day's files are those of its date in its ``YYYY/DDD``
+folder and anywhere else below the IASI folder (a flat folder, or other
+nesting), so a day split between layouts is read whole; files whose date is
+not that of the ``YYYY/DDD`` folder they are in are left out (misfiled). A
+name found more than once is read once (the copy in the usual folder) and
+listed in ``multiple_matches``; a day with no file of its own anywhere is
+listed in ``files_not_found``. Files are
+back-to-back (the next starts one 8-s scan after the last ends; checked at
+67 boundaries, 2007-2016), so a file covers [its start, the next file's
+start). Files of the day before and after are listed too, as orbits cross
+midnight.
 
 Pseudo-granules (MATLAB): granule k of a day holds the scans whose first
 cross-track position's time lies in [6(k-1), 6k) minutes after 00:00 UTC
@@ -54,6 +58,7 @@ Differences from MATLAB, by design:
 
 Change log:
 2026/11/26 [Claude] fill values, bad times to NaN; granule by scan median if col. 1 bad
+2026/11/26 [Claude] files of a day found in every layout; empty day folders reported
 """
 
 import os
@@ -64,8 +69,8 @@ import numpy as np
 
 from atmosgw.curate.matlab_time import datenum_to_datetime, datetime_to_datenum
 from atmosgw.curate.obs._common import (
+    choose_file,
     day_label,
-    locate_matching,
     nadir_fill_to_nan,
     note,
     note_fill_counts,
@@ -83,31 +88,76 @@ FILE_NAMES = {"Lat": "l1_lat", "Lon": "l1_lon", "Temp": "ret_temp", "Alt": "ret_
 
 
 def list_files(root, first_day, last_day, inst_info=None):
-    """(start datenum, path) of every file for the days, in time order: in
-    each day's usual yyyy/ddd/ folder, else (with inst_info) the files of
-    that date anywhere below root (a flat folder, or any other nesting)."""
+    """(start datenum, path, copies) of every file for the days, in time
+    order: the files of each day in its usual yyyy/ddd/ folder and (with
+    inst_info) those of that date anywhere else below root (a flat folder, or
+    any other nesting), so a day split between layouts is read whole. Files
+    in another day's yyyy/ddd/ folder are left out (misfiled). A name found
+    more than once is read once: path is the copy in the usual folder, else
+    the first in search order; copies lists them all (the loader records
+    those it uses in multiple_matches)."""
+    by_date = _files_by_date(root, inst_info) if inst_info is not None else {}
     out = []
     for day in range(int(first_day), int(last_day) + 1):
         t = datenum_to_datetime(day)
         year, doy = year_and_day(day)
         folder = os.path.join(root, f"{year:04d}", f"{doy:03d}")
         stamp = str(t)[:10].replace("-", "")
-        if os.path.isdir(folder):
-            paths = [os.path.join(folder, name) for name in sorted(os.listdir(folder))]
-        elif inst_info is not None:
-            named = re.compile(rf"^iasi_{stamp}\d{{6}}\.nc$")
-            paths = locate_matching(inst_info, named, root)
-        else:
-            continue
+        paths = ([os.path.join(folder, name) for name in sorted(os.listdir(folder))]
+                 if os.path.isdir(folder) else [])
+        usual = {os.path.normpath(p) for p in paths}
+        paths += [p for p in by_date.get(stamp, []) if os.path.normpath(p) not in usual]
+        by_name = {}
         for path in paths:
-            name = os.path.basename(path)
+            by_name.setdefault(os.path.basename(path), []).append(path)
+        for name, copies in by_name.items():
             match = _NAME.match(name)
-            if match and match.group(1).startswith(stamp):
-                s = match.group(1)
-                start = datetime_to_datenum(np.datetime64(
-                    f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}:{s[12:14]}"))
-                out.append((float(start), path))
-    return sorted(out)
+            if not (match and match.group(1).startswith(stamp)):
+                continue
+            copies = [p for p in copies if os.path.isfile(p)]
+            if not copies:
+                continue
+            s = match.group(1)
+            start = datetime_to_datenum(np.datetime64(
+                f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}:{s[12:14]}"))
+            out.append((float(start), copies[0], copies))
+    return sorted(out, key=lambda item: (item[0], item[1]))
+
+
+_DAY_FOLDER = re.compile(r"^(\d{4})$"), re.compile(r"^(\d{3})$")
+
+
+def _files_by_date(root, inst_info):
+    """{yyyymmdd: IASI file paths of that date below root, in search order},
+    made once per load from the folder listing; files in a yyyy/ddd/ folder
+    of another day are left out."""
+    from atmosgw.curate.readers import list_tree
+    root = str(root)
+    cache = inst_info.setdefault("_iasi_by_date", {})
+    if root in cache:
+        return cache[root]
+    listings = inst_info.setdefault("_listings", {})
+    if root not in listings:
+        listings[root] = list_tree(root)
+    by_date = {}
+    for path in listings[root]:
+        if path.endswith(os.sep):
+            continue
+        match = _NAME.match(os.path.basename(path))
+        if not match:
+            continue
+        stamp = match.group(1)[:8]
+        parent = os.path.dirname(path)
+        year_dir, doy_dir = os.path.basename(os.path.dirname(parent)), os.path.basename(
+            parent)
+        if _DAY_FOLDER[0].match(year_dir) and _DAY_FOLDER[1].match(doy_dir):
+            folder_day = (np.datetime64(f"{year_dir}-01-01")
+                          + np.timedelta64(int(doy_dir) - 1, "D"))
+            if str(folder_day).replace("-", "") != stamp:
+                continue  # (misfiled in another day's folder)
+        by_date.setdefault(stamp, []).append(path)
+    cache[root] = by_date
+    return by_date
 
 
 def granule_of(time_seconds):
@@ -166,15 +216,13 @@ def load(settings, inst_info, var_names):
 
     files = list_files(inst_info["path"], np.floor(low) - 1, np.floor(high) + 1,
                        inst_info)
-    if explicit is None:  # (days asked for with no folder, or no files, of their own)
+    if explicit is None:  # (days asked for with no file of their own, anywhere)
         r0, r1 = settings.get("request_range", settings["time_range"])
-        file_days = {np.floor(s) for s, _ in files}
+        file_days = {np.floor(s) for s, _, _ in files}
         for day in range(int(np.floor(r0)), int(np.floor(r1)) + 1):
-            year, doy = year_and_day(day)
-            if not os.path.isdir(os.path.join(inst_info["path"], f"{year:04d}",
-                                              f"{doy:03d}")) and day not in file_days:
+            if day not in file_days:
                 record(inst_info)["files_not_found"].append(day_label(day))
-    starts = np.array([s for s, _ in files])
+    starts = np.array([s for s, _, _ in files])
     finish = np.append(starts[1:], np.inf) if files else starts
     use = [k for k in range(len(files))
            if any(starts[k] < b and finish[k] > a for a, b in spans)]
@@ -184,6 +232,9 @@ def load(settings, inst_info, var_names):
     fill_counts = {}
     for k in use:
         path = files[k][1]
+        if len(files[k][2]) > 1:  # (copies of a file used: recorded, one used)
+            choose_file(files[k][2], inst_info, day_label(np.floor(files[k][0])))
+        rec["files_opened"] = rec.get("files_opened", 0) + 1
         try:
             values = read_netcdf(path, ["l1_time", "l1_lat", "l1_lon", "ret_temp"]
                                  + extra)

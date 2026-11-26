@@ -5,6 +5,30 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Not MATLAB-equivalent (Q18): `interp_type` "pchip", "spline" and "makima"
+  give values only where "linear" does: no extrapolation beyond a profile's
+  own values unless `extrapolate=True` (then as linear extrapolation from the
+  two end values; MATLAB's `interp1` extrapolates these methods by default,
+  and the values had no state), and no bridging across a level with no
+  value. [Claude]
+- Nadir: a scan is judged against the instrument's nominal width (under half
+  or over 1.5 times it: `bad_geolocation`; AIRS 1785 km, IASI 2125 km), not
+  against the median of the scans loaded, so a collapsed granule is found
+  when loaded alone and no longer stops a healthy granule loaded beside it
+  being regridded (Q14). The warning for a swath that cannot be regridded
+  now names scan widths as a possible cause. [Claude]
+- Loads that return nothing although nothing was recorded as missing now
+  warn (files read that hold nothing in the requested times, e.g. an ALOMAR
+  day without a session, or no file read at all); a missing SABER month is
+  reported for a request starting mid-month; IASI reads a day's files from
+  every folder layout (a day split between layouts was read in part; files
+  in another day's folder are left out), warns of copies of a file in
+  several places (`multiple_matches`, one used) and reports a day with no
+  file anywhere, also when its day folder exists. The warning of several
+  matching files counts days, not files. [Claude]
+- Files not at their usual path are found through a name index of the data
+  folder (the same files): a day of AIRS with no files takes under 1 s
+  instead of about a minute. [Claude]
 - `lon_range` (limb and nadir loaders) may be given in any longitude
   convention, with any number of turns: (350, 370) is (-10, 10), (170, 190)
   crosses the dateline as (170, -170), and a box 360 degrees or wider, e.g.

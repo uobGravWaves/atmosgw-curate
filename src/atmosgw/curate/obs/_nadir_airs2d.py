@@ -130,6 +130,7 @@ def load(settings, inst_info, var_names):
             base = CHANNELS[c][0]
             names += [base] + [base + d["suffix"] for d in DERIVED.values()]
         values = _read_present(path, names)
+        rec["files_opened"] = rec.get("files_opened", 0) + 1
         # fill values and bad times, as the 3-D readers (_common.nadir_fill_to_nan)
         span = ((day - J2000) * 86400, (day + 1 - J2000) * 86400)
         counts = nadir_fill_to_nan(values["lat"], values["lon"], values["time"],

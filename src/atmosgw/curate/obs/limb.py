@@ -52,7 +52,9 @@ Options (type, default):
 - ``additional_vars`` (list of str, ()): extra variables to load, by their
   names in the files.
 - ``date_warning`` (bool, True): warn if the instrument has no data for the
-  dates asked for.
+  dates asked for, if files looked for were not found or hold no data, and
+  if the files read hold no profiles in the requested times (nothing else
+  missing); False silences all of these (the attributes still record them).
 - ``hindley_pws`` (bool, False): load the planetary-wave-filtered data instead
   of the raw data.
 - ``ignore_non_modal`` (bool, False): pass through ``additional_vars`` that
@@ -67,9 +69,13 @@ Options (type, default):
 - ``file_path`` (str or Path, None): read the instrument's files from this
   folder instead.
 - ``interp_type`` (str, "linear"): interpolation method (see
-  ``matlab_compat.interp1``).
+  ``matlab_compat.interp1``). "pchip", "spline" and "makima" give values
+  only where "linear" does (Q18; MATLAB's ``interp1`` extrapolates them by
+  default): not beyond a profile's own values, nor across a level without a
+  value; with ``extrapolate``, beyond the profile's heights where linear
+  extrapolation from its two end values has one.
 - ``extrapolate`` (bool, False): extrapolate beyond each profile's heights
-  when interpolating.
+  when interpolating (any method).
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
   only).
 - ``instrument_qc`` (bool, True): apply the provider's own screening where
@@ -300,6 +306,8 @@ Change log
 2026/11/26 [Claude] ACE/GNSS pressure to hPa; GNSS fills, times, positions, one copy
   per occultation (Q9-Q11; keep_duplicate_occultations)
 2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
+2026/11/26 [Claude] pchip/spline/makima: no extrapolation or bridging of gaps (Q18);
+  warning when no data lie in the requested times
 
 """
 
@@ -341,6 +349,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_if_nothing_in_range,
     warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
@@ -357,6 +366,7 @@ from atmosgw.curate.profiles import (
 )
 
 _FAR = datenum(9999, 999, 999)  # "still running" in the MATLAB table
+_PIECEWISE = ("linear", "nearest", "next", "previous")  # (the others: pchip ...)
 
 # instruments, with the dates and heights they have data for, and their reader
 # (None: not ported yet). Heights are for information only, as in MATLAB.
@@ -522,6 +532,11 @@ def _load_limb_arrays(time_range, instrument, **options):
         mean_time <= settings["time_range"][1])
     if not keep.all():  # (all kept: nothing to do, and no copy of everything)
         data = select_profiles(data, np.flatnonzero(keep), skip)
+    span = None
+    if np.any(np.isfinite(mean_time)):
+        span = tuple(str(datenum_to_datetime(t, "ms"))[:19] for t in
+                     (np.nanmin(mean_time), np.nanmax(mean_time)))
+    warn_if_nothing_in_range(settings, int(keep.sum()), stacklevel=3, span=span)
 
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and np.shape(data["Time"])[0] == 0):
@@ -558,11 +573,13 @@ def _load_limb_arrays(time_range, instrument, **options):
         if any(m.any() for m in native.values()):
             method = settings["interp_type"].lower()
             piecewise = method in ("linear", "nearest", "next", "previous")
-            # (pchip, spline and makima extrapolate by default and reach
-            # further: their states are spread linearly, with extrapolation;
-            # spline's influence beyond that is not marked)
+            # (pchip, spline and makima give values only where linear
+            # interpolation does (Q18), so their states are spread linearly;
+            # with keep_outliers, the influence of a kept bad point beyond its
+            # neighbouring levels is not marked: pchip's reaches 2 intervals,
+            # makima's 3, spline's the whole profile)
             reach = method if piecewise else "linear"
-            extrap = True if settings["extrapolate"] or not piecewise else None
+            extrap = True if settings["extrapolate"] else None
             for state, mask in native.items():
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
                                               height_scale, reach, extrap, plan)
@@ -575,7 +592,7 @@ def _load_limb_arrays(time_range, instrument, **options):
             spread = interpolate_profiles(
                 data["Alt"], a_priori.astype(float), height_scale,
                 method if piecewise else "linear",
-                True if settings["extrapolate"] or not piecewise else None, plan)
+                True if settings["extrapolate"] else None, plan)
             contributed["a_priori_dominated"] = np.nan_to_num(spread) != 0
         if any(m.any() for m in native.values()) and not settings["keep_outliers"]:
             # (extras keep their values here: they may be interpolated by
@@ -633,6 +650,15 @@ def _load_limb_arrays(time_range, instrument, **options):
                 new[name] = interpolate_profiles(
                     data["Alt"], value, height_scale, method, extrap, plan
                 )
+                if method.lower() not in _PIECEWISE:
+                    # pchip, spline and makima: values only where linear
+                    # interpolation gives one (Q18): not beyond a variable's
+                    # own finite values unless extrapolate (MATLAB's interp1
+                    # extrapolates them by default), and not across a level
+                    # with no value (they drop NaN samples and bridge it)
+                    linear = interpolate_profiles(data["Alt"], value, height_scale,
+                                                  "linear", extrap, plan)
+                    new[name] = np.where(np.isnan(linear), np.nan, new[name])
                 if log_pres:
                     new[name] = np.exp(new[name])
             # free each input once done (memory); heights are needed to the end
