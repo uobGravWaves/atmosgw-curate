@@ -103,17 +103,17 @@ in proportion to its scans, so its spacing is that of whole granules;
 Segments: the swath is split where successive rows are more than 180 s apart
 (missing granules, or separate time ranges; not 1.5 scans, because the AIRS
 daily files store times as float32); each segment is
-regridded on its own along-track axis, all on one cross-track axis (that of
-the first segment, as MATLAB assumes every scan has the same cross-track
-geometry). Rows of different segments are not interpolated across. A scan
+regridded on its own along-track axis, all on one cross-track axis (the
+median over every scan that can be placed, Q14; MATLAB takes that of the
+first scan, assuming every scan has the same cross-track geometry). Rows of
+different segments are not interpolated across. A scan
 with any position missing or out of range, or with no valid time (fill
 values in the files, see the readers), cannot be placed: such scans form
 segments of their own, kept on the native grid output (unless a
 latitude/longitude box is given: they are never inside it) and left out of
-the regridded one (as a missing granule is); the cross-track axis is that
-of the first segment that can be
-placed. If no two successive scans can be placed, the native grid is
-returned, with a warning. A stray pixel time alone is ``bad_geolocation``
+the regridded one (as a missing granule is), and do not enter the
+cross-track axis. If no two successive scans can be placed, the native grid
+is returned, with a warning. A stray pixel time alone is ``bad_geolocation``
 but does not stop its scan being regridded (its NaN time spreads to the
 regridded times around it).
 
@@ -197,7 +197,7 @@ Change log
   spacing, segments after a box, nearest rows (Q14)
 2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
 2026/11/26 [Claude] scan widths against a nominal width, not the median loaded (Q14);
-  warning when no granule lies in the requested times
+  warning when no granule lies in the requested times; docstring: cross-track axis
 
 """
 

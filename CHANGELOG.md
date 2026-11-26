@@ -26,6 +26,8 @@ reference outputs.
   several places (`multiple_matches`, one used) and reports a day with no
   file anywhere, also when its day folder exists. The warning of several
   matching files counts days, not files. [Claude]
+- A GitHub issue template for bug reports, asking for the output's
+  attributes (the call, the package version, the files read). [Claude]
 - Files not at their usual path are found through a name index of the data
   folder (the same files): a day of AIRS with no files takes under 1 s
   instead of about a minute. [Claude]
