@@ -196,6 +196,18 @@ def test_additional_vars(files):
         load(files, "2007-01-23", additional_vars=["Nope"])
     with pytest.raises(ValueError, match="only"):
         load(files, "2007-01-23", additional_vars=["odd"])
+    with pytest.raises(ValueError, match="not an additional variable"):
+        load(files, "2007-01-23", additional_vars=["z_lidar"])
+
+
+def test_variable_per_time_in_one_session_per_point_in_another(tmp_path):
+    # (independent review, 2026-11-26: was broadcast over levels, no error)
+    a = session(["2007-02-01T12:00:30", "2007-02-01T12:05:30"], Z_A, 200)
+    b = session(["2007-02-01T13:00:30"], Z_A, 200)
+    a["laser_power"] = np.ones((2, Z_A.size))
+    write_year(tmp_path, 2007, {"2007-02-01a": a, "2007-02-01b": b})
+    with pytest.raises(ValueError, match="per time in some sessions"):
+        load(tmp_path, "2007-02-01", additional_vars=["laser_power"])
 
 
 def test_look_back_into_previous_year(files):

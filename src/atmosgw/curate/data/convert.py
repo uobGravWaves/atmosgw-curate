@@ -52,6 +52,9 @@ From "time_height" (``load_time_height``):
 - ``availability`` and the attributes as for swaths, with ``converted_from``
   = "time_height". A Dataset without temperature (e.g. radar winds only)
   raises ``ValueError``: the profile format requires temperature.
+- Not carried: other variables (``additional_vars`` such as ``T2_lidar``,
+  and winds), which the profile format does not define; ``session`` is an
+  extra per-profile variable.
 
 Science
 -------

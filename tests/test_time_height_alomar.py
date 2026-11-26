@@ -6,8 +6,9 @@ against MATLAB, tests/test_limb_matlab.py). Skipped without the ALOMAR files
 Both read the same files; rows are matched by (file, source_profile) and
 levels by their 0.15 km lattice index. Tolerances:
 
-- temperature and its NaN positions: identical (the same float64 values,
-  only placed differently);
+- temperature, its NaN positions, its state flags and additional
+  variables (T_ecmwf): identical (the same float64 values, only placed
+  differently), with outliers removed (default) and kept;
 - the same rows, none lost or added;
 - heights: 1e-9 km (the time_height heights are the lattice values; the
   file values differ from them by at most about 1e-11 km);
@@ -18,7 +19,10 @@ levels by their 0.15 km lattice index. Tolerances:
 
 Dates: 2007-01-23 (the MATLAB reference case); 2007-05-13 to 2007-05-14
 (the height grid changes); 2007-07-02 (inside the session that started on
-2007-06-30); 2007-06-04 (two sessions overlapping in time).
+2007-06-30); 2007-06-04 (two sessions overlapping in time); 2005-12-30 to
+2006-01-14 (two yearly files). A wider run (34 dates: a session of every
+year 2003-2026, the first of each of the 6 height grids, an 8-day session)
+was made once, 2026-11-26.
 """
 
 import numpy as np
@@ -40,15 +44,18 @@ def _data_or_skip():
     pytest.skip("no ALOMAR data")
 
 
+@pytest.mark.parametrize("keep_outliers", [True, False])
 @pytest.mark.parametrize("time_range", ["2007-01-23", ["2007-05-13", "2007-05-14"],
-                                        "2007-07-02", "2007-06-04"])
-def test_same_values_as_limb_loader(time_range):
+                                        "2007-07-02", "2007-06-04",
+                                        ["2005-12-30", "2006-01-14"]])
+def test_same_values_as_limb_loader(time_range, keep_outliers):
     _data_or_skip()
-    th = load_time_height(time_range, "ALOMAR", keep_outliers=True, file_source=True)
+    options = dict(keep_outliers=keep_outliers, file_source=True,
+                   additional_vars=["T_ecmwf"])
+    th = load_time_height(time_range, "ALOMAR", **options)
     validate(th, "time_height")
     with pytest.warns(UserWarning, match="load_time_height"):
-        limb = load_limb_sounders(time_range, "ALOMAR", original_z=True,
-                                  keep_outliers=True, file_source=True)
+        limb = load_limb_sounders(time_range, "ALOMAR", original_z=True, **options)
     assert th.sizes["time"] > 0
 
     # rows: the same (file, row) pairs
@@ -76,8 +83,9 @@ def test_same_values_as_limb_loader(time_range):
 
     np.testing.assert_allclose(th.altitude.values[col][has], alt[has], rtol=0,
                                atol=1e-9)
-    th_temp = th.temperature.values[rows, col]
-    np.testing.assert_array_equal(th_temp[has], limb.temperature.values[has])
+    for name in ("temperature", "temperature_flag", "T_ecmwf"):
+        np.testing.assert_array_equal(th[name].values[rows, col][has],
+                                      limb[name].values[has], err_msg=name)
     # every value of a row is at one of the limb row's heights
     placed = np.zeros(th.temperature.shape, dtype=bool)
     placed[rows[has], col[has]] = True

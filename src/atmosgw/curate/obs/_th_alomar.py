@@ -60,6 +60,10 @@ def load(settings, inst_info):
     temp_name, unc_name = f"{RESOLUTION}_lidar", f"{RESOLUTION}_lidar_unc"
     extra = list(dict.fromkeys(n for n in settings["additional_vars"]
                                if n not in (temp_name, unc_name)))
+    for name in ("time_lidar", "z_lidar"):  # (already the time and altitude)
+        if name in extra:
+            raise ValueError(f"{name!r} is not an additional variable: it gives "
+                             "the output's time or altitude.")
     start, end = (float(t) for t in settings["time_range"])
     years = range(_year(start) - 1, _year(end) + 1)  # (the year before: see above)
 
@@ -161,10 +165,11 @@ def _on_one_grid(sessions, names):
         "session": np.zeros(n, dtype=np.int64),
     }
     for name in names:
-        per_time = sessions and sessions[0]["values"][name].ndim == 1
-        if per_time and any(s["values"][name].ndim != 1 for s in sessions):
+        n_dims = {s["values"][name].ndim for s in sessions}
+        if len(n_dims) > 1:
             raise ValueError(f"variable {name!r} is per time in some sessions "
                              "and per point in others.")
+        per_time = n_dims == {1}
         rows[name] = np.full((n,) if per_time else (n, n_level), np.nan)
     row = 0
     for number, s in enumerate(sessions, start=1):
