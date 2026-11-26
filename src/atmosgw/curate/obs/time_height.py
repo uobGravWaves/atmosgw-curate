@@ -226,7 +226,10 @@ def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
     check_flags(options, ("keep_outliers", "file_source", "verbose", "date_warning"))
     check_time_handling(options)
-    check_additional_vars(options)
+    check_additional_vars(options, {
+        "temperature", "temperature_uncertainty", "session", "time", "altitude",
+        "latitude", "longitude", "source_profile", "source_file", "original_files",
+        "original_file_version"})
     name = find_instrument(instrument, INSTRUMENTS,
                            " (satellite profiles: load_limb_sounders)")
     info = INSTRUMENTS[name]

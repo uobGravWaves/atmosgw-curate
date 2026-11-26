@@ -5,6 +5,14 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Limb and nadir boxes: a profile (or row) needs one point whose latitude
+  and longitude are both inside, and a `lon_range` with west > east crosses
+  the dateline, e.g. (170, -170); profiles with no position are in no box
+  (Q12). Limb: the file's own points are checked before interpolating, so a
+  bad point (e.g. 50 K, or a sentinel longitude) can no longer be blended
+  into a plausible value with no state (Q13). `additional_vars` that would
+  replace the loaders' own variables (e.g. MIPAS `time`, a `temperature` in
+  a Misc file, flags) are refused; repeated names are loaded once. [Claude]
 - Failures are loud. A data folder that does not exist (data root,
   `datasets.toml`, `file_path` or `misc_path`) raises `FileNotFoundError`
   instead of giving an empty Dataset. One warning per load when files,

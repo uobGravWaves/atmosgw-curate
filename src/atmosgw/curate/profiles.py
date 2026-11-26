@@ -56,9 +56,14 @@ Function                                                        Returns
   points become NaN in every variable (all trailing slices). A 2-D variable of
   a different shape is masked through MATLAB-style linear indices (column-
   major), as the MATLAB loader does.
-- ``profiles_in_box``: a profile is kept if its latitude and longitude ranges
-  overlap the box, i.e. if it could enter the box at any height. Profiles
-  with no finite positions are kept.
+- ``profiles_in_box``: a profile is kept if at least one of its levels has
+  a finite latitude and longitude both inside the box (``in_box``). A
+  longitude range whose first value is greater than its second crosses the
+  dateline: (170, -170) is 170 to 180 and -180 to -170. Profiles with no
+  finite position are not kept. (Before 2026-11-26, as MATLAB: kept if the
+  latitude and longitude extremes overlapped the box, possibly at different
+  levels, so dateline-crossing and position-less profiles entered any box;
+  Q12 in ``docs/quirks.md``.)
 
 Origin
 ------
@@ -89,8 +94,6 @@ Change log
 2026/11/24 [Claude] initial version
 
 """
-
-import warnings
 
 import numpy as np
 import pandas as pd
@@ -190,20 +193,24 @@ def mask_points(data, mask, skip=(), copy=True):
 
 
 def profiles_in_box(lat, lon, lat_range, lon_range):
-    """True for profiles that enter the lat/lon box at any height."""
+    """True for profiles with a level inside the lat/lon box (see in_box)."""
+    return np.any(in_box(lat, lon, lat_range, lon_range), axis=1)
+
+
+def in_box(lat, lon, lat_range, lon_range):
+    """True where (lat, lon) are finite and inside the box. lat_range in either
+    order; lon_range (west, east): if west > east the box crosses the
+    dateline. Longitudes in degrees east, -180 to 180 (or 0 to 360)."""
     lat, lon = np.asarray(lat, dtype=float), np.asarray(lon, dtype=float)
-    with warnings.catch_warnings():
-        # all-NaN profiles give NaN quietly, as MATLAB's nanmin/nanmax
-        warnings.filterwarnings("ignore", message="All-NaN slice")
-        lon_min, lon_max = np.nanmin(lon, axis=1), np.nanmax(lon, axis=1)
-        lat_min, lat_max = np.nanmin(lat, axis=1), np.nanmax(lat, axis=1)
-    outside = (
-        (lon_min > max(lon_range))
-        | (lon_max < min(lon_range))
-        | (lat_min > max(lat_range))
-        | (lat_max < min(lat_range))
-    )
-    return ~outside
+    west, east = (float(x) for x in lon_range)
+    lon = np.where(lon > 180, lon - 360, lon)
+    with np.errstate(invalid="ignore"):
+        inside_lat = (lat >= min(lat_range)) & (lat <= max(lat_range))
+        if west <= east:
+            inside_lon = (lon >= west) & (lon <= east)
+        else:
+            inside_lon = (lon >= west) | (lon <= east)
+    return inside_lat & inside_lon & np.isfinite(lat) & np.isfinite(lon)
 
 
 # supporting functions

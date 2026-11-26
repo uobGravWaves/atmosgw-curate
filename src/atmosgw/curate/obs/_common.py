@@ -206,11 +206,20 @@ def check_time_handling(options):
         raise ValueError(f"time_handling must be one of {TIME_HANDLING}.")
 
 
-def check_additional_vars(options):
-    """TypeError unless options["additional_vars"] is a list of names."""
+def check_additional_vars(options, reserved=()):
+    """TypeError unless options["additional_vars"] is a list of names;
+    ValueError for a name in reserved (an output or working name, which the
+    extra variable would replace). Returns the names, each once, in order."""
     additional = options["additional_vars"]
     if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
         raise TypeError("additional_vars must be a list of variable names.")
+    clash = [a for a in additional if a in reserved or a.endswith("_flag")]
+    if clash:
+        raise ValueError(
+            f"additional_vars {clash} would replace variables the loader makes "
+            "itself (output names, flags, or the file variables those are made "
+            "from); they cannot be loaded as extras.")
+    return list(dict.fromkeys(additional))
 
 
 def find_instrument(instrument, instruments, note=""):

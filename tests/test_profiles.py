@@ -115,10 +115,26 @@ def test_mask_points_all_slices():
 def test_profiles_in_box_any_height():
     lat = np.array([[-10.0, 5.0], [10.0, 20.0], [np.nan, np.nan]])
     lon = np.array([[0.0, 0.0], [0.0, 0.0], [np.nan, np.nan]])
+    # (Q12: a profile with no position is in no box)
     np.testing.assert_array_equal(profiles_in_box(lat, lon, (0, 90), (-180, 180)),
-                                  [True, True, True])
+                                  [True, True, False])
     np.testing.assert_array_equal(profiles_in_box(lat, lon, (15, 90), (-180, 180)),
-                                  [False, True, True])
+                                  [False, True, False])
+
+
+def test_profiles_in_box_needs_one_level_inside_and_crosses_the_dateline():
+    # Q12: in latitude at one level and in longitude at another is not inside;
+    # a profile across the dateline is not in a Greenwich box, but is in a
+    # dateline box (west > east)
+    lat = np.array([[10.0, 30.0], [10.0, 10.0], [10.0, 10.0]])
+    lon = np.array([[50.0, 0.0], [179.0, -179.0], [0.5, 0.5]])
+    np.testing.assert_array_equal(profiles_in_box(lat, lon, (0, 20), (-1, 1)),
+                                  [False, False, True])
+    np.testing.assert_array_equal(profiles_in_box(lat, lon, (0, 20), (170, -170)),
+                                  [False, True, False])
+    np.testing.assert_array_equal(profiles_in_box(lat, lon + 360 * (lon < 0),
+                                                  (0, 20), (170, -170)),
+                                  [False, True, False])  # (0-360 longitudes too)
 
 
 def test_clip_and_mask_in_place_give_the_same_result():

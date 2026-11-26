@@ -29,7 +29,8 @@ Options (type, default; MATLAB name):
 - ``granules`` (list of (date, number), None): load exactly these granules
   (``DateNum``, ``GranuleId``); dates as for ``time_range``.
 - ``lat_range``, ``lon_range`` ((min, max), whole globe): keep along-track
-  rows with any point in the box.
+  rows with any point in the box; a ``lon_range`` whose first value is
+  greater than its second crosses the dateline, e.g. (170, -170).
 - ``original_grid`` (bool, False): no horizontal regridding (``LoadOnly``,
   which also implies ``original_z``).
 - ``n_cross`` (int, 90; ``NXT``), ``n_along`` (int per granule, 135;
@@ -199,6 +200,7 @@ from atmosgw.curate.obs._common import (
     warn_mixed_versions,
 )
 from atmosgw.curate.paths import dataset_dir
+from atmosgw.curate.profiles import in_box
 from atmosgw.curate.solar import day_retrieval
 
 _FAR = datenum(9999, 999, 999)
@@ -408,8 +410,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     # rows entering the latitude/longitude box
     (la0, la1), (lo0, lo1) = settings["lat_range"], settings["lon_range"]
     if (la0, la1, lo0, lo1) != (-90, 90, -180, 180) and data["Lat"].shape[1]:
-        inside = ((data["Lat"] >= min(la0, la1)) & (data["Lat"] <= max(la0, la1))
-                  & (data["Lon"] >= min(lo0, lo1)) & (data["Lon"] <= max(lo0, lo1)))
+        inside = in_box(data["Lat"], data["Lon"], (la0, la1), (lo0, lo1))
         keep = np.flatnonzero(np.any(inside, axis=0))
         for name in _along_track_names(data):
             data[name] = np.take(data[name], keep, axis=1 if data[name].ndim > 1
@@ -445,8 +446,15 @@ def _prepare(time_range, instrument, options):
     if channels is not None and (isinstance(channels, str)
                                  or not all(isinstance(c, str) for c in channels)):
         raise TypeError("channels must be a list of channel names.")
-    check_additional_vars(options)
-    additional = options["additional_vars"]
+    reserved = ({"Lat", "Lon", "Time", "Temp", "Alt", "Granule", "Day", "SourceFile",
+                 "SourceRow", "Segment", "DayNight", "Flags", "DistAlong", "DistCross",
+                 "Spacing", "ScanPosition", "Channel", "ChannelName", "DerivedVars",
+                 "BTPert", "BTVar", "l1_time", "l1_lat", "l1_lon", "ret_temp", "ret_z",
+                 "time", "lat", "lon"}
+                | set(_ATTRS) | {"brightness_temperature_perturbation",
+                                 "brightness_temperature_variance", "native_time",
+                                 "original_files", "original_file_version"})
+    additional = check_additional_vars(options, reserved)
 
     for label in ("n_cross", "n_along"):
         value = options[label]

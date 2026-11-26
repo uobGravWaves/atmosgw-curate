@@ -249,7 +249,7 @@ folder).
 
 | Option | `load_limb_sounders` | `load_nadir_sounders` |
 |---|---|---|
-| `lat_range`, `lon_range` | keeps profiles that enter the box at any height | keeps along-track rows with any point in the box |
+| `lat_range`, `lon_range` | keeps profiles with a level inside the box | keeps along-track rows with any point in the box |
 | default heights | 18-60 km every 0.5 km (as MATLAB) | a 3 km grid from the lowest file level (as MATLAB) |
 | `extrapolate` | vertical, beyond each profile | horizontal, in the regridding |
 
