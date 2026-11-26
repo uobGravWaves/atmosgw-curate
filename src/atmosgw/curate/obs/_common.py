@@ -9,7 +9,8 @@ the record of a load the same way:
   ``TIME_HANDLING`` and ``expand_time_range`` (the MATLAB ``TimeHandling``
   rules), ``year_and_day``, ``day_label``;
 - checks of shared options: ``check_flags``, ``check_time_handling``,
-  ``check_additional_vars``, ``find_instrument``, ``warn_if_no_data``;
+  ``check_additional_vars``, ``check_lon_range`` (any longitude convention),
+  ``find_instrument``, ``warn_if_no_data``;
 - finding files: ``locate`` (a file at its usual path in the group's
   layout, else anywhere below the dataset folder), ``locate_matching``,
   ``find_in``;
@@ -61,6 +62,7 @@ Change log
 2026/11/25 [Claude] outside_physical_range: floor_is_bad (IASI's 100 K lower bound)
 2026/11/26 [Claude] nadir_fill_to_nan, note_fill_counts: AIRS/IASI fill, bad times
 2026/11/26 [Claude] note_version, versions_text, warn_mixed_versions: source_versions
+2026/11/26 [Claude] check_lon_range: lon_range in any convention
 """
 
 import json
@@ -223,6 +225,36 @@ def check_additional_vars(options, reserved=()):
             "itself (output names, flags, or the file variables those are made "
             "from); they cannot be loaded as extras.")
     return list(dict.fromkeys(additional))
+
+
+def check_lon_range(lon_range):
+    """
+    A lon_range (west, east) in degrees east, in any convention, as (west,
+    east) in [-180, 180]: each value is moved by whole turns of 360 degrees
+    into [-180, 180] (values already there are unchanged, and 180 stays
+    180), so e.g. (350, 370) is (-10, 10) and (170, 190) is (170, -170),
+    which crosses the dateline. The box runs east from west; one 360 degrees
+    or more wide, e.g. (0, 360), is the whole globe, (-180, 180).
+    ValueError unless there are two finite values.
+    """
+    values = np.asarray(lon_range, dtype=float).ravel()
+    if values.size != 2 or not np.all(np.isfinite(values)):
+        raise ValueError("lon_range must be two finite longitudes (west, east), "
+                         "in degrees east (any convention, e.g. -180 to 180 or "
+                         f"0 to 360), not {lon_range!r}.")
+    west, east = (float(x) for x in values)
+    if east - west >= 360:
+        return (-180.0, 180.0)
+    return (_wrap_degrees(west), _wrap_degrees(east))
+
+
+def _wrap_degrees(x):
+    """x (degrees) moved by whole turns into [-180, 180]; unchanged if there."""
+    if x > 180:
+        return x - 360 * math.ceil((x - 180) / 360)
+    if x < -180:
+        return x + 360 * math.ceil((-180 - x) / 360)
+    return x
 
 
 def find_instrument(instrument, instruments, note=""):

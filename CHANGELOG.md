@@ -5,6 +5,12 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `lon_range` (limb and nadir loaders) may be given in any longitude
+  convention, with any number of turns: (350, 370) is (-10, 10), (170, 190)
+  crosses the dateline as (170, -170), and a box 360 degrees or wider, e.g.
+  (0, 360), is the whole globe. Before, values outside [-180, 180] were
+  refused. Ranges accepted before select the same data. A `lon_range` that
+  is not two finite numbers is refused with a message. [Claude]
 - New `data.to_netcdf(ds, path, pack=False, clobber=False)` and
   `data.load_netcdf(path)`: save a Dataset in one of the formats and read it
   back checked. Only valid Datasets are written; times are kept exact

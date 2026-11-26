@@ -158,6 +158,26 @@ def test_lat_range_keeps_whole_rows(tmp_path):
     assert np.all(np.max(ds.latitude.values, axis=1) >= mid)
 
 
+def test_lon_range_in_any_convention(tmp_path):
+    write_granule(tmp_path, 53, seconds(53))
+    full = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=tmp_path)
+    mid = float(np.median(full.longitude))
+    west, east = mid - 1, mid + 1
+
+    def rows(lon_range):
+        ds = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=tmp_path,
+                                 lon_range=lon_range)
+        return ds.granule.size, ds.longitude.values
+
+    n, lon = rows((west, east))
+    assert 0 < n < full.sizes["along_track"]
+    for turns in (1, -1, 3):
+        n2, lon2 = rows((west + 360 * turns, east + 360 * turns))
+        assert n2 == n
+        np.testing.assert_array_equal(lon2, lon)
+    assert rows((0, 360))[0] == full.sizes["along_track"]  # (the globe)
+
+
 def test_no_files(tmp_path):
     ds = load_nadir_sounders(None, "AIRS", granules=[(D, 53)], file_path=tmp_path)
     assert ds.sizes["along_track"] == 0

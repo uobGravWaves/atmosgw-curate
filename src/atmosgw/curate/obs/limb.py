@@ -43,7 +43,10 @@ Options (type, default):
   (-180, 180)): keep profiles with at least one level whose position is in
   both ranges (``profiles.in_box``); a ``lon_range`` whose first value is
   greater than its second crosses the dateline, e.g. (170, -170). Profiles
-  with no position are not kept (Q12).
+  with no position are not kept (Q12). ``lon_range`` may be in any
+  convention, with any number of turns (e.g. (350, 370) is (-10, 10), (170,
+  190) is (170, -170)); the box runs east from its first value, and one 360
+  degrees or wider, e.g. (0, 360), is the whole globe.
 - ``time_handling`` (str, "fuzzy"): "strict", "generous" or "fuzzy"; see below.
 - ``verbose`` (bool, False): print progress.
 - ``additional_vars`` (list of str, ()): extra variables to load, by their
@@ -296,6 +299,7 @@ Change log
   warning
 2026/11/26 [Claude] ACE/GNSS pressure to hPa; GNSS fills, times, positions, one copy
   per occultation (Q9-Q11; keep_duplicate_occultations)
+2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
 
 """
 
@@ -326,6 +330,7 @@ from atmosgw.curate.obs._common import (
     COORD_ATTRS,
     check_additional_vars,
     check_flags,
+    check_lon_range,
     check_time_handling,
     expand_time_range,
     file_versions,
@@ -749,11 +754,9 @@ def _prepare(time_range, instrument, options):
             f"({full_scale.min():g} to {full_scale.max():g} km): widen it, or give "
             "height_scale (or original_z=True).")
     lat_range = tuple(float(x) for x in options["lat_range"])
-    lon_range = tuple(float(x) for x in options["lon_range"])
     if not all(-90 <= x <= 90 for x in lat_range):
         raise ValueError("lat_range must be within [-90, 90].")
-    if not all(-180 <= x <= 180 for x in lon_range):
-        raise ValueError("lon_range must be within [-180, 180].")
+    lon_range = check_lon_range(options["lon_range"])  # (any convention)
 
     # times: datenums inside, so the MATLAB time rules apply exactly
     raw = to_datenums(time_range)
