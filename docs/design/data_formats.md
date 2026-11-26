@@ -10,10 +10,11 @@ those outputs as named, versioned **formats**, so that "parallel interfaces"
 can be checked, not just agreed.
 
 Formats now: **profile** (limb sounders, occultation, lidar; the output of
-`load_limb_sounders`) and **swath** (nadir sounders; `load_nadir_sounders`,
-see `nadir_loader.md`). Later, as loaders for them are written:
-**time-height** (radars, lidar time series), **point series** (balloons) and
-**image** (ground-based imagers).
+`load_limb_sounders`), **swath** (nadir sounders; `load_nadir_sounders`,
+see `nadir_loader.md`) and **time_height** (ground-based series at one site:
+the ALOMAR lidar now, radars later; `load_time_height`, §4a, since
+2026-11-26). Later, as loaders for them are written: **point series**
+(balloons) and **image** (ground-based imagers).
 
 The specification will live in code in `atmosgw/curate/data/` (a new folder,
 already in the README's planned layout): `formats.py` (the definitions below
@@ -125,6 +126,44 @@ fixed. `along_track` may have length 0.
 "along_track cross_track level"`, `grid_spacing_km = [dx_along, dx_cross,
 dz]` (NaN where not regular; MATLAB's `Spacing`, reordered), `grid =
 "regular"` or `"native"`.
+
+## 4a. Format "time_height", version 1
+
+*Agreed 2026-11-26 (C. Wright): names, one row per time step even where
+times repeat, and wind variables defined now for radars.* Measurements at
+one fixed site, as a time series of profiles.
+
+**Dimensions:** `time` (may have length 0), `level`; optional `file`.
+`time` is the dimension and its index: sorted (stable sort, so rows with the
+same time keep their file order), with repeated times allowed. *Flagged
+convention:* repeated times make `xr.align` and `merge` on `time` fail;
+the alternative would be a `record` dimension with `time(record)`. ALOMAR
+has repeated time stamps (about 29% of its rows, cause UNVERIFIED).
+
+| Variable | Dimensions | Units | Required |
+|---|---|---|---|
+| `time` | (time) | — | yes; never decreasing, no NaT |
+| `altitude` | (level) | km | yes: one grid for the whole Dataset |
+| `latitude`, `longitude` | () | degrees | yes: the site |
+| `temperature` | (time, level) | K | at least one of temperature and the winds; otherwise in `availability` |
+| `eastward_wind`, `northward_wind`, `upward_wind` | (time, level) | m s-1 | as temperature (for radars; no reader yet) |
+| `pressure` | (time, level) | hPa | optional, tracked |
+| `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
+| `<variable>_uncertainty` | as `<variable>` | as `<variable>` | optional (§7) |
+| `session` | (time) | — | optional: 1-based measurement session in the Dataset |
+| `source_profile`, `source_file` | (time) | — | optional |
+| `original_files` | (file) | — | optional |
+
+Data variables may be float32 or float64. Required attributes: §5 plus
+`site_name`. No dimension or spacing attributes: the format fixes the names
+`time` and `level`, and the spacing follows from the `time` and `altitude`
+coordinates (ALOMAR's time steps are irregular).
+
+ALOMAR (`load_time_height(..., "ALOMAR")`): the union of the sessions'
+heights (all on a 0.15 km lattice, so no interpolation), `temperature` from
+`T1_lidar` with `temperature_uncertainty` from `T1_lidar_unc` (kind
+UNVERIFIED), `pressure` and the winds `not_in_files`. States:
+`no_observation`, `missing`, `outside_physical_range`.
 
 ## 5. Required dataset attributes (all formats)
 
@@ -255,6 +294,10 @@ created.
   `<variable>_uncertainty` with the same dimensions and units as
   `<variable>`, and a `comment` saying what kind (1-sigma random, total ...).
   If the files have none, `availability` says `not_provided`.
+  `validate` checks a present uncertainty (all formats, since 2026-11-26):
+  dimensions, units and an allowed type of `<variable>`; a non-empty
+  `comment`; named in `<variable>`'s `ancillary_variables`; NaN wherever
+  `<variable>` is NaN (it has no flag of its own). First use: ALOMAR.
 
 ## 8. Conversions
 
@@ -270,6 +313,13 @@ created.
   profile) and `original_files` are kept; `source_profile` has no meaning for
   a swath and is `not_provided`; other absent variables keep the swath's
   `availability` reason.
+- `to_profiles(time_height) -> profile` (since 2026-11-26): each time
+  becomes a profile, in order; the site position and `time` are repeated
+  over levels, `altitude` over profiles; `temperature`, its flag and its
+  uncertainty are kept; pressure is estimated from altitude as for swaths
+  (`origin` "derived", `derived` state), in the temperature's type;
+  `session` is kept per profile, `source_profile` and `source_file`
+  repeated over levels. Needs temperature.
 - Others to be defined with the formats they connect.
 
 ## 9. Checking

@@ -152,3 +152,100 @@ def test_profile_data_may_be_float64():
     found = problems(prof.assign(temperature=prof.temperature.astype(np.float16)),
                      "profile")
     assert any("float32 or float64" in p for p in found)
+
+
+# ---------------------------------------------------------- time_height
+
+
+def example_time_height(n_time=4, n_level=5):
+    """A minimal valid time_height Dataset (with an uncertainty variable)."""
+    tl = ("time", "level")
+    temp = np.full((n_time, n_level), 250.0)
+    flag = states.new_flags(temp.shape)
+    temp[:1, :1] = np.nan
+    states.set_state(flag, np.isnan(temp), "no_observation")
+    unc = np.where(np.isnan(temp), np.nan, 2.0)
+    time = np.datetime64("2007-01-01T00:00", "us") + np.arange(n_time) * np.timedelta64(
+        300, "s")
+    if n_time > 2:
+        time[1:3] = time[1]  # repeated times are allowed
+    ds = xr.Dataset(
+        {
+            "temperature": (tl, temp, {
+                "units": "K", "origin": "retrieved",
+                "ancillary_variables": "temperature_flag temperature_uncertainty"}),
+            "temperature_flag": (tl, flag, states.flag_attrs()),
+            "temperature_uncertainty": (tl, unc, {
+                "units": "K", "comment": "1-sigma, from the files"}),
+            "session": (("time",), np.ones(n_time, dtype=np.int32)),
+        },
+        coords={"time": (("time",), time),
+                "altitude": (("level",), np.arange(n_level) * 0.15,
+                             {"units": "km"}),
+                "latitude": ((), 69.38, {"units": "degrees_north"}),
+                "longitude": ((), 16.08, {"units": "degrees_east"})},
+    )
+    tracked = [n for n, v in FORMATS["time_height"]["variables"].items()
+               if v.get("tracked") and n not in ds.variables]
+    ds.attrs = {a: "" for a in FORMATS["time_height"]["attrs"]}
+    ds.attrs.update(format="time_height", format_version=1, instrument="ALOMAR",
+                    product="temperature",
+                    characterisation="ALOMAR-TEMPERATURE-placeholder/0",
+                    availability=states.format_availability(
+                        {n: "not_in_files" for n in tracked}))
+    return ds
+
+
+def test_time_height_example_passes():
+    validate(example_time_height(), "time_height")
+    validate(example_time_height(n_time=0), "time_height")
+
+
+def _set(ds, name, index, value):
+    ds = ds.copy(deep=True)
+    ds[name].values[index] = value
+    return ds
+
+
+def _no_data(ds):
+    dropped = ds.drop_vars(["temperature", "temperature_flag",
+                            "temperature_uncertainty"])
+    return dropped.assign_attrs(availability=ds.attrs["availability"]
+                                + "; temperature: not_measured")
+
+
+@pytest.mark.parametrize("fault, expected", [
+    (_no_data, "needs at least one of"),
+    (lambda ds: ds.assign(temperature_uncertainty=ds.temperature_uncertainty
+                          .assign_attrs(units="mK")), "has units 'mK'"),
+    (lambda ds: ds.assign(temperature_uncertainty=ds.temperature_uncertainty
+                          .assign_attrs(comment="")), "no 'comment'"),
+    (lambda ds: ds.assign(temperature_uncertainty=ds.temperature_uncertainty
+                          .astype(np.float16)), "float32 or float64"),
+    (lambda ds: ds.assign(temperature_uncertainty=ds.temperature_uncertainty.T),
+     "dimensions"),
+    (lambda ds: ds.assign(temperature=ds.temperature.assign_attrs(
+        ancillary_variables="temperature_flag")), "does not name "
+     "'temperature_uncertainty'"),
+    (lambda ds: _set(ds, "temperature_uncertainty", (0, 0), 1.0),
+     "where 'temperature' is NaN"),
+    (lambda ds: ds.assign_coords(time=ds.time.values[::-1]), "decreases"),
+    (lambda ds: ds.assign_coords(time=np.r_[ds.time.values[:3],
+                                            np.datetime64("NaT", "us")]), "NaT"),
+    (lambda ds: ds.assign_coords(latitude=((), 95.0, {"units": "degrees_north"})),
+     "outside"),
+    (lambda ds: ds.assign_attrs(availability=""), "not listed in 'availability'"),
+])
+def test_time_height_faults_reported(fault, expected):
+    found = problems(fault(example_time_height()), "time_height")
+    assert any(expected in p for p in found), found
+
+
+def test_uncertainty_rule_applies_to_profiles_too():
+    from atmosgw.curate.data.convert import to_profiles
+
+    prof = to_profiles(example_time_height())
+    validate(prof, "profile")
+    bad = prof.assign(temperature_uncertainty=prof.temperature_uncertainty
+                      .assign_attrs(units="degC"))
+    assert any("has units 'degC'" in p for p in problems(bad, "profile"))

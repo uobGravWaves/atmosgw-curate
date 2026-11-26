@@ -1,8 +1,9 @@
 """The shared state rules (docs/design/data_formats.md section 6.3), checked
 on both loaders and on to_profiles with the same scenarios.
 
-Synthetic files only (written to a temporary folder): limb "Misc" files and
-AIRS granules (the writer of test_nadir_known.py). States and counts exact.
+Synthetic files only (written to a temporary folder): limb "Misc" files,
+AIRS granules (the writer of test_nadir_known.py) and ALOMAR time-height
+files (the writer of test_time_height_known.py). States and counts exact.
 
 Scenarios: a gap inside what was measured (missing); beyond the measured
 heights (no_observation); a physically impossible value (outside_physical_range,
@@ -17,10 +18,11 @@ import numpy as np
 import pytest
 from scipy.io import savemat
 from test_nadir_known import D, seconds, write_granule
+from test_time_height_known import sessions_2007, write_year
 
 from atmosgw.curate.data import states, to_profiles, validate
 from atmosgw.curate.matlab_time import datenum
-from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders
+from atmosgw.curate.obs import load_limb_sounders, load_nadir_sounders, load_time_height
 
 LEV = np.arange(10, 52, 2, dtype=float)  # limb file levels, km
 GAP_PROF, GAP_LEV = 3, 10                # limb: NaN temperature at 30 km
@@ -58,6 +60,17 @@ def nadir_files(tmp_path_factory):
     return folder
 
 
+@pytest.fixture(scope="module")
+def th_files(tmp_path_factory):
+    folder = tmp_path_factory.mktemp("conformance_time_height")
+    write_year(folder, 2007, sessions_2007())
+    return folder
+
+
+def th(folder, **options):  # session A: gap, top NaN, 50 K and 450 K points
+    return load_time_height("2007-01-23", "ALOMAR", file_path=folder, **options)
+
+
 def limb(folder, **options):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -74,10 +87,15 @@ def has(ds, name, state):
     return states.has_state(ds[f"{name}_flag"].values, state)
 
 
-def all_outputs(limb_files, nadir_files):
+def all_outputs(limb_files, nadir_files, th_files):
     """Every output the rules apply to, with its main data variable."""
     swath = nadir(nadir_files)
+    series = load_time_height(["2007-01-23", "2007-01-25"], "ALOMAR",
+                              file_path=th_files)
     return [
+        (series, "temperature"),
+        (th(th_files, keep_outliers=True), "temperature"),
+        (to_profiles(series), "temperature"),
         (limb(limb_files), "temperature"),
         (limb(limb_files, original_z=True), "temperature"),
         (limb(limb_files, keep_outliers=True, extrapolate=True), "temperature"),
@@ -92,7 +110,7 @@ def all_outputs(limb_files, nadir_files):
 # ------------------------------------------------------------------ rules
 
 
-def test_gap_inside_measured_is_missing(limb_files, nadir_files):
+def test_gap_inside_measured_is_missing(limb_files, nadir_files, th_files):
     ds = limb(limb_files, original_z=True)
     assert has(ds, "temperature", "missing")[GAP_PROF, GAP_LEV]
     assert has(ds, "temperature", "missing")[1, -2]  # next to a removed point
@@ -103,9 +121,12 @@ def test_gap_inside_measured_is_missing(limb_files, nadir_files):
     sw = nadir(nadir_files)
     assert has(sw, "temperature", "missing")[100, 20, 4]
     assert has(sw, "temperature", "missing").sum() == 1
+    series = th(th_files)
+    assert has(series, "temperature", "missing")[0, 2]
+    assert has(series, "temperature", "missing").sum() == 1
 
 
-def test_beyond_measured_is_no_observation(limb_files, nadir_files):
+def test_beyond_measured_is_no_observation(limb_files, nadir_files, th_files):
     ds = limb(limb_files)  # height scale to 60 km, files to 50 km
     above = ds.altitude.values > LEV.max()
     flag = ds.temperature_flag.values
@@ -117,10 +138,14 @@ def test_beyond_measured_is_no_observation(limb_files, nadir_files):
     flag = sw.temperature_flag.values[..., top]
     assert np.all(states.has_state(flag, "no_observation"))
     assert not np.any(states.has_state(flag, "missing"))
+    series = th(th_files)  # NaN at the top of row 1
+    assert has(series, "temperature", "no_observation")[1, 5]
+    assert not has(series, "temperature", "missing")[1, 5]
 
 
-def test_impossible_value_removed_or_kept(limb_files, nadir_files):
+def test_impossible_value_removed_or_kept(limb_files, nadir_files, th_files):
     for removed, kept, where in (
+            (th(th_files), th(th_files, keep_outliers=True), (2, 0)),
             (limb(limb_files, original_z=True), limb(limb_files, original_z=True,
                                                      keep_outliers=True),
              (BAD_PROF, BAD_LEV)),
@@ -139,8 +164,9 @@ def test_removed_point_flagged_in_every_variable(limb_files):
 
 
 def test_every_nan_explained_once_and_qualified_only_on_values(limb_files,
-                                                                nadir_files):
-    for ds, _ in all_outputs(limb_files, nadir_files):
+                                                                nadir_files,
+                                                                th_files):
+    for ds, _ in all_outputs(limb_files, nadir_files, th_files):
         validate(ds, ds.attrs["format"])
         for name in ds.data_vars:
             if not name.endswith("_flag"):
@@ -157,8 +183,8 @@ def test_every_nan_explained_once_and_qualified_only_on_values(limb_files,
                     name, qualified)
 
 
-def test_preprocessing_attributes(limb_files, nadir_files):
-    for ds, _ in all_outputs(limb_files, nadir_files):
+def test_preprocessing_attributes(limb_files, nadir_files, th_files):
+    for ds, _ in all_outputs(limb_files, nadir_files, th_files):
         assert ds.attrs["data"] in ("raw", "preprocessed", "planetary-wave-filtered")
         assert (ds.attrs["data"] == "preprocessed") == bool(ds.attrs["preprocessing"])
         assert ds.attrs["heights"] in ("interpolated", "original", "none")

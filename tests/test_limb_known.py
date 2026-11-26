@@ -615,10 +615,18 @@ def test_mipas_missing_additional_var_is_refused():
 
 def test_alomar_file_names_and_year_without_file():
     _data_or_skip("ALOMAR")
-    ds = load_limb_sounders("2007-01-23", "ALOMAR", file_source=True)
+    with pytest.warns(UserWarning, match="load_time_height"):
+        ds = load_limb_sounders("2007-01-23", "ALOMAR", file_source=True)
     assert list(ds.original_files.values) == ["2007_V2026-07-27_file4juli.h5"]
-    ds = load_limb_sounders("2022-06-01", "ALOMAR")
+    with pytest.warns(UserWarning, match="load_time_height"):
+        ds = load_limb_sounders("2022-06-01", "ALOMAR")
     assert ds.temperature.shape == (0, HS.size)
+
+
+def test_alomar_points_to_time_height_loader(tmp_path):
+    # warned before any file is read (an empty folder: no data, no error)
+    with pytest.warns(UserWarning, match="load_time_height"):
+        load_limb_sounders("2007-01-23", "alomar", file_path=tmp_path)
 
 
 def test_q7_alomar_each_day_has_its_own_heights():
@@ -627,10 +635,12 @@ def test_q7_alomar_each_day_has_its_own_heights():
     # first day's heights used to be applied to every day. Checked against the
     # fixed MATLAB module (MultiInstrumentFunctions e13e247), 2026-11-24.
     _data_or_skip("ALOMAR")
-    early = load_limb_sounders("2007-01-23", "ALOMAR", original_z=True,
-                               keep_outliers=True)
-    late = load_limb_sounders("2007-06-01", "ALOMAR", original_z=True,
-                              keep_outliers=True)
+    with pytest.warns(UserWarning, match="load_time_height"):
+        early = load_limb_sounders("2007-01-23", "ALOMAR", original_z=True,
+                                   keep_outliers=True)
+    with pytest.warns(UserWarning, match="load_time_height"):
+        late = load_limb_sounders("2007-06-01", "ALOMAR", original_z=True,
+                                  keep_outliers=True)
     assert early.altitude.values[0, 0] == pytest.approx(5.25, abs=1e-9)
     assert late.altitude.values[0, 0] == pytest.approx(5.10, abs=1e-9)
     assert np.isfinite(late.altitude.values[0]).sum() == 766

@@ -3,9 +3,10 @@ Conversions between the common data formats.
 
 Purpose
 -------
-``to_profiles(ds)``: a 3-D swath (format "swath") as profiles (format
-"profile"), so that tools written for profiles (the sampler, profile
-operations, Fuse) can use nadir-sounder data too.
+``to_profiles(ds)``: a 3-D swath (format "swath") or a time-height series
+(format "time_height") as profiles (format "profile"), so that tools written
+for profiles (the sampler, profile operations, Fuse) can use nadir-sounder
+and ground-based data too.
 
 Inputs and outputs
 ------------------
@@ -36,6 +37,24 @@ Inputs and outputs
   ``converted_from`` = "swath".
 
 2-D swaths have no levels and raise ``ValueError``.
+
+From "time_height" (``load_time_height``):
+
+- Each time (row) becomes a profile, in the same order; ``level`` is kept.
+- ``latitude``, ``longitude`` (the site) and ``time`` are repeated over
+  levels, ``altitude`` over profiles.
+- ``temperature``, its flag and ``temperature_uncertainty`` are kept as
+  they are. ``pressure`` is estimated from altitude as for swaths, in the
+  temperature's type, with ``origin`` "derived" and the ``derived`` state.
+- ``session`` is kept per profile; ``source_profile`` and ``source_file``
+  (``file_source=True``) are repeated over levels, and ``original_files`` is
+  kept.
+- ``availability`` and the attributes as for swaths, with ``converted_from``
+  = "time_height". A Dataset without temperature (e.g. radar winds only)
+  raises ``ValueError``: the profile format requires temperature.
+- Not carried: other variables (``additional_vars`` such as ``T2_lidar``,
+  and winds), which the profile format does not define; ``session`` is an
+  extra per-profile variable.
 
 Science
 -------
@@ -69,6 +88,7 @@ Change log
 ----------
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] keep source_file, source_row, original_files; inherit availability
+2026/11/26 [Claude] time_height to profiles
 
 How to cite
 -----------
@@ -86,9 +106,19 @@ _PER_PROFILE = ("granule", "granule_day", "segment", "source_row")
 
 
 def to_profiles(ds):
-    """A 3-D swath as profiles. See the module docstring."""
-    if ds.attrs.get("format") != "swath":
-        raise ValueError("to_profiles needs a Dataset in the 'swath' format.")
+    """A 3-D swath or a time_height Dataset as profiles. See the module
+    docstring."""
+    kind = ds.attrs.get("format")
+    if kind == "swath":
+        return _swath_to_profiles(ds)
+    if kind == "time_height":
+        return _time_height_to_profiles(ds)
+    raise ValueError("to_profiles needs a Dataset in the 'swath' or "
+                     "'time_height' format.")
+
+
+def _swath_to_profiles(ds):
+    """A 3-D swath as profiles."""
     if "level" not in ds.dims or "temperature" not in ds:
         raise ValueError("to_profiles needs a 3-D swath (with levels).")
     n_along, n_cross = ds.sizes["along_track"], ds.sizes["cross_track"]
@@ -165,6 +195,76 @@ def to_profiles(ds):
     result.attrs.update({
         "format": "profile", "format_version": FORMATS["profile"]["version"],
         "converted_from": "swath",
+        "availability": states.format_availability(availability),
+        "state_counts": states.counts_text(
+            {n: result[f"{n}_flag"].values for n in ("temperature", "pressure")}),
+    })
+    return result
+
+
+def _time_height_to_profiles(ds):
+    """A time_height Dataset (with temperature) as profiles: one per time."""
+    if "temperature" not in ds:
+        raise ValueError("to_profiles needs temperature (the profile format "
+                         "requires it).")
+    n_prof, n_lev = ds.sizes["time"], ds.sizes["level"]
+    pl = ("profile", "level")
+
+    def over_levels(values):  # (profile,) -> (profile, level)
+        return np.repeat(np.asarray(values)[:, None], n_lev, axis=1)
+
+    altitude = np.broadcast_to(ds["altitude"].values, (n_prof, n_lev)).astype(
+        np.float64)
+    temp = ds["temperature"].values
+    pressure = np.asarray(height_to_pressure(altitude), dtype=temp.dtype)
+    pressure_flag = states.new_flags(pressure.shape)
+    states.set_state(pressure_flag, np.isfinite(pressure), "derived")
+    states.set_state(pressure_flag, ~np.isfinite(pressure), "no_observation")
+
+    def site(name):  # the site position at every point
+        return np.full((n_prof, n_lev), float(ds[name].values))
+
+    out = {
+        "latitude": (pl, site("latitude"), ds["latitude"].attrs),
+        "longitude": (pl, site("longitude"), ds["longitude"].attrs),
+        "time": (pl, over_levels(ds["time"].values), ds["time"].attrs),
+        "altitude": (pl, altitude, ds["altitude"].attrs),
+        "temperature": (pl, temp, ds["temperature"].attrs),
+        "temperature_flag": (pl, ds["temperature_flag"].values,
+                             ds["temperature_flag"].attrs),
+        "pressure": (pl, pressure, {
+            "units": "hPa", "standard_name": "air_pressure", "origin": "derived",
+            "ancillary_variables": "pressure_flag",
+            "comment": "estimated from altitude with atmosphere.height_to_pressure "
+                       "(U.S. Standard Atmosphere 1976) by data.convert.to_profiles"}),
+        "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
+    }
+    if "temperature_uncertainty" in ds:
+        out["temperature_uncertainty"] = (pl, ds["temperature_uncertainty"].values,
+                                          ds["temperature_uncertainty"].attrs)
+    if "session" in ds:
+        out["session"] = (("profile",), ds["session"].values, ds["session"].attrs)
+    for name in ("source_profile", "source_file"):  # (time,) -> (profile, level)
+        if name in ds:
+            out[name] = (pl, over_levels(ds[name].values), ds[name].attrs)
+    result = xr.Dataset(out)
+    if "original_files" in ds.coords:  # (values only: not the site coordinates)
+        result = result.assign_coords(original_files=(
+            "file", ds["original_files"].values, ds["original_files"].attrs))
+
+    # absent tracked variables keep the time_height reason where it has one
+    th_availability = states.parse_availability(ds.attrs.get("availability", ""))
+    tracked = [n for n, s in FORMATS["profile"]["variables"].items()
+               if s.get("tracked") and n not in result]
+    availability = {n: th_availability.get(n, "not_requested") for n in tracked}
+    availability["pressure_uncertainty"] = "not_provided"
+    if "temperature_uncertainty" not in result:
+        availability["temperature_uncertainty"] = th_availability.get(
+            "temperature_uncertainty", "not_provided")
+    result.attrs = dict(ds.attrs)
+    result.attrs.update({
+        "format": "profile", "format_version": FORMATS["profile"]["version"],
+        "converted_from": "time_height",
         "availability": states.format_availability(availability),
         "state_counts": states.counts_text(
             {n: result[f"{n}_flag"].values for n in ("temperature", "pressure")}),

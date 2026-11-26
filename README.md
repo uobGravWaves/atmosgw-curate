@@ -3,7 +3,7 @@
 Python tools for loading, standardising and analysing observations of
 **atmospheric gravity waves** from satellites and other instruments.
 
-> **Status: pre-alpha (0.x), with two working loaders.**
+> **Status: pre-alpha (0.x), with three working loaders.**
 > - `obs.load_limb_sounders` (port of `get_limbsounders`): ACE, GNSS, HIRDLS,
 >   MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, sampler output and files of
 >   your own, as profiles.
@@ -11,8 +11,10 @@ Python tools for loading, standardising and analysing observations of
 >   detrending): AIRS 3-D retrievals, AIRS 2-D brightness temperatures and
 >   IASI 3-D retrievals, as swaths (`data.to_profiles` turns them into
 >   profiles).
+> - `obs.load_time_height` (new code): the ALOMAR lidar as a [time x level]
+>   series at its site (also convertible to profiles).
 >
-> Both return the common formats of `docs/design/data_formats.md` (version 1,
+> All return the common formats of `docs/design/data_formats.md` (version 1,
 > a proposal). See `docs/usage.md` to get started.
 
 ## Validation status
@@ -22,7 +24,10 @@ Python tools for loading, standardising and analysing observations of
   sweep at 0.3.4 (`tests/matlab/sweep/README.md`); checked by C. Wright on
   2026-11-25 (SABER, HIRDLS). `load_nadir_sounders` matches `prep_airs_3d` for
   AIRS (dateline, midnight, native and regridded) and, for IASI, wherever
-  Python keeps a value (its default screen differs by design). Each reference
+  Python keeps a value (its default screen differs by design).
+  `load_time_height` has no MATLAB equivalent: for ALOMAR it gives the same
+  values and rows as `load_limb_sounders(..., original_z=True)` on 34 dates
+  across 2003-2026 (`tests/test_time_height_alomar.py`). Each reference
   file is pinned to the MATLAB commits named in its test's header
   (`tests/test_limb_matlab.py`, `tests/test_nadir_matlab.py`).
 - **Metadata (data states, `origin`, `availability`, attributes).** MATLAB has

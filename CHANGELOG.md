@@ -5,6 +5,22 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New loader `obs.load_time_height` and format "time_height" (version 1):
+  ground-based [time x level] series at one site. First instrument: the
+  ALOMAR lidar, on its own heights (one 0.15 km grid holds every session's
+  heights exactly; no interpolation), with `temperature_uncertainty` from
+  the files (kind UNVERIFIED), `session`, and rows selected by their own
+  time, including sessions that started up to a year before (they last up
+  to 8 days). Same values and rows as `load_limb_sounders(..., "ALOMAR",
+  original_z=True)` on 34 real dates. Wind variables are defined for radars
+  (no reader yet). [Claude]
+- `data.to_profiles` also converts time_height Datasets (one profile per
+  time, pressure estimated from height). [Claude]
+- `validate`: a present `<variable>_uncertainty` is checked in every format
+  (dimensions, units, type, `comment`, named in `ancillary_variables`, NaN
+  where the variable is). Compatible: no earlier output had one. [Claude]
+- `load_limb_sounders(..., "ALOMAR")`: a UserWarning pointing to
+  `load_time_height`; values unchanged. [Claude]
 
 ## [0.4.1] - 2026-11-25
 - IASI: temperatures of exactly 100 K, the retrieval's lower bound (the files
