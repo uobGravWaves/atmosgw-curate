@@ -51,7 +51,12 @@ from atmosgw.curate.obs._common import (
     record,
     year_and_day,
 )
-from atmosgw.curate.obs._nadir_airs import J2000, candidate_granules
+from atmosgw.curate.obs._nadir_airs import (
+    FIRST_START,
+    GRANULE_DAYS,
+    J2000,
+    candidate_granules,
+)
 from atmosgw.curate.readers import read_netcdf
 
 # name: (file variable, nominal wavenumber cm-1, description)
@@ -106,7 +111,11 @@ def load(settings, inst_info, var_names):
     for day, g in candidate_granules(settings):
         path = find_file(inst_info["path"], day, g)
         if path is None:
-            rec["files_not_found"].append(f"{day_label(day)} granule {g}")
+            mid = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
+            r0, r1 = (-np.inf, np.inf) if explicit else settings.get(
+                "request_range", settings["time_range"])
+            if r0 <= mid <= r1:  # (as the 3-D reader)
+                rec["files_not_found"].append(f"{day_label(day)} granule {g}")
             continue
         names = ["time", "lat", "lon"]
         for c in channels:

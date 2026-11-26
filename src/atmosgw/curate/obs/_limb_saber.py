@@ -50,7 +50,7 @@ def load(settings, inst_info, var_names):
     last = math.floor(max(settings["time_range"]))
     note_sources(inst_info, {**FILE_NAMES, "Time": "date, time"})
     note(inst_info, "Time", "file date (yyyyddd) + time (ms since midnight)")
-    file_name, event_dates = "", None
+    file_name, event_dates, chosen = "", None, None
     months_seen = set()  # (each month is looked up for every day, recorded once)
     days, file_list = [], []
     for k, day in enumerate(range(first, last + 1), start=1):
@@ -62,15 +62,16 @@ def load(settings, inst_info, var_names):
         found = find_files(inst_info["path"], f"{month}{year}")
         first_look = f"{month}{year}" not in months_seen
         months_seen.add(f"{month}{year}")
-        if not found:
-            if first_look:
+        if first_look:  # (the file of the month, recording duplicates)
+            chosen = choose_file(found, inst_info, f"{month}{year}")
+        if chosen is None:
+            # (the day before the request is only looked at: not reported)
+            if first_look and day > first:
                 record(inst_info)["files_not_found"].append(f"{month}{year}")
             continue
-        if first_look:
-            choose_file(found, inst_info, f"{month}{year}")  # (records duplicates)
 
-        if found[0] != file_name:  # monthly files: read only when it changes
-            file_name = found[0]
+        if chosen != file_name:  # monthly files: read only when it changes
+            file_name = chosen
             file_list.append(os.path.basename(file_name))
             version = read_attrs(file_name).get("Data_Product_Version", "")
             note_version(inst_info, file_name,

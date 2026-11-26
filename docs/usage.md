@@ -212,8 +212,9 @@ availability(airs, "satellite_latitude")    # "not_in_files"
 
 **The record of the load**, in the attributes: `instrument`, `time_range` (as
 expanded), `options` (the call's arguments, JSON), `files_read`,
-`files_not_found`, `multiple_matches` (days with more than one matching
-file, and the one used), `source_versions` (the data versions the files
+`files_not_found` (warned), `files_without_data` (files that hold no
+values of the main variable; warned), `multiple_matches` (days with more
+than one matching file, and the one used), `source_versions` (the data versions the files
 state, with counts; with `file_source`, `original_file_version` per file),
 `atmosgw_curate_version`, and per variable `source_variable` and `comment`. All are text, so they survive saving.
 
@@ -248,7 +249,7 @@ folder).
 
 | Option | `load_limb_sounders` | `load_nadir_sounders` |
 |---|---|---|
-| `lat_range`, `lon_range` | keeps profiles that enter the box at any height | keeps along-track rows with any point in the box |
+| `lat_range`, `lon_range` | keeps profiles with a level inside the box | keeps along-track rows with any point in the box |
 | default heights | 18-60 km every 0.5 km (as MATLAB) | a 3 km grid from the lowest file level (as MATLAB) |
 | `extrapolate` | vertical, beyond each profile | horizontal, in the regridding |
 

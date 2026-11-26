@@ -91,21 +91,33 @@ COORD_ATTRS = {
 
 def to_datenums(time_range):
     """Times as MATLAB datenums (float64 array of 1 or 2 values)."""
-    values = np.atleast_1d(np.asarray(time_range, dtype=object)).ravel()
+    if time_range is None or (np.ndim(time_range) and np.size(time_range) == 0):
+        raise ValueError("time_range is empty: give one time (a day) or two "
+                         "(start and end).")
+    if np.asarray(time_range).dtype.kind == "M":  # (datetime64 of any unit)
+        values = np.atleast_1d(np.asarray(time_range, dtype="datetime64[us]")).ravel()
+    else:
+        values = np.atleast_1d(np.asarray(time_range, dtype=object)).ravel()
     if any(isinstance(v, (int, float, np.number)) and not isinstance(v, bool)
-           for v in values):
+           and not isinstance(v, np.datetime64) for v in values):
         raise TypeError(
             "time_range must be dates or times (datetime64, ISO strings or "
             "datetime), not numbers. Convert MATLAB datenums with "
             "atmosgw.curate.matlab_time.datenum_to_datetime."
         )
     times = np.array([to_datetime64(v) for v in values])
+    if np.any(np.isnat(times)):
+        raise ValueError("time_range contains NaT (not a time).")
     return np.atleast_1d(datetime_to_datenum(times))
 
 
 def to_datetime64(value):
     """One time as datetime64[us]; a clear error for strings that are not real
     dates, e.g. MATLAB-style carry-over such as '2022-01-34'."""
+    if isinstance(value, str) and re.fullmatch(r"\s*\d{8}\s*", value):
+        v = value.strip()
+        raise ValueError(f"time_range value {value!r} is read as the year {v}, not "
+                         f"a date: write it as '{v[:4]}-{v[4:6]}-{v[6:]}'.")
     try:
         return np.datetime64(value, "us")
     except ValueError as error:
@@ -194,11 +206,20 @@ def check_time_handling(options):
         raise ValueError(f"time_handling must be one of {TIME_HANDLING}.")
 
 
-def check_additional_vars(options):
-    """TypeError unless options["additional_vars"] is a list of names."""
+def check_additional_vars(options, reserved=()):
+    """TypeError unless options["additional_vars"] is a list of names;
+    ValueError for a name in reserved (an output or working name, which the
+    extra variable would replace). Returns the names, each once, in order."""
     additional = options["additional_vars"]
     if isinstance(additional, str) or not all(isinstance(a, str) for a in additional):
         raise TypeError("additional_vars must be a list of variable names.")
+    clash = [a for a in additional if a in reserved or a.endswith("_flag")]
+    if clash:
+        raise ValueError(
+            f"additional_vars {clash} would replace variables the loader makes "
+            "itself (output names, flags, or the file variables those are made "
+            "from); they cannot be loaded as extras.")
+    return list(dict.fromkeys(additional))
 
 
 def find_instrument(instrument, instruments, note=""):
@@ -255,16 +276,18 @@ def choose_file(found, inst_info, label, prefer=None):
     """
     One path from those found for a day (``readers.find_files`` output).
 
-    Without ``prefer``: the first, as the MATLAB loaders do. With it:
-    ``prefer(files)`` picks one of the files found (folders excluded). Either
-    way, if more than one file matched, a line naming them and the one used
-    is added to ``record(inst_info)["multiple_matches"]``. Returns the path,
-    or None if nothing was found.
+    Folders whose names match are not files, so are left out (MATLAB took
+    the first match even if it was a folder, then failed to read it).
+    Without ``prefer``: the first file, as the MATLAB loaders do. With it:
+    ``prefer(files)`` picks one. Either way, if more than one file matched, a
+    line naming them and the one used is added to
+    ``record(inst_info)["multiple_matches"]``. Returns the path, or None if
+    no file was found.
     """
-    if not found:
-        return None
     files = [path for path in found if os.path.isfile(path)]
-    chosen = prefer(files) if prefer is not None and files else found[0]
+    if not files:
+        return None
+    chosen = prefer(files) if prefer is not None else files[0]
     if len(files) > 1:
         names = ", ".join(os.path.basename(path) for path in files)
         record(inst_info)["multiple_matches"].append(
@@ -405,8 +428,36 @@ def load_attrs(settings, call, source):
         "files_read": ", ".join(settings["files_read"]),
         "source_versions": versions_text(settings["record"], settings["files_read"]),
         "files_not_found": ", ".join(settings["record"]["files_not_found"]),
+        "files_without_data": ", ".join(settings["record"].get("files_without_data",
+                                                               [])),
         "multiple_matches": "; ".join(settings["record"]["multiple_matches"]),
     }
+
+
+def warn_missing_files(settings, stacklevel, what="files"):
+    """Warn once per load if nothing was read, or if some of what was looked
+    for was not found (settings["record"]["files_not_found"]) or was read but
+    held no values ("files_without_data"); silenced by date_warning=False."""
+    if not settings.get("date_warning", True):
+        return
+    rec = settings["record"]
+    missing, empty = rec["files_not_found"], rec.get("files_without_data", [])
+    if not settings["files_read"] and missing:
+        warnings.warn(
+            f"None of the {settings['instrument']} {what} looked for were found "
+            f"(e.g. {missing[0]}; looked in "
+            f"{settings.get('data_path', 'the data folder')}); the Dataset is empty. "
+            "Check the data folder and the dates.", stacklevel=stacklevel + 1)
+    elif missing:
+        warnings.warn(
+            f"{len(missing)} {what} looked for were not found (e.g. {missing[0]}); "
+            "all are listed in the output attribute 'files_not_found'.",
+            stacklevel=stacklevel + 1)
+    if empty:
+        warnings.warn(
+            f"{len(empty)} {settings['instrument']} file(s) read hold no values of "
+            f"the main variable (e.g. {empty[0]}); listed in the output attribute "
+            "'files_without_data'.", stacklevel=stacklevel + 1)
 
 
 def warn_multiple_matches(settings, stacklevel):

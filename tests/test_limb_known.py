@@ -699,7 +699,9 @@ def test_choose_file_records_several_files_not_folders(tmp_path):
     a, b = str(tmp_path / "a_2007d001.mat"), str(tmp_path / "b_2007d001.mat")
     info = {}
     assert choose_file([], info, "day") is None
-    assert choose_file([folder, a], info, "day") == folder  # first, as MATLAB
+    # a matching folder is not a file (MATLAB took it, then failed to read it)
+    assert choose_file([folder, a], info, "day") == a
+    assert choose_file([folder], info, "day") is None
     assert "record" not in info  # only one file: nothing recorded
     assert choose_file([a, b], info, "2007-01-01") == a
     assert info["record"]["multiple_matches"] == [

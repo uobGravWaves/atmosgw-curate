@@ -43,6 +43,9 @@ Tolerances: bit-identical, except:
   days absolute, one unit in the last place of a datenum (10 microseconds).
 NaN patterns, shapes and the number of profiles must match exactly.
 
+Q12 (boxes need one level inside, both coordinates): the MATLAB rows of a
+boxed case are reduced to those (_q12_rows) before the comparison.
+
 Deliberate differences from MATLAB since 0.5.1 (docs/quirks.md; the last
 release that reproduces MATLAB is 0.5.1): the MATLAB output of the affected
 cases is changed as documented before the comparison (_python_changes):
@@ -233,7 +236,34 @@ def test_real_data_against_matlab(reference, case):
         got, want, tol = _python_changes(dataset, args, options, want, tol)
     else:
         got, _ = _load_limb_arrays(*args, **_defaults(options))
+        want = _q12_rows(want, options)
     assert_same_as_matlab(got, want, tol)
+
+
+def _q12_rows(want, options):
+    """The MATLAB rows a box keeps under Q12: at least one level whose
+    latitude and longitude are both finite and inside the box (MATLAB kept
+    profiles whose extremes overlapped it, possibly at different levels)."""
+    if "lat_range" not in options and "lon_range" not in options:
+        return want
+    la0, la1 = sorted(options.get("lat_range", (-90, 90)))
+    lo0, lo1 = options.get("lon_range", (-180, 180))
+    lat, lon = np.asarray(want["Lat"], float), np.asarray(want["Lon"], float)
+    with np.errstate(invalid="ignore"):
+        inside = ((lat >= la0) & (lat <= la1) & (lon >= lo0) & (lon <= lo1))
+    keep = np.flatnonzero(inside.any(axis=1))
+    out = {k: (np.asarray(v)[keep] if k != "OriginalFiles" else v)
+           for k, v in want.items()}
+    if "dx" in out:  # (distance from the previous profile kept, where that changed)
+        moved = np.flatnonzero(np.diff(keep) > 1) + 1
+        p1, l1 = np.deg2rad(out["Lat"][moved - 1]), np.deg2rad(out["Lon"][moved - 1])
+        p2, l2 = np.deg2rad(out["Lat"][moved]), np.deg2rad(out["Lon"][moved])
+        h = np.sin((p2 - p1) / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(
+            (l2 - l1) / 2) ** 2
+        h = np.clip(h, 0, 1)
+        out["dx"] = np.array(out["dx"], dtype=float)
+        out["dx"][moved] = 6371.0 * 2 * np.arctan2(np.sqrt(h), np.sqrt(1 - h))
+    return out
 
 
 def _python_changes(dataset, args, options, want, tol):

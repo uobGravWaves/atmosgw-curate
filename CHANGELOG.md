@@ -5,6 +5,36 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Limb and nadir boxes: a profile (or row) needs one point whose latitude
+  and longitude are both inside, and a `lon_range` with west > east crosses
+  the dateline, e.g. (170, -170); profiles with no position are in no box
+  (Q12). Limb: the file's own points are checked before interpolating, so a
+  bad point (e.g. 50 K, or a sentinel longitude) can no longer be blended
+  into a plausible value with no state (Q13). `additional_vars` that would
+  replace the loaders' own variables (e.g. MIPAS `time`, a `temperature` in
+  a Misc file, flags) are refused; repeated names are loaded once. [Claude]
+- Failures are loud. A data folder that does not exist (data root,
+  `datasets.toml`, `file_path` or `misc_path`) raises `FileNotFoundError`
+  instead of giving an empty Dataset. One warning per load when files,
+  granules or days looked for are missing (`date_warning=False` silences
+  it), and when files read hold no values of the main variable (new
+  attribute `files_without_data`; e.g. every merged GNSS file from late
+  August 2025 on holds no temperature). Refused with a message: a
+  `height_range` that leaves no heights; time strings such as "20070101"
+  (read by NumPy as a year), empty or NaT times; AIRS/IASI granule numbers
+  outside 1-240 or not whole (granule 0 silently gave granule 240 of the
+  daily file), repeated granules (now loaded once), `n_cross`/`n_along`
+  below 2, spacings <= 0, `lat_range`/`lon_range` outside the globe (nadir,
+  as limb); Misc/ACE/GNSS variables of the wrong shape (a short `Temp` was
+  padded at the wrong heights in multi-day loads); MLS files without their
+  temperature, position, pressure or time fields (silently skipped before).
+  Read errors name the file. A folder whose name matches a day's pattern is
+  no longer chosen as the day's file. Profiles with one or two levels give
+  NaN when interpolated (one level crashed); a HIRDLS file with one profile
+  loads, with positions as in the file. IASI records missing days and
+  explicitly requested granules when no file is read. netCDF variables with
+  several `missing_value`s have all masked. `datetime64` arrays of any unit
+  are accepted. Values unchanged otherwise (36 real-data cases). [Claude]
 - New dataset attribute `source_versions` (all loaders): each data version
   the files read state, with how many files state it (SABER
   `Data_Product_Version`, MLS and HIRDLS `PGEVersion` and DOI, SOFIE

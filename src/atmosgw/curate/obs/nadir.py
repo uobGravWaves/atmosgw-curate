@@ -29,7 +29,8 @@ Options (type, default; MATLAB name):
 - ``granules`` (list of (date, number), None): load exactly these granules
   (``DateNum``, ``GranuleId``); dates as for ``time_range``.
 - ``lat_range``, ``lon_range`` ((min, max), whole globe): keep along-track
-  rows with any point in the box.
+  rows with any point in the box; a ``lon_range`` whose first value is
+  greater than its second crosses the dateline, e.g. (170, -170).
 - ``original_grid`` (bool, False): no horizontal regridding (``LoadOnly``,
   which also implies ``original_z``).
 - ``n_cross`` (int, 90; ``NXT``), ``n_along`` (int per granule, 135;
@@ -168,6 +169,7 @@ Change log
 
 """
 
+import os
 import re
 import warnings
 
@@ -194,9 +196,11 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_missing_files,
     warn_mixed_versions,
 )
 from atmosgw.curate.paths import dataset_dir
+from atmosgw.curate.profiles import in_box
 from atmosgw.curate.solar import day_retrieval
 
 _FAR = datenum(9999, 999, 999)
@@ -291,6 +295,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
     # with a screen that needs neighbouring data, read beyond the request
     # (then trim), so a scan's flags do not depend on how it was requested
     load_settings, padded = settings, screen is not None and pad > 0
+    settings["request_range"] = settings["time_range"]  # (before any padding)
     if padded:
         load_settings = dict(settings)
         if settings["granules"] is not None:
@@ -308,6 +313,7 @@ def _load_nadir_arrays(time_range, instrument, **options):
         settings["record"]["files_not_found"][:] = [
             f for f in settings["record"]["files_not_found"]
             if _granule_label(f) not in extra]
+    warn_missing_files(settings, stacklevel=3, what="granules or files")
 
     # states, then bad values to NaN (unless keep_outliers)
     temp = np.asarray(data["Temp"], dtype=float)
@@ -403,9 +409,10 @@ def _load_nadir_arrays(time_range, instrument, **options):
 
     # rows entering the latitude/longitude box
     (la0, la1), (lo0, lo1) = settings["lat_range"], settings["lon_range"]
-    if (la0, la1, lo0, lo1) != (-90, 90, -180, 180) and data["Lat"].shape[1]:
-        inside = ((data["Lat"] >= min(la0, la1)) & (data["Lat"] <= max(la0, la1))
-                  & (data["Lon"] >= min(lo0, lo1)) & (data["Lon"] <= max(lo0, lo1)))
+    whole = (min(la0, la1), max(la0, la1), min(lo0, lo1), max(lo0, lo1)) == (
+        -90, 90, -180, 180)  # (as the limb loader: (180, -180) is the globe too)
+    if not whole and data["Lat"].shape[1]:
+        inside = in_box(data["Lat"], data["Lon"], (la0, la1), (lo0, lo1))
         keep = np.flatnonzero(np.any(inside, axis=0))
         for name in _along_track_names(data):
             data[name] = np.take(data[name], keep, axis=1 if data[name].ndim > 1
@@ -441,12 +448,35 @@ def _prepare(time_range, instrument, options):
     if channels is not None and (isinstance(channels, str)
                                  or not all(isinstance(c, str) for c in channels)):
         raise TypeError("channels must be a list of channel names.")
-    check_additional_vars(options)
-    additional = options["additional_vars"]
+    reserved = ({"Lat", "Lon", "Time", "Temp", "Alt", "Granule", "Day", "SourceFile",
+                 "SourceRow", "Segment", "DayNight", "Flags", "DistAlong", "DistCross",
+                 "Spacing", "ScanPosition", "Channel", "ChannelName", "DerivedVars",
+                 "BTPert", "BTVar", "l1_time", "l1_lat", "l1_lon", "ret_temp", "ret_z",
+                 "time", "lat", "lon"}
+                | set(_ATTRS) | {"brightness_temperature_perturbation",
+                                 "brightness_temperature_variance", "native_time",
+                                 "original_files", "original_file_version"})
+    additional = check_additional_vars(options, reserved)
 
+    for label in ("n_cross", "n_along"):
+        value = options[label]
+        if value is not None and (not float(value).is_integer() or value < 2):
+            raise ValueError(f"{label} must be a whole number of at least 2.")
+    for label in ("dx_cross", "dx_along"):
+        if options[label] is not None and not options[label] > 0:
+            raise ValueError(f"{label} must be a spacing in km greater than 0.")
+    for label, limit in (("lat_range", 90), ("lon_range", 180)):
+        if not all(-limit <= float(x) <= limit for x in options[label]):
+            raise ValueError(f"{label} must be within [-{limit}, {limit}].")
     granules = options["granules"]
     if granules is not None:
-        granules = [(int(np.floor(to_datenums(d)[0])), int(g)) for d, g in granules]
+        checked = []
+        for d, g in granules:
+            if float(g) != int(g) or not 1 <= int(g) <= 240:
+                raise ValueError(f"Granule numbers run from 1 to 240 (1-based), not "
+                                 f"{g!r}.")
+            checked.append((int(np.floor(to_datenums(d)[0])), int(g)))
+        granules = list(dict.fromkeys(checked))  # (each granule once, in order)
         expanded, scalar = None, False
     else:
         if time_range is None:
@@ -477,6 +507,12 @@ def _prepare(time_range, instrument, options):
     inst_info["path"] = (str(options["file_path"]) if options["file_path"] is not None
                          else str(dataset_dir(info["dataset"], kind,
                                               must_exist=False)))
+    if not os.path.isdir(inst_info["path"]):
+        given = "file_path" if options["file_path"] is not None else (
+            f"the data root and datasets.toml ({info['dataset']} {kind})")
+        raise FileNotFoundError(f"The {name} data folder {inst_info['path']} does not "
+                                f"exist (from {given}; see atmosgw.curate.paths).")
+    settings["data_path"] = inst_info["path"]
     return settings, inst_info, info
 
 

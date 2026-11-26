@@ -180,6 +180,7 @@ UNVERIFIED), `pressure` and the winds `not_in_files`. States:
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
 | `files_read`, `files_not_found`, `multiple_matches` | | as limb |
+| `files_without_data` | | files read that hold no values of the main variable (warned; optional) |
 | `source_versions` | | the data versions the files read state, with how many files state each (all formats; optional, not checked by `validate`) |
 | `state_counts` | `"temperature: outside_physical_range 12, missing 300"` | how many points of each variable are in each state |
 

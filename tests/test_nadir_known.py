@@ -9,7 +9,6 @@ and counts exact.
 """
 
 import inspect
-import warnings
 
 import netCDF4
 import numpy as np
@@ -127,11 +126,10 @@ def test_time_selection_by_mean_time(tmp_path):
     ds = load_nadir_sounders([f"{D}T05:00", f"{D}T05:20"], "AIRS", file_path=tmp_path)
     # granule g's mean time is 00:05:28 + 6(g - 1) min + 3 min: 50-52 lie in range
     assert sorted(set(ds.granule.values)) == [50, 51, 52]
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        with pytest.raises(UserWarning, match="strict"):
-            load_nadir_sounders(f"{D}T05:00", "AIRS", file_path=tmp_path,
-                                time_handling="strict")
+    # (granules 48-49, near 05:00, are not in the folder: also warned)
+    with pytest.warns(UserWarning, match="strict"):
+        load_nadir_sounders(f"{D}T05:00", "AIRS", file_path=tmp_path,
+                            time_handling="strict")
 
 
 def test_optional_outputs_and_availability(tmp_path):

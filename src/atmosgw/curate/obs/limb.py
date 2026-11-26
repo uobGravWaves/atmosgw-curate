@@ -39,9 +39,11 @@ Options (type, default):
 - ``height_scale`` (array, km, 18:0.5:60): heights to interpolate to.
 - ``height_range`` ((min, max), km, (0, inf)): clips ``height_scale``, or the
   data if ``original_z``.
-- ``lat_range`` ((min, max), (-90, 90)): keep profiles entering this latitude
-  range at any height.
-- ``lon_range`` ((min, max), (-180, 180)): the same for longitude.
+- ``lat_range`` ((min, max), (-90, 90)) and ``lon_range`` ((west, east),
+  (-180, 180)): keep profiles with at least one level whose position is in
+  both ranges (``profiles.in_box``); a ``lon_range`` whose first value is
+  greater than its second crosses the dateline, e.g. (170, -170). Profiles
+  with no position are not kept (Q12).
 - ``time_handling`` (str, "fuzzy"): "strict", "generous" or "fuzzy"; see below.
 - ``verbose`` (bool, False): print progress.
 - ``additional_vars`` (list of str, ()): extra variables to load, by their
@@ -153,7 +155,9 @@ state it: SABER ``Data_Product_Version``, MLS and HIRDLS ``PGEVersion`` and
 DOI, SOFIE ``DP_Version``, MIPAS L2 processing version, ACE and ALOMAR from
 the file name, GNSS each centre's retrieval version, PW files their code
 version; a warning if the files state different versions, except GNSS),
-``files_not_found`` (dates, SABER months or ALOMAR years that had no file)
+``files_not_found`` (dates, SABER months or ALOMAR years that had no file;
+a warning is given, unless ``date_warning`` is False), ``files_without_data``
+(files read that hold no temperature at all; warned)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
 ``to_netcdf``.
@@ -204,7 +208,12 @@ Science
 - Outliers (unless ``keep_outliers``) are set to NaN at that point in every
   variable: latitude outside [-90, 90] or longitude outside [-180, 180];
   height outside ``height_scale`` (when interpolating); temperature below
-  100 K, or above 400 K below 100 km.
+  100 K, or above 400 K below 100 km. When interpolating, the file's own
+  points are checked first (Q13): a point failing a check is NaN in every
+  variable but height, so every height interpolated from it is NaN too,
+  with its state (``outside_physical_range`` or ``bad_geolocation``), rather
+  than a plausible blend of good and bad values; then the interpolated
+  values are checked again.
 - Pressure, where a file has none, is estimated from height with
   ``atmosphere.height_to_pressure`` (U.S. Standard Atmosphere 1976 [R1]).
 
@@ -267,6 +276,8 @@ Change log
 2026/11/25 [Claude] less memory (about -35% peak): fewer copies; outputs unchanged
 2026/11/26 [Claude] ALOMAR: warning pointing to load_time_height (outputs unchanged)
 2026/11/26 [Claude] docstring: Validation updated to the current MATLAB reference
+2026/11/26 [Claude] boxes on valid positions, dateline boxes (Q12); extras may not
+  replace output names; file points screened before interpolating (Q13)
 2026/11/26 [Claude] source_versions attribute, original_file_version, mixed-version
   warning
 2026/11/26 [Claude] ACE/GNSS pressure to hPa; GNSS fills, times, positions, one copy
@@ -274,6 +285,7 @@ Change log
 
 """
 
+import os
 import warnings
 
 import numpy as np
@@ -310,6 +322,7 @@ from atmosgw.curate.obs._common import (
     record_attrs,
     to_datenums,
     warn_if_no_data,
+    warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
 )
@@ -463,6 +476,7 @@ def _load_limb_arrays(time_range, instrument, **options):
     warn_multiple_matches(settings, stacklevel=3)
     # (GNSS files always hold several centres' versions; Misc and Sampler none)
     warn_mixed_versions(settings, stacklevel=3, exempt=("GNSS", "Misc", "Sampler"))
+    warn_missing_files(settings, stacklevel=3)
 
     # variables not on the [profiles x levels] grid of Lat are left untouched
     # (only if ignore_non_modal; otherwise the readers have already refused them)
@@ -494,7 +508,32 @@ def _load_limb_arrays(time_range, instrument, **options):
         data.pop("SourceProf", None)
         data.pop("SourceFile", None)
 
+    contributed = {}
     if not settings["original_z"]:
+        # screen the file's own points first (Q13): a point failing the checks
+        # below is NaN in every variable but height (so it is not bridged
+        # over), and the heights it reaches when interpolated get its state
+        native = _native_bad(data)
+        if any(m.any() for m in native.values()):
+            method = settings["interp_type"].lower()
+            piecewise = method in ("linear", "nearest", "next", "previous")
+            # (pchip, spline and makima extrapolate by default and reach
+            # further: their states are spread linearly, with extrapolation;
+            # spline's influence beyond that is not marked)
+            reach = method if piecewise else "linear"
+            extrap = True if settings["extrapolate"] or not piecewise else None
+            for state, mask in native.items():
+                spread = interpolate_profiles(data["Alt"], mask.astype(float),
+                                              height_scale, reach, extrap)
+                contributed[state] = np.nan_to_num(spread) != 0
+            if not settings["keep_outliers"]:
+                # (extras keep their values here: they may be interpolated by
+                # another method; they are removed with the others below)
+                data = mask_points(data, native["outside_physical_range"]
+                                   | native["bad_geolocation"],
+                                   list(skip) + ["Alt"]
+                                   + list(settings["additional_vars"]), copy=False)
+
         # unwrap longitudes along each profile (finite values only), so that
         # interpolation is safe across the dateline
         lon = np.deg2rad(np.asarray(data["Lon"], dtype=float))
@@ -581,6 +620,8 @@ def _load_limb_arrays(time_range, instrument, **options):
 
     # why points are bad (data states, recorded with keep_outliers too)
     masks = _find_outliers(data, settings)
+    for state, reached in contributed.items():  # (from the file's own points)
+        masks[state] = masks[state] | reached
     bad = (masks["bad_geolocation"] | masks["outside_requested_range"]
            | masks["outside_physical_range"])
     if settings["original_z"]:  # (already NaN: clipped above)
@@ -629,8 +670,11 @@ def _prepare(time_range, instrument, options):
                           "hindley_pws", "ignore_non_modal", "file_source", "dx",
                           "extrapolate", "keep_duplicate_occultations"))
     check_time_handling(options)
-    check_additional_vars(options)
-    additional = options["additional_vars"]
+    # (extras may not replace the loader's own variables: MATLAB names, output
+    # names and flags, or the internal PresEstimated)
+    reserved = (set(OUTPUT_NAMES) | set(OUTPUT_NAMES.values()) | {"PresEstimated"}
+                | {f"{n}_uncertainty" for n in _DATA_VARIABLES})
+    additional = check_additional_vars(options, reserved)
 
     # instrument: exact name, any case
     name = find_instrument(instrument, INSTRUMENTS,
@@ -647,8 +691,14 @@ def _prepare(time_range, instrument, options):
         if not np.all(np.asarray(values, dtype=float) >= 0):
             raise ValueError(f"{label} must be >= 0.")
     height_range = tuple(float(h) for h in options["height_range"])
+    full_scale = height_scale
     height_scale = height_scale[(height_scale >= min(height_range))
                                 & (height_scale <= max(height_range))]
+    if not options["original_z"] and height_scale.size == 0:
+        raise ValueError(
+            f"height_range {height_range} leaves no heights of the height scale "
+            f"({full_scale.min():g} to {full_scale.max():g} km): widen it, or give "
+            "height_scale (or original_z=True).")
     lat_range = tuple(float(x) for x in options["lat_range"])
     lon_range = tuple(float(x) for x in options["lon_range"])
     if not all(-90 <= x <= 90 for x in lat_range):
@@ -693,6 +743,13 @@ def _prepare(time_range, instrument, options):
         inst_info["path"] = str(options["file_path"])
     if reader is None:
         raise NotImplementedError(f"The {name} reader is not ported yet.")
+    # a folder that does not exist is a set-up fault, not an absence of data
+    if name != "Sampler" and not os.path.isdir(inst_info["path"]):
+        given = ("file_path" if options["file_path"] is not None else "misc_path"
+                 if name == "Misc" else "the data root and datasets.toml")
+        raise FileNotFoundError(f"The {name} data folder {inst_info['path']} does not "
+                                f"exist (from {given}; see atmosgw.curate.paths).")
+    settings["data_path"] = inst_info["path"]
     return settings, inst_info, reader
 
 
@@ -734,6 +791,20 @@ def _find_outliers(data, settings):
         if "Temp" in data:
             masks["outside_physical_range"] = outside_physical_range(data["Temp"], alt)
     return masks
+
+
+def _native_bad(data):
+    """[profiles x levels] masks of the file's own points that fail the
+    checks: outside_physical_range (temperature, as _find_outliers) and
+    bad_geolocation (latitude beyond +-90, longitude outside -180 to 360, as
+    files may use 0-360)."""
+    lat, lon = np.asarray(data["Lat"], float), np.asarray(data["Lon"], float)
+    with np.errstate(invalid="ignore"):
+        geo = (np.abs(lat) > 90) | (lon < -180) | (lon > 360)
+    temp = (outside_physical_range(data["Temp"], data["Alt"]) if "Temp" in data
+            else np.zeros(lat.shape, dtype=bool))
+    return {"outside_physical_range": np.asarray(temp, dtype=bool),
+            "bad_geolocation": geo}
 
 
 def _variable_attrs(name, out, settings):

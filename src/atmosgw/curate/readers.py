@@ -117,7 +117,10 @@ def find_files(root, pattern, case_sensitive=False):
 
 def read_mat(path):
     """Variables in a MATLAB .mat file, as a dict. See the module docstring."""
-    contents = matio.load_from_mat(str(path))
+    try:
+        contents = matio.load_from_mat(str(path))
+    except Exception as error:  # (truncated, empty or not a MAT-file)
+        raise OSError(f"Cannot read {path}: {error}") from error
     return {
         name: _struct_to_dict(value)
         for name, value in contents.items()
@@ -127,7 +130,13 @@ def read_mat(path):
 
 def read_hdf5(path, name):
     """One HDF5 dataset as float64, in file (C) order. See the module docstring."""
-    with h5py.File(path, "r") as f:
+    try:
+        f = h5py.File(path, "r")
+    except OSError as error:
+        raise OSError(f"Cannot read {path}: {error}") from error
+    with f:
+        if name not in f:
+            raise KeyError(f"{name} not found in {path}")
         return np.asarray(f[name][()], dtype=np.float64)
 
 
@@ -165,8 +174,8 @@ def read_netcdf(path, names, rows=None):
             attrs = {a.lower(): var.getncattr(a) for a in var.ncattrs()}
             for key in ("_fillvalue", "missing_value"):
                 flag = np.asarray(attrs.get(key, ""))
-                if flag.dtype.kind in "biuf":
-                    value[value == np.float64(flag.ravel()[0])] = np.nan
+                if flag.dtype.kind in "biuf":  # (every value, if several)
+                    value[np.isin(value, flag.ravel().astype(np.float64))] = np.nan
             if "scale_factor" in attrs:
                 value = value * np.float64(attrs["scale_factor"])
             if "add_offset" in attrs:
