@@ -15,7 +15,7 @@ Below a dataset's folder, any layout works: a flat folder of files (e.g.
 `~/HIRDLS/*.he5`), year folders, or any other nesting. For each day (or
 month, year or granule) a loader looks for the file's name:
 
-- the daily-file readers (HIRDLS, MLS, SABER, SOFIE, MIPAS) search the whole
+- the date-named readers (HIRDLS, MLS, SOFIE, MIPAS daily; SABER monthly) search the whole
   folder for a name containing the date, as their MATLAB originals do;
 - the others (ACE, GNSS, planetary-wave files, AIRS, IASI) try the usual path
   first (e.g. `yyyy/ace_v52_yyyydddd.mat`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc`),
@@ -32,7 +32,8 @@ If more than one file has the name or date looked for, the first in search
 order is used (at each level, the contents of sub-folders before the files
 beside them, each in name order) and the
 choice is warned and listed in the output attribute `multiple_matches`; the
-newest MLS version is chosen instead of the first. A file at its usual path is
+newest MLS version is chosen instead of the first (and the DWD, IAGOS and
+FAAM readers choose as described below). A file at its usual path is
 used without looking further, except for IASI, whose files of a day are
 gathered from its day folder and anywhere else below the IASI folder (files
 in another day's folder are left out). Do not keep two copies of a product (e.g. two
@@ -167,7 +168,7 @@ netCDF file declares.
 - Provenance: made by running the Wright and Hindley (2018) sampler,
   https://github.com/corwin365/Model-Sampling.
 
-Where a day has no `sampled_<datenum>.mat`, the first netCDF file in
+Where a day has no `sampled_<datenum>.mat`, the first netCDF file below
 `sample_path` whose name ends `yyyydddd.nc` is read: the sampler's netCDF
 output, as in the SWANS DYAMOND runs (e.g.
 `SWANS/HIRDLS/dyamond_geos3km/HIRDLS-dyamond_geos3km-2020d020.nc`):
@@ -184,7 +185,8 @@ output, as in the SWANS DYAMOND runs (e.g.
   previous and next day's files are also read.
 - Variables: per scan a fixed-width header line (read by column: the
   fields can run together), with the 30 km tangent point `alat`, `alon`
-  (degrees east), `iday` (day of the year), `time` (GMT), `idn`, `iud`,
+  (degrees east), `iday` (day of the year), the time (GMT; columns read as
+  `hour`, `minute`, `second`), `idn`, `iud`,
   `iad`; then 6 channel lines; then 109 level lines of 18 values (`zt_std`
   km, `pt_std` mb, `tt_std` K, radiances, gradients, mixing ratios,
   `geo_heights` km); fill 1e24. `zt_std` is geometric height and
@@ -230,8 +232,9 @@ output, as in the SWANS DYAMOND runs (e.g.
   identifier): see `obs/_limb_aeolus.py`.
 - HLOS sign: `hlos_wind` = -u sin(az) - v cos(az) with az = `<ch>_az`,
   found by comparison with ERA5 (not from ESA's documentation).
-- Checked: the 15th of every month with data (2020-02 to 2023-04), and
-  2018-12-31, 2019-01-04 to 08, 2022-06-01; against ERA5 on three days.
+- The files cover 2018-09 to 2023-04.
+- Checked: the 15th of every month 2020-02 to 2023-04, and 2018-12-31,
+  2019-01-04 to 08, 2022-06-01; against ERA5 on three days.
   The files have no data from 2022-10-05 to 2022-11-26. The separate
   `Aeolus/matlab/*_aeolus_hloswind.mat` files (2018-09 to 2022-01,
   Rayleigh only) are not read: they do not match these files observation by
@@ -278,7 +281,7 @@ output, as in the SWANS DYAMOND runs (e.g.
 - Variables: [rows x 60] `l1_lat`, `l1_lon`, `l1_time` (s since
   2000-01-01T00:00Z); `ret_temp` (K) [rows x 60 x level]; `ret_z` (km).
   Fills as for AIRS 3-D.
-- Checked: files of 2007-2016 on one machine; no version is stated in the
+- Checked: files of 2007-2018 on one machine; no version is stated in the
   files.
 - Provenance: the retrieval of L. Hoffmann (UNVERIFIED: reference to be
   added); placeholder, to be updated later: who made these files, from which
@@ -294,7 +297,7 @@ output, as in the SWANS DYAMOND runs (e.g.
 
 - Files: as unzipped from the DWD CDC (`.../radiosondes/high_resolution/
   historical/<yyyy>/`): `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt`
-  (one per station and year), with `Metadaten_Sekunde_Aero_<station>.txt`
+  (one per station and period, usually a year), with `Metadaten_Sekunde_Aero_<station>.txt`
   (launch and end times, sonde type) and `Metadaten_Geographie_<station>.txt`
   (station position and name) beside it.
 - Variables: `;`-separated rows per sample: reference time, seconds since

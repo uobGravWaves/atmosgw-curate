@@ -15,6 +15,7 @@
 #   raw  the instrument's data files, as distributed or lightly reformatted
 #   pws  planetary-wave-filtered data ("Hindley23" format, made by the group's
 #        MATLAB code)
+#   2d   AIRS only: L. Hoffmann's 2-D brightness-temperature granule files
 
 [datasets.ACE]
 raw = "ACE/raw"

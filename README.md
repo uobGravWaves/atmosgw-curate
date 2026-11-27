@@ -51,6 +51,7 @@ ds.attrs["files_read"]                           # the record of the load
 | `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
 | `obs.load_trajectories` | DWD high-resolution radiosondes (`DWDsondes`), IAGOS and FAAM aircraft | flights, (flight, sample) | new code |
 | `data.to_profiles` | swaths and time-height series | profiles | new code |
+| `data.to_netcdf`, `data.load_netcdf` | any of the formats | a checked netCDF file and back | new code |
 
 Each returns an `xarray.Dataset` in a format defined in
 `docs/design/data_formats.md`. The supporting modules (MATLAB-compatible
@@ -63,7 +64,8 @@ geometry, file readers) are described in their own docstrings:
 0.5.1 is the last release that reproduces the MATLAB loaders. Later
 releases fix problems found in review that the MATLAB loaders share (ACE and
 GNSS pressure units, GNSS times and repeated occultations, box selection,
-bad points blended by interpolation, nadir positions and spacing: Q9-Q14 in
+bad points blended by interpolation, nadir positions and spacing, MLS
+screening, HIRDLS and SOFIE quality marks, pchip/spline/makima: Q9-Q18 in
 [`docs/quirks.md`](docs/quirks.md)); to reproduce a MATLAB-era result,
 install 0.5.1.
 
@@ -112,8 +114,8 @@ with versions, dates and what was not covered.
 ## Where the data are
 
 The loaders read the products below, found by file name anywhere below the
-dataset's folder (`datasets.toml`): a flat folder of files works as well as
-year folders. Another version of a product may work but has not been checked.
+dataset's folder (`datasets.toml`; ALOMAR and Sampler MAT-files in the
+folder itself): a flat folder of files works as well as year folders. Another version of a product may work but has not been checked.
 The version each file states is recorded in `ds.attrs["source_versions"]`.
 `docs/data_supply.md` gives, for each product, the file names, the variables
 read (with units and fill values) and where the files come from.

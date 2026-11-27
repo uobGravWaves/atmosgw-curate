@@ -1,7 +1,8 @@
 """Instrument loaders: observations in a common format.
 
-``load_limb_sounders``: limb sounders, radio occultation, lidar and sampler
-output on a [profile x level] grid (port of the MATLAB ``get_limbsounders``).
+``load_limb_sounders``: limb sounders, radio occultation, lidar, Aeolus
+winds and sampler output on a [profile x level] grid (port of the MATLAB
+``get_limbsounders``, with new readers for LIMS, ROMEX and Aeolus).
 
 ``load_nadir_sounders``: nadir-sounder swaths (AIRS, IASI) in the swath format
 (port of the MATLAB ``prep_airs_3d``).
@@ -9,8 +10,8 @@ output on a [profile x level] grid (port of the MATLAB ``get_limbsounders``).
 ``load_time_height``: ground-based [time x level] series at one site (the
 ALOMAR lidar) in the time_height format (new code).
 
-``load_trajectories``: in-situ measurements along a path (DWD radiosondes)
-in the trajectory format (new code).
+``load_trajectories``: in-situ measurements along a path (DWD radiosondes,
+IAGOS and FAAM aircraft) in the trajectory format (new code).
 """
 
 from atmosgw.curate.obs.limb import load_limb_sounders

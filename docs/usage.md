@@ -125,7 +125,8 @@ ds = load_limb_sounders("2019-01-07", "Aeolus", aeolus_channel="mie", original_z
 ```
 
 `aeolus_channel` is "rayleigh" (Rayleigh-clear observations, the default)
-or "mie" (Mie-cloudy). The files hold observations, not profiles, so
+or "mie" (Mie-cloudy; which observation type is clear and which cloudy is
+inferred from the files, UNVERIFIED). The files hold observations, not profiles, so
 profiles are rebuilt from them (`help(atmosgw.curate.obs._limb_aeolus)`);
 each level keeps its own time and position. The sign convention of HLOS is
 in the `sign_convention` attribute of `hlos_wind`.
@@ -146,7 +147,8 @@ Instruments: `"AIRS"` (3-D retrieval; 2-D brightness temperature with
 `product="2d"`) and `"IASI"` (3-D).
 
 ```python
-# two hours of AIRS, regridded to a regular distance grid (90 x 135 per granule)
+# two hours of AIRS, regridded to a regular distance grid (135 along-track x 90
+# cross-track per granule)
 ds = load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T02:00"], "AIRS")
 ds.temperature                     # (along_track, cross_track, level), K, float32
 
@@ -248,13 +250,17 @@ ds.upward_wind                     # FAAM only
   unzipped files). Temperature is the IAGOS package's where the flight has
   usable values (not all flagged erroneous or missing), else the
   aircraft's; altitude is GPS altitude likewise (not in MOZAIC-era files),
-  else barometric altitude. Values the files
-  flag erroneous (3) or missing (7) are `instrument_flag`; "limited" and
-  "not validated" values are kept.
+  else barometric altitude. Pressure, temperature and wind values the
+  files flag erroneous (3) or missing (7) are `instrument_flag`; "limited"
+  and "not validated" values are kept (position and altitude flags are not
+  applied).
 - **FAAM**: `sample_rate="1hz"` (default) gives each second's mean of its
   unflagged 32 Hz samples; `"full"` every sample (extras at rates that do
-  not divide 32, e.g. 20 or 64 Hz, need `"1hz"`). Any non-zero FAAM flag
-  is `instrument_flag`; a flagged position has no value. Of several
+  not divide 32, e.g. 20 or 64 Hz, need `"1hz"`). With `"full"`, a sample
+  with a non-zero FAAM flag is `instrument_flag`; with `"1hz"`, flagged
+  samples are left out of each second's mean, and a second is
+  `instrument_flag` only if none of its samples is unflagged. A flagged
+  position has no value. Of several
   revisions of a flight, the highest is read. Altitude is from the GPS-aided inertial system;
   temperature is the deiced sensor (`TAT_DI_R`).
 
@@ -291,11 +297,11 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `no_observation` | NaN | nothing measured here: outside the swath, above or below a profile's values, padding between profiles |
 | `missing` | NaN | a gap inside what was measured: a fill value at a scanned point, or between a profile's first and last value |
 | `outside_requested_range` | NaN | outside the heights asked for |
-| `bad_geolocation` | NaN | position out of range (nadir: also NaN, or time missing; limb: out of range only, as MATLAB) |
-| `outside_physical_range` | NaN | temperature < 100 K (IASI: also exactly 100 K, the retrieval's lower bound), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
+| `bad_geolocation` | NaN | position out of range (nadir: also NaN, time missing, or a scan of implausible width; limb and trajectories: out of range only) |
+| `outside_physical_range` | NaN | temperature < 100 K (IASI: also exactly 100 K, the retrieval's lower bound), or > 400 K (limb, time-height and trajectories: only below 100 km; nadir: at any height) |
 | `statistical_outlier` | NaN | marked by the instrument's screen (IASI) |
 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
-| `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` |
+| `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` (nadir: also edge columns given a segment's edge value, Q14) |
 | `instrument_flag` | NaN | failed the provider's own screening (MLS, SOFIE heights, ROMEX `is_bad`, Aeolus `valid` 0, IAGOS and FAAM flags) |
 | `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
 
@@ -305,8 +311,9 @@ SOFIE's endorsed heights (15-88 km), ROMEX's `is_bad`, Aeolus's `valid`
 flag, IAGOS's validity flags 3 and 7, and FAAM's flags. HIRDLS values
 dominated by the a priori are marked `a_priori_dominated` but kept. In
 `load_limb_sounders`, `instrument_qc=False` switches all of this off;
-`keep_outliers=True` (every loader) keeps the values, with their states
-still set. For the other instruments, request their quality fields with
+`load_trajectories` has no such switch (IAGOS and FAAM flags are always
+applied). `keep_outliers=True` (every loader) keeps the values, with their
+states still set. For the other instruments, request their quality fields with
 `additional_vars` and screen as the product's documentation says.
 
 The same rules hold in every format (`docs/design/data_formats.md` section
@@ -338,8 +345,8 @@ availability(airs, "satellite_latitude")    # "not_in_files"
 **The record of the load**, in the attributes: `instrument`, `time_range` (as
 expanded), `options` (the call's arguments, JSON), `files_read`,
 `files_not_found` (warned), `files_without_data` (files that hold no
-values of the main variable; warned), `multiple_matches` (days with more
-than one matching file, and the one used), `source_versions` (the data versions the files
+values of the main variable; warned), `multiple_matches` (each day, file,
+flight or revision with more than one candidate, and the one used), `source_versions` (the data versions the files
 state, with counts; with `file_source`, `original_file_version` per file),
 `atmosgw_curate_version`, and per variable `source_variable` and `comment`. All are text, so they survive saving.
 

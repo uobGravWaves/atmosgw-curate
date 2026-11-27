@@ -90,12 +90,16 @@ Options (type, default):
   (attribute ``sampled_from``; ``data`` "sampled"; ``origin`` "derived").
   Sampler output is always labelled so.
 - ``aeolus_channel`` (str, "rayleigh"): Aeolus only: "rayleigh"
-  (Rayleigh-clear observations) or "mie" (Mie-cloudy).
+  (Rayleigh-clear observations) or "mie" (Mie-cloudy; the observation-type
+  meanings are inferred from the files, UNVERIFIED).
 - ``instrument_qc`` (bool, True): apply the provider's own screening where
   implemented: MLS, its data quality documents' temperature rules (v5.0x and
   v6.x; ``obs._limb_mls.screen``); SOFIE, the heights endorsed for
-  scientific use (15-88 km, V1.3 data description); values failing these are
-  ``instrument_flag``, removed unless ``keep_outliers``. HIRDLS: values with
+  scientific use (15-88 km, V1.3 data description); ROMEX, profiles the
+  files mark ``is_bad``; Aeolus, observations with ``valid`` 0; values
+  failing these are ``instrument_flag``, removed unless ``keep_outliers``.
+  LIMS has no screening (its temperatures are not screened by the
+  provider either). HIRDLS: values with
   negative precision, "most of the information comes from the a priori"
   (V7 data quality document, section I.2), are kept and marked
   ``a_priori_dominated`` (Q17).
@@ -144,31 +148,32 @@ passed through by ``ignore_non_modal`` have their own dimensions
 (``<name>_dim0`` ...), or none if they hold a single value. Missing values
 are NaN (NaT for times). With no profiles, ``profile`` has length 0.
 
-The output is in the common "profile" format, version 1
-(``docs/design/data_formats.md``; check with ``data.validate(ds,
-"profile")``); the values are as before the format was applied. Each data
-variable (``temperature``, ``pressure``, ``temperature_residual``,
-``temperature_pw``) has a state flag ``<name>_flag`` of the same dimensions
+The output is in the common "profile" format, version 2
+(``docs/design/data_formats.md``; check with ``data.validate(ds, "profile")``);
+the values are as before the format was applied. Each data variable
+(``temperature``, ``pressure``, ``temperature_residual``, ``temperature_pw``,
+``hlos_wind``) has a state flag ``<name>_flag`` of the same dimensions
 (``data.states``) and an ``origin`` attribute. States set: ``bad_geolocation``
-(latitude or longitude out of range), ``outside_physical_range`` (temperature
-< 100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
-``height_range``, with ``original_z``; interpolated data are only on the
-height scale), ``instrument_flag`` (with ``instrument_qc``: MLS values failing
-its data quality documents' rules, SOFIE heights outside 15-88 km; Q15,
-Q17) and, kept with their values, ``a_priori_dominated`` (with
-``instrument_qc``: HIRDLS values with negative precision; Q17). When
-interpolating, a height that uses a file point with one of these states
-gets the state too (Q13). As in MATLAB, a point removed for one variable is
-removed (and flagged) in all of them. With ``keep_outliers`` the values are kept and
-the states still set. Every other NaN is ``missing`` if it lies between the
-profile's first and last value of that variable (a gap in what was
-measured, e.g. a fill value), and ``no_observation`` otherwise (above or
+(latitude or longitude out of range), ``outside_physical_range`` (temperature <
+100 K, or > 400 K below 100 km), ``outside_requested_range`` (outside
+``height_range``, with ``original_z``; interpolated data are only on the height
+scale), ``instrument_flag`` (with ``instrument_qc``: MLS values failing its
+data quality documents' rules, SOFIE heights outside 15-88 km, ROMEX ``is_bad``
+profiles, Aeolus ``valid`` 0; Q15, Q17) and, kept with their values,
+``a_priori_dominated`` (with ``instrument_qc``: HIRDLS values with negative
+precision; Q17). When interpolating, a height that uses a file point with one
+of these states gets the state too (Q13). As in MATLAB, a point removed for one
+variable is removed (and flagged) in all of them. With ``keep_outliers`` the
+values are kept and the states still set. Every other NaN is ``missing`` if it
+lies between the profile's first and last value of that variable (a gap in what
+was measured, e.g. a fill value), and ``no_observation`` otherwise (above or
 below the profile, or padding between profiles of different lengths). With
 ``extrapolate``, points outside a profile's own heights are ``extrapolated``
 (where they have a value).
 
 ``origin``: "retrieved", except "derived" for planetary-wave data, for
-Sampler data (from a model) and for pressure estimated from height, and
+Sampler data and data loaded with ``sampled_from`` (from a model) and for
+pressure estimated from height (always for Aeolus), and
 "mixed" when only some of the pressures in the output are estimated (files
 without pressure); values computed this way also have the ``derived`` state.
 With no profiles, pressure counts as "retrieved". Data variables keep their
@@ -178,10 +183,14 @@ float64).
 Attributes of the Dataset, recording the load: ``format`` ("profile"),
 ``format_version`` (2), ``product`` ("temperature"; "hlos_wind" for Aeolus),
 ``characterisation``
-(``<instrument>-TEMPERATURE-placeholder/0``, until the characterisation
-packages exist), ``availability`` (optional variables of the format not in
-the Dataset, and why), ``state_counts`` (points in each state, per
-variable), ``instrument``, ``data`` ("raw" or "planetary-wave-filtered"),
+(``<instrument>-<PRODUCT>-placeholder/0``, e.g.
+``SABER-TEMPERATURE-placeholder/0``, ``Aeolus-HLOS_WIND-placeholder/0``,
+until the characterisation packages exist), ``availability`` (optional
+variables of the format not in the Dataset, and why), ``state_counts``
+(points in each state, per variable), ``instrument``, ``data`` ("raw",
+"preprocessed" (GNSS), "planetary-wave-filtered" or "sampled"),
+``preprocessing`` (how the files were altered before loading, or ""),
+``sampled_from`` (sampled data), ``aeolus_channel`` (Aeolus),
 ``heights`` ("interpolated" or
 "original"), ``time_range`` (as expanded by ``time_handling``), ``source``,
 ``atmosgw_curate_version``, ``options`` (the call's arguments as a JSON
@@ -191,9 +200,10 @@ state it: SABER ``Data_Product_Version``, MLS and HIRDLS ``PGEVersion`` and
 DOI, SOFIE ``DP_Version``, MIPAS L2 processing version, ACE and ALOMAR from
 the file name, GNSS each centre's retrieval version, PW files their code
 version; a warning if the files state different versions, except GNSS),
-``files_not_found`` (dates, SABER months or ALOMAR years that had no file;
-a warning is given, unless ``date_warning`` is False), ``files_without_data``
-(files read that hold no temperature at all; warned)
+``files_not_found`` (dates, SABER months, ALOMAR years or Aeolus months
+(yyyy-mm) that had no file; a warning is given, unless ``date_warning`` is
+False), ``files_without_data`` (files read that hold no temperature at all;
+warned)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
 ``to_netcdf``.
@@ -206,9 +216,10 @@ from files without one, the HIRDLS geolocation correction, SOFIE's time
 units). With interpolation, ``altitude`` is the height scale, and its
 comment names the file heights the data were interpolated from.
 
-Files: where more than one file matches a day, the first in name order is
-used, as in MATLAB, except for MLS, where the newest data version is used,
-as now also in MATLAB (Q8 in ``docs/quirks.md``).
+Files: where more than one file matches a day, the first in search order
+is used (``readers.find_files``: sub-folders before the files beside them,
+each in name order), as in MATLAB, except for MLS, where the newest data
+version is used, as now also in MATLAB (Q8 in ``docs/quirks.md``).
 
 MATLAB -> Python names: ``Lat`` latitude, ``Lon`` longitude, ``Time`` time,
 ``Temp`` temperature, ``Pres`` pressure, ``Alt`` altitude, ``Temp_Residual``
@@ -280,10 +291,13 @@ repository.
 
 Status
 ------
-Matches the MATLAB reference outputs (see Validation); first released in
-0.1.0. AI-ported (Claude) from the MATLAB. Checked by C. Wright on 2026-11-25
-by comparing its outputs with the MATLAB function's (SABER, HIRDLS); the code
-has not been reviewed line by line.
+Matched the MATLAB reference outputs up to 0.5.1; the later deliberate
+changes are listed in ``docs/quirks.md`` (Q9-Q18), and how the MATLAB
+comparison allows for them in Validation. First released in 0.1.0.
+AI-ported (Claude) from the MATLAB. LIMS, ROMEX, Aeolus and the netCDF
+sampler output are new code, checked as in ``docs/validation.md``. Checked
+by C. Wright on 2026-11-25 by comparing its outputs with the MATLAB
+function's (SABER, HIRDLS); the code has not been reviewed line by line.
 
 Usage
 -----

@@ -19,7 +19,9 @@ reference outputs.
   `hlos_wind_uncertainty`, `line_of_sight_azimuth`) needs no temperature.
   Version 1 Datasets are still accepted by `validate`; the limb loader's
   outputs for the other instruments are unchanged except
-  `format_version` 2. [Claude]
+  `format_version` 2 (and Sampler's `data`, below). `instrument_qc` also
+  marks ROMEX `is_bad` profiles and Aeolus `valid` 0 observations as
+  `instrument_flag`; LIMS has no screening. [Claude]
 - New `obs.load_trajectories` and the "trajectory" format (flight, sample):
   in-situ measurements along a path, each sample at its own position, time
   and height. Instruments: `"DWDsondes"` (DWD high-resolution radiosondes,

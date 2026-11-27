@@ -1,5 +1,5 @@
 """
-Load in-situ measurements along a path (radiosondes; later aircraft and
+Load in-situ measurements along a path (radiosondes and aircraft; later
 balloons) in a common format.
 
 Each flight (an ascent, a flight) is one row of a [flight x sample] grid,
@@ -7,7 +7,6 @@ its samples in path order with their own position, time and height, so
 that drift is kept. This is the "trajectory" format
 (``docs/design/data_formats.md``), version 1: it uses the variable names,
 state flags and attributes of the other formats, without a level grid.
-First instrument: the DWD high-resolution radiosondes ("DWDsondes").
 
 Inputs and outputs
 ------------------
@@ -16,57 +15,82 @@ Inputs and outputs
 ``time_range``: one time (that day) or two (start and end), as
 ``numpy.datetime64``, ISO strings or ``datetime`` objects, as for
 ``load_limb_sounders`` (numbers are refused). A flight is selected by its
-start (launch) time.
+start (launch, take-off) time.
 
-``instrument``: ``"DWDsondes"`` (any case, e.g. ``"dwdsondes"``): the DWD
-high-resolution radiosondes. Each sonde dataset gets its own name (e.g. a
-later ``"IGRAsondes"``), as the files and their meanings differ.
+``instrument`` (any case, e.g. ``"dwdsondes"``):
+
+- ``"DWDsondes"``: the DWD high-resolution radiosondes, 1990-2024. Each
+  sonde dataset gets its own name (e.g. a later ``"IGRAsondes"``), as the
+  files and their meanings differ.
+- ``"IAGOS"``: in-service aircraft (IAGOS, including the MOZAIC era),
+  1994-2024, from the zip archive of flight files or unzipped files.
+- ``"FAAM"``: the FAAM BAe-146 research aircraft, core data files.
 
 Options (type, default):
 
-- ``stations`` (station ids or names, or a list of them, None): only these
-  stations (e.g. ``1757``, ``"01757"`` or ``"Greifswald"``); all if None.
-  Stations asked for but not in the files are listed in ``files_not_found``.
+- ``stations`` (station ids or names, or a list of them, None): DWDsondes
+  only: only these stations (e.g. ``1757``, ``"01757"`` or
+  ``"Greifswald"``); all if None. Stations asked for but not in the files
+  are listed in ``files_not_found``.
+- ``sample_rate`` (str, "1hz"): FAAM only: "1hz" (each second's mean of its
+  unflagged 32 Hz samples) or "full" (every sample).
+  ``stations`` or ``sample_rate`` given for another instrument is a
+  TypeError.
 - ``time_handling`` (str, "fuzzy"): "strict", "generous" or "fuzzy", as for
   ``load_limb_sounders``.
-- ``keep_outliers`` (bool, False): keep temperatures outside the physical
-  range (their state is still set).
+- ``keep_outliers`` (bool, False): keep the values removed as bad
+  (``outside_physical_range``, ``instrument_flag``, ``bad_geolocation``);
+  their states are still set. (FAAM at 1 Hz: flagged samples are left out
+  of each second's mean in any case.)
 - ``additional_vars`` (list of str, ()): extra per-sample variables, by their
-  names in the files (DWD: ``AE_RF`` relative humidity %, ``AE_TD`` dew point
-  degrees C, ``AE_FF``, ``AE_DD``, ``QN_1``, ``MESSZEITPUNKT``), as read
-  (-999 as NaN).
+  names in the files, as read (fill values as NaN). DWD: ``AE_RF``
+  (relative humidity, %), ``AE_TD`` (dew point, degrees C), ``AE_FF``,
+  ``AE_DD``, ``QN_1``, ``MESSZEITPUNKT``; IAGOS and FAAM: any file
+  variable (e.g. ``O3_P1``, ``air_temp_AC``; ``TAT_ND_R``, ``PALT_RVS``).
 - ``file_source`` (bool, False): also return ``source_file`` and
   ``original_files``.
 - ``file_path`` (str or Path, None): read the files from this folder.
 - ``verbose`` (bool, False), ``date_warning`` (bool, True).
 
 **Output**: an ``xarray.Dataset`` with dimensions ``flight`` and ``sample``
-(and ``file`` with ``file_source``), flights in order of station then start
-time, samples padded with NaN (NaT) to the longest flight:
+(and ``file`` with ``file_source``), samples padded with NaN (NaT) to the
+longest flight (DWD flights in order of station, then start time; IAGOS and
+FAAM in order of their files):
 
 - ``latitude``, ``longitude`` (flight, sample): degrees;
-- ``time`` (flight, sample): ``datetime64[us]``;
-- ``altitude`` (flight, sample): km (DWD: geopotential height);
+- ``time`` (flight, sample): ``datetime64[us]`` (to the ms; FAAM "full" to
+  the us);
+- ``altitude`` (flight, sample): km (DWD: geopotential height; IAGOS and
+  FAAM: GPS, geometric; IAGOS: barometric where a flight has no usable GPS
+  altitude);
 - ``pressure`` (hPa), ``temperature`` (K), ``eastward_wind``,
-  ``northward_wind`` (m s-1) (flight, sample), each with ``<name>_flag``;
-- ``flight_id``, ``platform_id`` (station), ``platform_name``,
-  ``platform_type`` (sonde type), ``start_time`` (launch),
-  ``reference_time`` (the nominal synoptic time) (flight);
+  ``northward_wind`` and, FAAM only, ``upward_wind`` (m s-1) (flight,
+  sample), each with ``<name>_flag``;
+- per flight: ``flight_id``, ``platform_id`` (station or aircraft
+  registration), ``platform_name``, ``platform_type``, ``start_time``;
+  DWD: ``reference_time`` (the nominal synoptic time); IAGOS:
+  ``departure_airport``, ``arrival_airport``, ``temperature_source``,
+  ``altitude_source`` (the file variables used);
 - ``source_file`` (flight): 1-based index into ``original_files``.
 
 Data variables are float64. States (shared rules, ``data_formats.md`` 6.3):
-``no_observation`` (padding after a flight's last sample, and before its
-first value), ``missing`` (NaN between a variable's first and last value in
-the flight), ``outside_physical_range`` (temperature < 100 K, or > 400 K
-below 100 km; removed unless ``keep_outliers``; only the temperature is
-removed, as the sensors are separate). ``origin`` "measured".
-``availability``: ``upward_wind`` not_in_files, the uncertainties
-not_provided. Attributes: as the other loaders (``format`` "trajectory",
-``format_version``, ``instrument``, ``product`` "sounding",
+``no_observation`` (padding after a flight's last sample, and before or
+after a variable's values), ``missing`` (NaN between a variable's first and
+last value in the flight), ``outside_physical_range`` (temperature < 100 K,
+or > 400 K below 100 km), ``instrument_flag`` (IAGOS validity flags 3 and 7
+on pressure, temperature and winds; FAAM non-zero flags; no switch to turn
+these off, but ``keep_outliers`` keeps the values) and ``bad_geolocation``
+(position out of range). A bad temperature or a flag on one variable
+removes only that variable (the sensors are separate); a bad position
+removes them all. ``origin`` "measured". ``availability``: ``upward_wind``
+not_in_files (DWD, IAGOS), the uncertainties not_provided. Attributes: as
+the other loaders (``format`` "trajectory", ``format_version``,
+``instrument``, ``product`` "sounding" (DWD) or "flight" (IAGOS, FAAM),
 ``characterisation``, ``data`` "raw", ``preprocessing``, ``time_range``,
 ``availability``, ``source``, ``atmosgw_curate_version``, ``options``,
 ``files_read``, ``source_versions``, ``files_not_found``,
-``files_without_data``, ``multiple_matches``, ``state_counts``).
+``files_without_data``, ``multiple_matches``, ``state_counts``; FAAM:
+``sample_rate``).
 
 Science
 -------
@@ -85,9 +109,12 @@ New code (no MATLAB equivalent).
 
 Validation
 ----------
-``tests/test_new_loaders.py`` (synthetic files: parsing, bisection against
-a full read, times, winds, states, options, repeated files). Real files
-checked by hand on 1993-06-15, 2004-01-01, 2020-01-07 and 2024-12-31.
+``tests/test_new_loaders.py`` (synthetic files of each instrument:
+parsing, the DWD bisection against a full read, times, winds, flags, states,
+options, repeated files and revisions). Real files: DWD on 1993-06-15,
+2004-01-01, four days of 2020 and 2024-12-31; IAGOS on four days
+(1998-2023); FAAM on three days of 2025; each against ERA5, with censuses
+and day-boundary checks (``docs/validation.md``).
 
 Status
 ------

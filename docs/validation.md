@@ -44,7 +44,7 @@ Each deliberate change from MATLAB (Q1-Q8) was measured before and after;
 the sizes are in [`quirks.md`](quirks.md).
 
 0.5.1 is the last release that reproduces `get_limbsounders`. Later changes
-made in Python only (Q9-Q11, ACE and GNSS) are applied to the MATLAB output
+made in Python only (Q9-Q11, ACE and GNSS; Q12, boxes) are applied to the MATLAB output
 in `tests/test_limb_matlab.py` before the comparison, so the rest is still
 checked against MATLAB; to reproduce a MATLAB-era result, install 0.5.1.
 
@@ -78,7 +78,7 @@ them NaN and flagged, so IASI is compared wherever Python has a value.
   `n_cross`/`n_along` options, AIRS 2-D, and the fill-value handling added
   after the sweep (MATLAB reads fill values as data).
 
-The fill-value handling (`CHANGELOG.md`, Unreleased) comes from a census of
+The fill-value handling (`CHANGELOG.md`, 0.5.1) comes from a census of
 every AIRS daily file (8,431) and IASI file (53,439) on 2026-11-26. Against
 the previous Python version, on 994 real-data calls: 974 bit-identical, 9
 that crashed now load, 11 differ only at bad data.
@@ -125,7 +125,8 @@ signs, time bases and gross errors, not the data's accuracy.
   with original heights and file sources; HIRDLS planetary-wave data) and a
   SWANS AIRS day, before and after: every variable and variable attribute
   bit-identical; only `format_version` (profile 1 to 2) and the new options
-  in `options` differ.
+  in `options` differ. (Sampler output, not among these cases, now also has
+  `data` "sampled" and `sampled_from`.)
 - **One request over two days equals the two single days** (no profile or
   flight lost or doubled at midnight or at a file's start): LIMS
   1978-11-08/09 and 1979-03-26/27, ROMEX 2022-10-14/15, Aeolus 2019-01-04/05
@@ -134,13 +135,14 @@ signs, time bases and gross errors, not the data's accuracy.
 - **Censuses:** LIMS, every day of the 201 files: the 630,053 scans are
   each returned once, and every day validates. ROMEX, every day
   2022-09-01 to 11-30: 3,126,854 profiles returned, exactly the files'
-  profiles with a time. Aeolus, the 15th of every month 2020-02 to 2023-04:
-  every day validates; the files have no data from 2022-10-05 to 2022-11-26
+  profiles with a time. Aeolus (files 2018-09 to 2023-04), the 15th of
+  every month 2020-02 to 2023-04: every day validates; the files have no data from 2022-10-05 to 2022-11-26
   (a gap in the files: those loads are empty, with a warning). DWD sondes:
   all 409 product files are in order of reference time, as the reader's
   bisection assumes (it also falls back to a full read if not).
 - **Saving:** `data.to_netcdf`/`load_netcdf` round trips of each new
-  instrument's output: identical, and within 0.01 when packed.
+  instrument's output: identical, and packed within 0.01 in each
+  variable's units (temperatures are packed to 0.01 K).
 - **Heights against hypsometric thickness:** LIMS `zt_std` is geometric
   (increments exceed the thickness by the geometric/geopotential ratio,
   0.5-1.5% at 10-50 km) and `geo_heights` geopotential (to 0.04%); ROMEX

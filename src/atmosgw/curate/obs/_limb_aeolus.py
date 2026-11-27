@@ -15,15 +15,16 @@ Rayleigh type 2 observations form full columns, the Mie file holds only type
 ``Sources`` lists each L2B file with its baseline and processor version.
 
 Channel (``aeolus_channel``): "rayleigh" (default) uses Rayleigh-clear
-observations, "mie" Mie-cloudy (the usual choice for L2B winds; the other
-types are not read).
+observations, "mie" Mie-cloudy (taken to be the usual pairing for L2B
+winds: UNVERIFIED; the other types are not read).
 
 Profiles: the flat files carry no profile identifier, so profiles are
 rebuilt (a heuristic, new code): the observations of one channel and type,
 in time order (stable), start a new profile where (a) the range bin is more
 than 3 km above the previous one (the column starting again at its top),
 (b) a range bin (the same bottom and top) is already in the profile, or (c)
-12 s (about one basic repeat cycle, 87 km) have passed since the profile's
+12 s (taken as about one basic repeat cycle, 87 km: UNVERIFIED) have
+passed since the profile's
 first observation. On 2019-01 and 2021-06 Rayleigh-clear data, rule (a)
 alone gave profiles spanning at most 11.6 s. Within a profile the levels
 are ordered by height (bottom first). Each level keeps its own time and

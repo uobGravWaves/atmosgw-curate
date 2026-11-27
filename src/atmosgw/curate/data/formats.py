@@ -241,7 +241,7 @@ FORMATS = {
             "original_files": dict(kind="text", dims=("file",), tracked=True),
         },
     },
-    # in-situ measurements along a path (radiosondes; later aircraft and
+    # in-situ measurements along a path (radiosondes and aircraft; later
     # balloons): one row per flight, samples in path order, padded with NaN
     # (NaT for time) to the longest flight; no level grid
     "trajectory": {

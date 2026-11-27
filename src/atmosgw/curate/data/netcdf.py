@@ -18,7 +18,8 @@ Inputs and outputs
 Option       Type         Default  Description
 ===========  ===========  =======  ==============================================
 ``ds``       Dataset      -        a Dataset in one of the formats ("profile",
-                                   "swath", "time_height"), as the loaders return
+                                   "swath", "time_height", "trajectory"), as the
+                                   loaders return
 ``path``     str or Path  -        the file to write (its folder must exist)
 ``pack``     bool         False    store suitable variables as scaled integers
                                    (lossy, to a stated resolution; see below)

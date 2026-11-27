@@ -62,7 +62,7 @@ The specification lives in code in `atmosgw/curate/data/`: `formats.py`
 - **Data variables: float32.** Its resolution is about 1 part in 1.7e7:
   1.5e-5 K at 300 K, 1e-5 degrees (about 1 m) in longitude. That is far finer
   than the data (about 1 K for nadir sounders, about 0.1 K at best for limb
-  sounders and GNSS), so nothing is lost, and memory is half of float64.
+  sounders and GNSS: rough figures, UNVERIFIED), so nothing is lost, and memory is half of float64.
   *Proposal (2026-11-25):* the "profile" format also accepts float64 data
   variables, so `load_limb_sounders` keeps its values exactly as loaded
   (most of its readers give float64); the validator checks this per format.
@@ -102,12 +102,15 @@ and `validate` accepts both versions.
 This is the `load_limb_sounders` output since 2026-11-25 (values unchanged by
 the format; data variables may be float32 or float64). States it sets:
 `bad_geolocation`, `outside_physical_range`, `outside_requested_range` (with
-`original_z`),
-`no_observation` (every other NaN), `extrapolated` (with `extrapolate`),
-`derived` (estimated pressure, point by point;
-planetary-wave data, Sampler data). *Proposals:* `product` "temperature" and
-`characterisation` `<instrument>-TEMPERATURE-placeholder/0` for every limb
-instrument; `origin` "retrieved" for limb temperatures and pressures.
+`original_z`), `instrument_flag` (MLS, SOFIE, ROMEX, Aeolus, with
+`instrument_qc`), `a_priori_dominated` (HIRDLS), `missing` (a NaN between a
+profile's first and last value), `no_observation` (every other NaN),
+`extrapolated` (with `extrapolate`), `derived` (estimated pressure, point by
+point; planetary-wave data, sampled data). *Proposals:* `product`
+"temperature" and `characterisation` `<instrument>-TEMPERATURE-placeholder/0`
+for every limb instrument but Aeolus ("hlos_wind",
+`Aeolus-HLOS_WIND-placeholder/0`); `origin` "retrieved" for limb
+temperatures and pressures.
 
 ## 4. Format "swath", version 1
 
@@ -239,8 +242,8 @@ Origin "measured".
 | `product` | `"3d"` | |
 | `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
 | `data` | `"raw"` / `"preprocessed"` / `"planetary-wave-filtered"` / `"sampled"` | "preprocessed" when the files were altered before loading (values interpolated, rounded ...); "sampled" for a model sampled as the instrument (with an attribute `sampled_from` naming it) |
-| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed. Written by both loaders since 0.4.0; not required by `validate` in version 1 |
-| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products). Written since 0.4.0; not required in version 1 |
+| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed. Written by every loader; not required by `validate` |
+| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products). Written by every loader but `load_trajectories`; not required by `validate` |
 | `time_range` | ISO times | as expanded by `time_handling` |
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
@@ -299,7 +302,7 @@ Initial registry (proposal), in three groups:
 | 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width) |
 | 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
 | 32 | `statistical_outlier` | NaN | marked by the instrument's statistical screen (`obs._screen`; IASI default: more than 5 x IQR beyond the quartiles of its height level in a rolling 10-min window, day and night separately; AIRS: none) |
-| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km) |
+| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (limb, with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km; ROMEX `is_bad`; Aeolus `valid` 0. Trajectories, always: IAGOS validity flags 3 and 7, FAAM non-zero flags) |
 | | **Value present, but qualified** | | |
 | 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
@@ -312,7 +315,8 @@ and their bits are still set.
 
 Instruments' own quality variables are not output unless asked for with
 `additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
-are implemented (`instrument_qc`, limb: MLS, SOFIE, HIRDLS), they set
+are implemented (limb, with `instrument_qc`: MLS, SOFIE, HIRDLS, ROMEX,
+Aeolus; trajectories: IAGOS, FAAM), they set
 `instrument_flag` or `a_priori_dominated`; the rule and its source are in the
 temperature's `comment` and in `docs/quirks.md` (Q15, Q17).
 
@@ -431,7 +435,7 @@ later be read as valid. An existing file is replaced only with
 
 With `pack=True` (*agreed*, 2026-11-26: only variables where it is safe),
 data variables in K are stored as scaled integers at 0.01 K (ten times finer
-than the best data, 0.1 K), their uncertainties at 0.001 K, latitude and
+than the best data, about 0.1 K: UNVERIFIED), their uncertainties at 0.001 K, latitude and
 longitude at 1e-7 degree (about 1 cm), and altitude and `dx` at 1e-6 km
 (1 mm), unless their values are exactly float32 (read from the files, not
 computed: they compress well as they are); each as int16 if its values

@@ -1,11 +1,11 @@
 """Common data formats, data states, and their checker.
 
 ``validate(ds, format_name)``: check a Dataset against a format (``"swath"``,
-``"profile"``, ``"time_height"``); ``availability(ds, name)``: whether a
-variable is present, or why not; ``to_profiles(ds)``: a 3-D swath or a
-time_height series as profiles; ``to_netcdf(ds, path)``, ``load_netcdf(path)``:
-save a valid Dataset to a netCDF file and read it back. See ``formats.py``,
-``states.py``, ``convert.py``, ``netcdf.py`` and
+``"profile"``, ``"time_height"``, ``"trajectory"``); ``availability(ds,
+name)``: whether a variable is present, or why not; ``to_profiles(ds)``: a 3-D
+swath or a time_height series as profiles; ``to_netcdf(ds, path)``,
+``load_netcdf(path)``: save a valid Dataset to a netCDF file and read it back.
+See ``formats.py``, ``states.py``, ``convert.py``, ``netcdf.py`` and
 ``docs/design/data_formats.md``.
 """
 
