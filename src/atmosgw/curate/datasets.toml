@@ -29,6 +29,9 @@ raw = "lidar/ALOMAR"
 [datasets.DWDsondes]
 raw = "sondes"
 
+[datasets.FAAM]
+raw = "FAAM"
+
 [datasets.GNSS]
 raw = "GNSS/raw"
 pws = "GNSS/pws"
@@ -36,6 +39,9 @@ pws = "GNSS/pws"
 [datasets.HIRDLS]
 raw = "HIRDLS/raw"
 pws = "HIRDLS/pws"
+
+[datasets.IAGOS]
+raw = "IAGOS"
 
 [datasets.LIMS]
 raw = "LIMS"

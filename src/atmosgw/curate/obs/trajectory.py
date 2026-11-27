@@ -114,7 +114,7 @@ import xarray as xr
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs import _traj_dwd_sondes
+from atmosgw.curate.obs import _traj_dwd_sondes, _traj_faam, _traj_iagos
 from atmosgw.curate.obs._common import (
     COORD_ATTRS,
     check_additional_vars,
@@ -131,6 +131,7 @@ from atmosgw.curate.obs._common import (
     warn_if_no_data,
     warn_if_nothing_in_range,
     warn_missing_files,
+    warn_mixed_versions,
     warn_multiple_matches,
 )
 from atmosgw.curate.obs.limb import _state_flags
@@ -138,10 +139,48 @@ from atmosgw.curate.paths import dataset_dir
 
 _FAR = datenum(9999, 999, 999)  # "still running"
 
+_SONDE_TEXT = {
+    "flight_id": "flight identifier: <station>-<launch time>",
+    "platform_id": "station identifier",
+    "platform_name": "station name",
+    "platform_type": "sonde type, as in the files' metadata",
+}
+_AIRCRAFT_TEXT = {
+    "flight_id": "flight identifier, as in the files",
+    "platform_id": "aircraft registration or identifier",
+    "platform_name": "aircraft, as described in the files",
+    "platform_type": "kind of platform",
+}
+
+# instruments: dates with data, reader, product, the main variables the
+# reader gives (reader names, see _OUTPUTS), the format's variables the files
+# do not have, per-flight text and times, and the options only they take
 INSTRUMENTS = {
     "DWDsondes": {"time_range": (datenum(1990, 1, 1), _FAR),
-                   "reader": _traj_dwd_sondes, "product": "sounding",
-                   "not_in_files": ("upward_wind",)},
+                  "reader": _traj_dwd_sondes, "product": "sounding",
+                  "variables": ("Pres", "Temp", "U", "V"),
+                  "not_in_files": ("upward_wind",),
+                  "per_flight": _SONDE_TEXT,
+                  "flight_times": {"reference_time": "nominal (synoptic) reference "
+                                                     "time of the ascent"},
+                  "options": ("stations",)},
+    "IAGOS": {"time_range": (datenum(1994, 8, 1), _FAR),
+              "reader": _traj_iagos, "product": "flight",
+              "variables": ("Pres", "Temp", "U", "V"),
+              "not_in_files": ("upward_wind",),
+              "per_flight": {**_AIRCRAFT_TEXT,
+                             "departure_airport": "departure airport",
+                             "arrival_airport": "arrival airport",
+                             "temperature_source": "file variable used for "
+                                                   "temperature",
+                             "altitude_source": "file variable used for altitude"},
+              "flight_times": {}, "options": ()},
+    "FAAM": {"time_range": (datenum(2025, 7, 1), _FAR),
+             "reader": _traj_faam, "product": "flight",
+             "variables": ("Pres", "Temp", "U", "V", "W"),
+             "not_in_files": (),
+             "per_flight": {**_AIRCRAFT_TEXT},
+             "flight_times": {}, "options": ("sample_rate",)},
 }
 
 # reader names -> output names and attributes
@@ -150,13 +189,10 @@ _OUTPUTS = {
     "Temp": ("temperature", {"units": "K", "standard_name": "air_temperature"}),
     "U": ("eastward_wind", {"units": "m s-1", "standard_name": "eastward_wind"}),
     "V": ("northward_wind", {"units": "m s-1", "standard_name": "northward_wind"}),
+    "W": ("upward_wind", {"units": "m s-1", "standard_name": "upward_air_velocity"}),
 }
-_PER_FLIGHT_TEXT = {
-    "flight_id": "flight identifier: <station>-<launch time>",
-    "platform_id": "station identifier",
-    "platform_name": "station name",
-    "platform_type": "sonde type, as in the files' metadata",
-}
+# options only some instruments take, with their defaults
+_SPECIFIC = {"stations": None, "sample_rate": "1hz"}
 
 
 def load_trajectories(
@@ -164,6 +200,7 @@ def load_trajectories(
     instrument,
     *,
     stations=None,
+    sample_rate="1hz",
     time_handling="fuzzy",
     keep_outliers=False,
     additional_vars=(),
@@ -182,6 +219,7 @@ def load_trajectories(
     settings["files_read"] = list(file_list)
     warn_missing_files(settings, stacklevel=2)
     warn_multiple_matches(settings, stacklevel=2)
+    warn_mixed_versions(settings, stacklevel=2)
     warn_if_nothing_in_range(settings, len(flights), stacklevel=2, what="flights")
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and not flights):
@@ -201,20 +239,27 @@ def _prepare(time_range, instrument, options):
     """Check the arguments; return (settings, inst_info, reader)."""
     check_flags(options, ("keep_outliers", "file_source", "verbose", "date_warning"))
     check_time_handling(options)
-    reserved = ({"Lat", "Lon", "Time", "Alt", "Pres", "Temp", "U", "V"}
-                | {out for out, _ in _OUTPUTS.values()} | set(_PER_FLIGHT_TEXT)
-                | {"latitude", "longitude", "time", "altitude", "start_time",
-                   "reference_time", "source_file", "original_files"})
-    check_additional_vars(options, reserved)
     name = find_instrument(instrument, INSTRUMENTS,
                            " (satellite profiles: load_limb_sounders)")
     info = INSTRUMENTS[name]
+    reserved = ({"Lat", "Lon", "Time", "Alt", *_OUTPUTS}
+                | {out for out, _ in _OUTPUTS.values()} | set(info["per_flight"])
+                | set(info["flight_times"])
+                | {"latitude", "longitude", "time", "altitude", "start_time",
+                   "source_file", "original_files"})
+    check_additional_vars(options, reserved)
+    for option, default in _SPECIFIC.items():  # (options of other instruments)
+        if option not in info["options"] and options[option] != default:
+            users = [n for n, i in INSTRUMENTS.items() if option in i["options"]]
+            raise TypeError(f"{option} applies to {', '.join(users)} only, not {name}.")
+    if str(options["sample_rate"]).lower() not in ("1hz", "full"):
+        raise ValueError("sample_rate must be '1hz' or 'full'.")
     raw = to_datenums(time_range)
     if options["date_warning"]:
         warn_if_no_data(raw, name, info["time_range"], stacklevel=3)
     expanded, scalar = expand_time_range(raw, options["time_handling"])
     settings = dict(options, instrument=name, time_range=expanded,
-                    scalar_time=scalar,
+                    scalar_time=scalar, sample_rate=str(options["sample_rate"]).lower(),
                     additional_vars=list(options["additional_vars"]))
     inst_info = {"path": "", "inst": name}
     if options["file_path"] is not None:
@@ -238,31 +283,37 @@ def _to_dataset(flights, file_list, settings, call):
     n_flight = len(flights)
     n_sample = max((np.size(f["Time"]) for f in flights), default=0)
 
-    def grid(key):
-        out = np.full((n_flight, n_sample), np.nan)
+    def grid(key, fill=np.nan, dtype=float):
+        out = np.full((n_flight, n_sample), fill, dtype=dtype)
         for k, flight in enumerate(flights):
-            value = np.asarray(flight[key], dtype=float)
-            out[k, :value.size] = value
+            if key in flight:
+                value = np.asarray(flight[key], dtype=dtype)
+                out[k, :value.size] = value
         return out
 
     present = np.zeros((n_flight, n_sample), dtype=bool)
     for k, flight in enumerate(flights):
         present[k, :np.size(flight["Time"])] = True
     alt = grid("Alt")
-    temp = grid("Temp")
-    bad_temp = outside_physical_range(temp, alt)
     lat, lon = grid("Lat"), grid("Lon")
     with np.errstate(invalid="ignore"):
         bad_geo = (np.abs(lat) > 90) | (lon < -180) | (lon > 180)
 
     ts = ("flight", "sample")
     variables, flags = {}, {}
-    for key, (out, attrs) in _OUTPUTS.items():
-        value = temp if key == "Temp" else grid(key)
+    for key in info["variables"]:
+        out, attrs = _OUTPUTS[key]
+        value = grid(key)
         masks = {"no_observation": ~present, "bad_geolocation": bad_geo}
+        removed = bad_geo.copy()
         if key == "Temp":
-            masks["outside_physical_range"] = bad_temp
-        removed = bad_geo | (bad_temp if key == "Temp" else False)
+            masks["outside_physical_range"] = outside_physical_range(value, alt)
+            removed |= masks["outside_physical_range"]
+        # the provider's own screening, per sample (e.g. IAGOS validity flags)
+        provider = grid(f"{key}Bad", fill=False, dtype=bool)
+        if provider.any():
+            masks["instrument_flag"] = provider
+            removed |= provider
         if not settings["keep_outliers"]:
             value = np.where(removed, np.nan, value)
         flag = _state_flags(value, value.shape, masks)
@@ -274,27 +325,25 @@ def _to_dataset(flights, file_list, settings, call):
     for extra in settings["additional_vars"]:
         variables[extra] = (ts, grid(extra), {"source_variable": extra})
 
-    def text(key):
-        return np.array([str(f[key]) for f in flights], dtype=str)
-
-    for key, long_name in _PER_FLIGHT_TEXT.items():
-        variables[key] = (("flight",), text(key), {"long_name": long_name})
-    variables["reference_time"] = (("flight",), datenum_to_datetime(
-        np.array([f["reference_time"] for f in flights], dtype=float), "us"),
-        {"long_name": "nominal (synoptic) reference time of the ascent"})
-    times = np.full((n_flight, n_sample), np.nan)
-    for k, flight in enumerate(flights):
-        times[k, :np.size(flight["Time"])] = flight["Time"]
+    for key, long_name in info["per_flight"].items():
+        variables[key] = (("flight",), np.array([str(f.get(key, "")) for f in flights],
+                                                dtype=str), {"long_name": long_name})
+    for key, long_name in info["flight_times"].items():
+        variables[key] = (("flight",), datenum_to_datetime(
+            np.array([f[key] for f in flights], dtype=float), "ms"),
+            {"long_name": long_name})
     coords = {
         "latitude": (ts, lat, {**COORD_ATTRS["latitude"], **record_attrs("Lat", rec)}),
         "longitude": (ts, lon, {**COORD_ATTRS["longitude"],
                                 **record_attrs("Lon", rec)}),
-        "time": (ts, datenum_to_datetime(times, "ms"), {
+        # (to the ms; FAAM at its full 32 Hz to the us)
+        "time": (ts, datenum_to_datetime(grid("Time"), "us" if name == "FAAM" and
+                                         settings["sample_rate"] == "full" else "ms"), {
             **COORD_ATTRS["time"], **record_attrs("Time", rec)}),
         "altitude": (ts, alt, {**COORD_ATTRS["altitude"], **record_attrs("Alt", rec)}),
         "start_time": (("flight",), datenum_to_datetime(
             np.array([f["start_time"] for f in flights], dtype=float), "ms"),
-            {"long_name": "start (launch) time of the flight"}),
+            {"long_name": "start (launch, take-off) time of the flight"}),
     }
     if settings["file_source"]:
         variables["source_file"] = (("flight",), np.array(
@@ -318,12 +367,14 @@ def _to_dataset(flights, file_list, settings, call):
         "format_version": FORMATS["trajectory"]["version"],
         "instrument": name, "product": product,
         "characterisation": f"{name}-{product.upper()}-placeholder/0",
-        "data": "raw", "preprocessing": "",
+        "data": "raw", "preprocessing": rec.get("preprocessing", ""),
         "time_range": common.pop("time_range"),
         "availability": states.format_availability(availability),
         **common,
         "state_counts": states.counts_text(flags),
     }
+    if name == "FAAM":
+        attrs["sample_rate"] = settings["sample_rate"]
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
 

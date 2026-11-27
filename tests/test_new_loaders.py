@@ -518,3 +518,161 @@ def test_hlos_product_needs_version_2(tmp_path):
     assert any("version 2" in p for p in problems(ds, "profile"))
     with pytest.warns(UserWarning, match="below 18 km"):
         load_limb_sounders("2019-01-10", "Aeolus", file_path=tmp_path)
+
+
+# ------------------------------------------------------------ IAGOS, FAAM
+
+
+def iagos_file(path, new=True, n=50):
+    """An IAGOS flight departing 2019-03-18T16:40:00 (new: L2 3.1 style with
+    validity flags and a package temperature; old: MOZAIC style)."""
+    kind = "NETCDF4" if new else "NETCDF3_CLASSIC"
+    with netCDF4.Dataset(path, "w", format=kind) as f:
+        f.createDimension("UTC_time", n)
+        t = f.createVariable("UTC_time", "f8", ("UTC_time",),
+                             fill_value=0.0 if new else -9999.0)
+        t.units = "seconds since 2019-03-18 00:00:00" + (" UTC" if new else "")
+        t[:] = 60000 + 4.0 * np.arange(n)
+        def var(name, value, flag=None):
+            v = f.createVariable(name, "f8", ("UTC_time",), fill_value=-9999.0)
+            v[:] = value
+            if flag is not None and new:
+                fv = f.createVariable(f"{name}_validity_flag", "i4", ("UTC_time",),
+                                      fill_value=-9999)
+                fv[:] = flag
+        flags = np.zeros(n, dtype=int)
+        flags[3], flags[4], flags[5] = 3, 2, 7  # erroneous, limited, missing
+        var("lat", np.linspace(50, 52, n))
+        var("lon", np.linspace(8, 10, n))
+        var("baro_alt_AC", np.full(n, 10000.0))
+        var("gps_alt_AC", np.full(n, 10100.0) if new else np.full(n, -9999.0))
+        pres = np.full(n, 26500.0)
+        pres[7] = -999900.0
+        var("air_press_AC", pres, flags)
+        var("air_temp_AC", np.full(n, 220.0), flags)
+        var("air_temp_P1" if new else "air_temp_PM", np.full(n, 221.0), flags)
+        var("zon_wind_AC", np.full(n, 30.0), flags)
+        var("mer_wind_AC", np.full(n, -5.0), flags)
+        f.flight_name = "2019031816400001"
+        f.departure_UTC_time = "2019-03-18T16:40:00Z"
+        f.departure_airport = "FRA, Frankfurt, Germany"
+        f.arrival_airport = "CPT, Cape Town, South Africa"
+        if new:
+            f.platform = "Aircraft, IAGOS-01, MSN-304, D-AIGT, Lufthansa"
+            f.file_version = "3.1.2"
+        else:
+            f.title = "Instrument-75, MOZAIC-05, A340, OE-LAG, Austrian"
+            f.source = "IAGOS-MOZAIC"
+            f.file_revision = "1.0 20191021"
+
+
+def test_iagos_from_zip_and_folder(tmp_path):
+    import zipfile
+    work = tmp_path / "work"
+    work.mkdir()
+    iagos_file(work / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4")
+    with zipfile.ZipFile(tmp_path / "iagos.zip", "w") as archive:
+        archive.write(work / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4",
+                      "TimeSeries/iagos_2019/IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4")
+    (tmp_path / "zip").mkdir()
+    (tmp_path / "iagos.zip").rename(tmp_path / "zip" / "iagos.zip")
+    from_zip = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "zip",
+                                 additional_vars=["air_temp_AC"])
+    from_folder = load_trajectories("2019-03-18", "IAGOS", file_path=work)
+    with pytest.warns(UserWarning, match="more than one"):  # (zip and a copy)
+        both = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path)
+    assert both.sizes["flight"] == 1
+    validate(from_zip, "trajectory")
+    np.testing.assert_array_equal(from_zip.temperature.values,
+                                  from_folder.temperature.values)
+    ds = from_zip
+    assert ds.sizes["flight"] == 1 and ds.flight_id.values[0] == "2019031816400001"
+    assert ds.platform_id.values[0] == "D-AIGT"
+    assert ds.temperature_source.values[0] == "air_temp_P1"
+    assert ds.altitude_source.values[0] == "gps_alt_AC"
+    assert ds.altitude.values[0, 0] == pytest.approx(10.1)
+    assert ds.pressure.values[0, 0] == pytest.approx(265.0)
+    assert np.isnan(ds.pressure.values[0, 7])  # (-999900 Pa)
+    t = ds.temperature.values[0]
+    assert t[0] == 221.0 and t[4] == 221.0  # (limited: kept)
+    assert np.isnan(t[3]) and np.isnan(t[5])  # (erroneous, missing: removed)
+    assert states.has_state(ds.temperature_flag.values[0], "instrument_flag")[3]
+    assert str(ds.time.values[0, 1]) == "2019-03-18T16:40:04.000000"
+    assert ds.air_temp_AC.values[0, 0] == 220.0
+    assert ds.departure_airport.values[0].startswith("FRA")
+    none = load_trajectories("2019-03-20", "IAGOS", file_path=tmp_path / "zip",
+                             date_warning=False)
+    assert none.sizes["flight"] == 0
+
+
+def test_iagos_old_files(tmp_path):
+    iagos_file(tmp_path / "IAGOS_timeseries_2019031816400001.nc", new=False)
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path)
+    validate(ds, "trajectory")
+    assert ds.temperature_source.values[0] == "air_temp_PM"
+    assert ds.altitude_source.values[0] == "baro_alt_AC"  # (no GPS altitude)
+    assert ds.altitude.values[0, 0] == pytest.approx(10.0)
+    assert ds.platform_id.values[0] == "OE-LAG"
+    assert np.all(np.isfinite(ds.temperature.values[0]))  # (no flags: no screening)
+
+
+def faam_file(path, n=4):
+    with netCDF4.Dataset(path, "w") as f:
+        f.createDimension("Time", n)
+        f.createDimension("sps32", 32)
+        t = f.createVariable("Time", "i4", ("Time",), fill_value=-9999)
+        t.units = "seconds since 2025-07-09 00:00:00 +0000"
+        t[:] = 36000 + np.arange(n)
+        def var(name, value, flagged=None):
+            v = f.createVariable(name, "f4", ("Time", "sps32"), fill_value=-9999.0)
+            v[:] = value
+            fl = f.createVariable(f"{name}_FLAG", "i1", ("Time", "sps32"))
+            fl[:] = 0 if flagged is None else flagged
+        ramp = np.tile(np.arange(32.0), (n, 1))
+        var("LAT_GIN", 50 + 0 * ramp)
+        var("LON_GIN", -1 + 0 * ramp)
+        var("ALT_GIN", 5000 + 0 * ramp)
+        var("PALT_RVS", 4900 + 0 * ramp)
+        var("PS_RVSM", 540 + 0 * ramp)
+        flagged = np.zeros((n, 32), dtype=int)
+        flagged[1, :16] = 4  # (in cloud: half of second 1)
+        flagged[2, :] = 1  # (all of second 2)
+        var("TAT_DI_R", 260 + ramp, flagged)
+        var("U_C", 10 + 0 * ramp)
+        var("V_C", 0 * ramp)
+        var("W_C", 0.1 + 0 * ramp)
+        f.flight_number = "c999"
+        f.platform = "FAAM BAe-146-301 Atmospheric Research Aircraft"
+        f.time_coverage_start = "2025-07-09T10:00:00Z"
+        f.revision_number = "0"
+        f.processing_software_version = "25.0.0"
+
+
+def test_faam_rates_and_flags(tmp_path):
+    faam_file(tmp_path / "core_faam_20250709_v005_r0_c999.nc")
+    ds = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                           additional_vars=["PALT_RVS"])
+    validate(ds, "trajectory")
+    assert ds.attrs["sample_rate"] == "1hz" and ds.sizes["sample"] == 4
+    t = ds.temperature.values[0]
+    assert t[0] == pytest.approx(260 + 15.5)  # (mean of 0..31)
+    assert t[1] == pytest.approx(260 + 23.5)  # (mean of the unflagged 16..31)
+    assert np.isnan(t[2])
+    assert states.has_state(ds.temperature_flag.values[0], "instrument_flag")[2]
+    assert ds.altitude.values[0, 0] == pytest.approx(5.0)
+    assert ds.upward_wind.values[0, 0] == pytest.approx(0.1, abs=1e-6)
+    assert str(ds.time.values[0, 0])[:23] == "2025-07-09T10:00:00.484"
+    full = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                             sample_rate="full")
+    validate(full, "trajectory")
+    assert full.sizes["sample"] == 128
+    assert full.temperature.values[0, 5] == 265.0
+    assert np.isnan(full.temperature.values[0, 32 + 3])  # (flagged sample)
+    assert np.isfinite(full.temperature.values[0, 32 + 20])
+    # (1/32 s; a datenum resolves about 10 us today, hence the tolerance)
+    step = np.diff(full.time.values[0, :3]).astype("timedelta64[us]").astype(int)
+    assert np.all(np.abs(step - 31250) <= 20)
+    with pytest.raises(TypeError, match="sample_rate"):
+        load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path, sample_rate="full")
+    with pytest.raises(TypeError, match="stations"):
+        load_trajectories("2025-07-09", "FAAM", file_path=tmp_path, stations=1)
