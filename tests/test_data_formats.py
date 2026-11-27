@@ -87,9 +87,11 @@ def example_swath(n_along=4, n_cross=3, n_level=5):
                                {"units": "km"}),
         }
     )
-    tracked = [n for n, v in FORMATS["swath"]["variables"].items() if v.get("tracked")]
+    tracked = [n for n, v in FORMATS["swath"]["variables"].items()
+               if v.get("tracked") and n not in ds.variables]
     ds.attrs = {a: "" for a in FORMATS["swath"]["attrs"]}
-    ds.attrs.update(format="swath", format_version=1, instrument="AIRS", product="3d",
+    ds.attrs.update(format="swath", format_version=FORMATS["swath"]["version"],
+                    instrument="AIRS", product="3d",
                     grid="regular", characterisation="AIRS-3D-placeholder/0",
                     availability=states.format_availability(
                         {**{n: "not_requested" for n in tracked},
@@ -105,7 +107,7 @@ def test_valid_example_passes():
 @pytest.mark.parametrize("fault, expected", [
     (lambda ds: ds.drop_vars("temperature_flag"), "missing flag variable"),
     (lambda ds: ds.assign(temperature=ds.temperature.astype(np.float64)), "float32"),
-    (lambda ds: ds.assign_attrs(format_version=2), "format_version"),
+    (lambda ds: ds.assign_attrs(format_version=3), "format_version"),
     (lambda ds: ds.assign_attrs(characterisation="AIRS"), "characterisation"),
     (lambda ds: ds.drop_vars("segment"), "'segment'"),
     (lambda ds: ds.assign_attrs(availability=""), "not listed in 'availability'"),

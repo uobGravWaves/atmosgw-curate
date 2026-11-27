@@ -3,8 +3,9 @@ Limb-sounder reader for HIRDLS (NASA Level 2 HDF-EOS5 files). Port of
 ``module_load_HIRDLS.m`` and its ``get_HIRDLS`` (uobGravWaves/
 MultiInstrumentFunctions, commit 78eef78).
 
-Files: one per day, the first file below the HIRDLS folder whose path matches
-``*_<yyyy>d<ddd>*``. Variables are read from
+Files: one per day, the file below the HIRDLS folder whose path matches
+``*_<yyyy>d<ddd>*`` (of several, the newest version in the name, e.g.
+``_v07-00-20-c01_``, else the first: Q19). Variables are read from
 ``HDFEOS/SWATHS/HIRDLS/Geolocation Fields/`` or ``.../Data Fields/`` as float64,
 with the HIRDLS fill value -999 set to NaN. Times are seconds since
 1993-01-01; altitudes are converted from m to km.
@@ -32,7 +33,12 @@ from atmosgw.curate.obs._common import (
     year_and_day,
 )
 from atmosgw.curate.obs._limb_mls import pge_version
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import (
+    VERSION_IN_NAME,
+    conform_vars,
+    loop_days,
+    newest_version,
+)
 from atmosgw.curate.readers import read_hdf5
 
 _SWATH = "HDFEOS/SWATHS/HIRDLS"
@@ -73,7 +79,9 @@ def load(settings, inst_info, var_names):
     def find_file(day):
         year, doy = year_and_day(day)
         found = find_in(inst_info, f"*_{year:04d}d{doy:03d}*")
-        return choose_file(found, inst_info, day_label(day))
+        # several versions of a day: the newest (Q19; MATLAB takes the first)
+        return choose_file(found, inst_info, day_label(day),
+                           newest_version(VERSION_IN_NAME["HIRDLS"]))
 
     def read_file(path, file_count, day):
         def get(name):

@@ -8,7 +8,8 @@ and ground-based data too.
 
 Inputs and outputs
 ------------------
-``to_profiles(ds)`` -> ``xarray.Dataset`` in the profile format, version 1.
+``to_profiles(ds)`` -> ``xarray.Dataset`` in the profile format (its current
+version; absent winds keep the input's ``availability`` reason).
 
 - Each (along_track, cross_track) point becomes a profile, in along-track
   order then cross-track (profile p = along * n_cross + cross, 0-based);
@@ -53,9 +54,10 @@ From "time_height" (``load_time_height``):
 - ``availability`` and the attributes as for swaths, with ``converted_from``
   = "time_height". A Dataset without temperature (e.g. radar winds only)
   raises ``ValueError``: the profile format requires temperature.
-- Not carried: other variables (``additional_vars`` such as ``T2_lidar``,
-  and winds), which the profile format does not define; ``session`` is an
-  extra per-profile variable.
+- Not carried: ``additional_vars`` (e.g. ``T2_lidar``), which the profile
+  format does not define, and winds (not converted yet: absent winds keep
+  their ``availability`` reason; winds the input does hold are listed
+  ``not_requested``); ``session`` is an extra per-profile variable.
 
 Science
 -------
@@ -95,7 +97,7 @@ import xarray as xr
 
 from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.data import states
-from atmosgw.curate.data.formats import FORMATS
+from atmosgw.curate.data.formats import FORMATS, WIND_NAMES
 
 _PER_PROFILE = ("granule", "granule_day", "segment", "source_row")
 
@@ -178,6 +180,9 @@ def _swath_to_profiles(ds):
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
                if s.get("tracked") and n not in result]
     availability = {n: swath_availability.get(n, "not_requested") for n in tracked}
+    for name in WIND_NAMES:  # (a swath saved before format version 2 lists none)
+        if name in availability and name not in swath_availability:
+            availability[name] = "not_measured"
     if "source_profile" in availability:
         availability["source_profile"] = "not_provided"
     for name in ("temperature_uncertainty", "pressure_uncertainty"):

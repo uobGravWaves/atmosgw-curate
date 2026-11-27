@@ -1,10 +1,11 @@
 # Design: common data formats
 
-**Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1). Parts
-still planned, not implemented: the `analysis` steps (detrend, smooth, fill).
-`data.to_netcdf` with packing (section 11) is implemented (CHANGELOG,
-Unreleased).
-Points marked *agreed* were agreed with C. Wright on 2026-11-25.
+**Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1).
+Added after 0.6.0 (CHANGELOG, Unreleased): `data.to_netcdf` with packing
+(§11) and, on 2026-11-27, profile format versions 2 and 3 (§3), swath
+version 2 (§4) and the trajectory format (§4b). Still planned, not
+implemented: the `analysis` steps (detrend, smooth, fill). Points marked
+*agreed* were agreed with C. Wright on 2026-11-25.
 
 The Curate plan gives "common interfaces and data structures" very high
 priority: every loader's output must be usable by the same Detrender,
@@ -12,17 +13,23 @@ Stockwell wrappers, Parameter Engine, sampler and Fuse. This document defines
 those outputs as named, versioned **formats**, so that "parallel interfaces"
 can be checked, not just agreed.
 
-Formats now: **profile** (limb sounders, occultation, lidar; the output of
-`load_limb_sounders`), **swath** (nadir sounders; `load_nadir_sounders`,
-see `nadir_loader.md`) and **time_height** (ground-based series at one site:
-the ALOMAR lidar now, radars later; `load_time_height`, §4a, since
-2026-11-26). Later, as loaders for them are written: **point series**
-(balloons) and **image** (ground-based imagers).
+Formats now:
 
-The specification will live in code in `atmosgw/curate/data/` (a new folder,
-already in the README's planned layout): `formats.py` (the definitions below
-as data), `states.py` (the registry of data states, §6) and
-`validate(ds, format)`.
+- **profile** (§3): limb sounders, occultation, lidar and Aeolus winds; the
+  output of `load_limb_sounders`.
+- **swath** (§4): nadir sounders; `load_nadir_sounders` (see
+  `nadir_loader.md`).
+- **time_height** (§4a, since 2026-11-26): ground-based series at one site,
+  the ALOMAR lidar now and radars later; `load_time_height`.
+- **trajectory** (§4b, since 2026-11-27): in-situ measurements along a
+  path, radiosondes and aircraft now and balloons later;
+  `load_trajectories`.
+
+Later, when a loader for it is written: **image** (ground-based imagers).
+
+The specification lives in code in `atmosgw/curate/data/`: `formats.py`
+(the definitions below as data, and `validate(ds, format)`) and `states.py`
+(the registry of data states, §6).
 
 ## 1. What every format specifies
 
@@ -60,7 +67,8 @@ as data), `states.py` (the registry of data states, §6) and
 - **Data variables: float32.** Its resolution is about 1 part in 1.7e7:
   1.5e-5 K at 300 K, 1e-5 degrees (about 1 m) in longitude. That is far finer
   than the data (about 1 K for nadir sounders, about 0.1 K at best for limb
-  sounders and GNSS), so nothing is lost, and memory is half of float64.
+  sounders and GNSS: rough figures, UNVERIFIED), so nothing is lost, and
+  memory is half of float64.
   *Proposal (2026-11-25):* the "profile" format also accepts float64 data
   variables, so `load_limb_sounders` keeps its values exactly as loaded
   (most of its readers give float64); the validator checks this per format.
@@ -71,7 +79,18 @@ as data), `states.py` (the registry of data states, §6) and
 - **Packing (scale and offset):** only for files written to disk, never in
   memory (xarray unpacks on reading). See §11.
 
-## 3. Format "profile", version 1
+## 3. Format "profile", version 3
+
+Versions, all accepted by `validate`, each with the entries of its own
+version:
+
+- **2** (2026-11-27) adds the "hlos_wind" product (Aeolus), which needs
+  `hlos_wind` and `line_of_sight_azimuth` instead of `temperature`, so
+  would fail a version 1 check.
+- **3** (2026-11-27) follows a rule set by C. Wright for every format:
+  return temperature, pressure and the three winds where present, and say
+  why where not. The winds, and temperature where it is not required, are
+  therefore tracked in `availability`. Pressure stays required.
 
 **Dimensions:** `profile`, `level`; optional `mode` (planetary-wave modes),
 `file`. `profile` may have length 0.
@@ -81,7 +100,11 @@ as data), `states.py` (the registry of data states, §6) and
 | `latitude`, `longitude` | (profile, level) | degrees | yes |
 | `time` | (profile, level) | — | yes |
 | `altitude` | (profile, level) | km | yes |
-| `temperature` | (profile, level) | K | yes, unless PW data |
+| `temperature` | (profile, level) | K | yes, unless PW data or the "hlos_wind" product; then tracked (v3) |
+| `eastward_wind`, `northward_wind`, `upward_wind` | (profile, level) | m s-1 | optional, tracked (v3) |
+| `hlos_wind` | (profile, level) | m s-1 | "hlos_wind" product: horizontal line-of-sight wind; attribute `sign_convention` states the sign |
+| `hlos_wind_uncertainty` | (profile, level) | m s-1 | optional (§7); Aeolus: the L2B error estimate as distributed |
+| `line_of_sight_azimuth` | (profile, level) | degree | "hlos_wind" product: as in the files |
 | `pressure` | (profile, level) | hPa | yes; `origin` attribute says whether measured or derived (§6.3) |
 | `temperature_residual`, `temperature_pw` | (profile, level[, mode]) | K | PW data |
 | `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
@@ -92,14 +115,28 @@ as data), `states.py` (the registry of data states, §6) and
 This is the `load_limb_sounders` output since 2026-11-25 (values unchanged by
 the format; data variables may be float32 or float64). States it sets:
 `bad_geolocation`, `outside_physical_range`, `outside_requested_range` (with
-`original_z`),
-`no_observation` (every other NaN), `extrapolated` (with `extrapolate`),
-`derived` (estimated pressure, point by point;
-planetary-wave data, Sampler data). *Proposals:* `product` "temperature" and
-`characterisation` `<instrument>-TEMPERATURE-placeholder/0` for every limb
-instrument; `origin` "retrieved" for limb temperatures and pressures.
+`original_z`), `instrument_flag` (MLS, SOFIE, ROMEX, Aeolus, with
+`instrument_qc`), `a_priori_dominated` (HIRDLS), `missing` (a NaN between a
+profile's first and last value), `no_observation` (every other NaN),
+`extrapolated` (with `extrapolate`), `derived` (estimated pressure, point by
+point; planetary-wave data, sampled data).
 
-## 4. Format "swath", version 1
+*Proposals:* `product` "temperature" and `characterisation`
+`<instrument>-TEMPERATURE-placeholder/0` for every limb instrument but
+Aeolus ("hlos_wind", `Aeolus-HLOS_WIND-placeholder/0`); `origin`
+"retrieved" for limb temperatures and pressures.
+
+`availability` of the measured quantities: the winds are `not_measured`
+(Aeolus gives only their line-of-sight component), except ALOMAR's, which
+are `not_in_files` (as in §4a); temperature is `not_measured` for Aeolus
+and `not_in_files` for PW data.
+
+## 4. Format "swath", version 2
+
+Version 2 (2026-11-27, with profile version 3) tracks pressure, the winds
+and, where it is not required (2-D), temperature. Version 1 Datasets are
+still accepted. For AIRS and IASI, pressure is `not_in_files` (3-D) or
+`not_measured` (2-D), and the winds and 2-D temperature are `not_measured`.
 
 **Dimensions:** `along_track`, `cross_track`, then `level` (3-D products) or
 `channel` (2-D products with several channels; absent with one). The order is
@@ -110,7 +147,8 @@ fixed. `along_track` may have length 0.
 | `latitude`, `longitude` | (along_track, cross_track) | degrees | yes |
 | `time` | (along_track, cross_track) | — | yes |
 | `altitude` | (level) | km | 3-D; on the native grid, (along_track, cross_track, level) if heights vary by point |
-| `temperature` | (along_track, cross_track, level) | K | 3-D |
+| `temperature` | (along_track, cross_track, level) | K | 3-D; else tracked (v2) |
+| `pressure`, `eastward_wind`, `northward_wind`, `upward_wind` | (along_track, cross_track, level) | hPa, m s-1 | optional, tracked (v2) |
 | `brightness_temperature` | (along_track, cross_track[, channel]) | K | 2-D |
 | `channel_wavenumber` | (channel) | cm^-1 | 2-D with channels |
 | `channel_name` | (channel) | — | 2-D with channels: the channel or channel group |
@@ -168,17 +206,67 @@ heights (all on a 0.15 km lattice, so no interpolation), `temperature` from
 UNVERIFIED), `pressure` and the winds `not_in_files`. States:
 `no_observation`, `missing`, `outside_physical_range`.
 
+## 4b. Format "trajectory", version 1
+
+In-situ measurements along a path: radiosondes and aircraft now, balloons
+later. Agreed with C. Wright on 2026-11-27: it uses the other formats'
+names, flags, origins and attributes, without a level grid.
+
+**Dimensions:** `flight`, `sample`; optional `file`. One row per flight,
+its samples in path order, padded with NaN (NaT for times) to the longest
+flight. `flight` may have length 0.
+
+| Variable | Dimensions | Units | Required |
+|---|---|---|---|
+| `latitude`, `longitude` | (flight, sample) | degrees | yes (each sample's own position: drift is kept) |
+| `time` | (flight, sample) | — | yes |
+| `altitude` | (flight, sample) | km | yes; `comment` says if it is geopotential |
+| `temperature`, `pressure` | (flight, sample) | K, hPa | optional, tracked |
+| `eastward_wind`, `northward_wind`, `upward_wind` | (flight, sample) | m s-1 | optional, tracked; at least one of these and temperature |
+| `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
+| `flight_id`, `platform_id` | (flight) | — | yes |
+| `platform_name`, `platform_type` | (flight) | — | optional, tracked |
+| `start_time` | (flight) | — | yes: the start (launch, take-off) time |
+| `flight_id` values | | | each unique in the Dataset (checked by `validate`) |
+| `source_file` | (flight) | — | optional |
+| `original_files` | (file) | — | optional |
+
+Data variables may be float32 or float64, and the required attributes are
+those of §5. Instruments may add per-flight variables (dimension `flight`)
+and per-sample extras. A flight is selected by its `start_time`, so
+flights are never split.
+
+*Flagged for long flights:* superpressure balloons fly for weeks, so they
+will need the samples inside the requested times instead, with the flight
+marked as cut. The layout already fits (GPS-derived winds would have
+`origin` "derived").
+
+States: `no_observation` (padding, and before or after a variable's
+values), `missing`, `outside_physical_range`, `instrument_flag` (the
+provider's flags, per variable) and `bad_geolocation`. Values are removed
+per variable (§6.3). `origin` is "measured".
+
+- DWD radiosondes (`"DWDsondes"`, product "sounding"): altitude is
+  geopotential height; `reference_time` (the nominal synoptic time) is
+  added; `upward_wind` is `not_measured`.
+- IAGOS (`"IAGOS"`, product "flight"): altitude is GPS (geometric) where
+  the flight has it, else barometric; per flight `departure_airport`,
+  `arrival_airport`, `temperature_source`, `altitude_source`;
+  `upward_wind` is `not_measured`.
+- FAAM (`"FAAM"`, product "flight"): all three winds; attribute
+  `sample_rate` ("1hz" or "full").
+
 ## 5. Required dataset attributes (all formats)
 
 | Attribute | Example | Notes |
 |---|---|---|
-| `format`, `format_version` | `"swath"`, `1` | |
+| `format`, `format_version` | `"swath"`, `2` | |
 | `instrument` | `"AIRS"` | |
 | `product` | `"3d"` | |
 | `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
-| `data` | `"raw"` / `"preprocessed"` / `"planetary-wave-filtered"` | "preprocessed" when the files were altered before loading (values interpolated, rounded ...) |
-| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed. Written by both loaders since 0.4.0; not required by `validate` in version 1 |
-| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products). Written since 0.4.0; not required in version 1 |
+| `data` | `"raw"` / `"preprocessed"` / `"planetary-wave-filtered"` / `"sampled"` | "preprocessed" when the files were altered before loading (values interpolated, rounded ...); "sampled" for a model sampled as the instrument (with an attribute `sampled_from` naming it) |
+| `preprocessing` | `"daily files merged from ... granule files: temperatures rounded to whole kelvin"` | what was done to the files before loading; `""` for the provider's data as distributed. Written by every loader; not required by `validate` |
+| `heights` | `"interpolated"` / `"original"` / `"none"` | the vertical grid (`"none"`: 2-D products). Written by every loader but `load_trajectories`; not required by `validate` |
 | `time_range` | ISO times | as expanded by `time_handling` |
 | `availability` | `"satellite_latitude: not_in_files; view_zenith_angle: not_in_files"` | every optional variable of the format that is not in the Dataset, and why (§6.1) |
 | `source`, `atmosgw_curate_version`, `options` | | as limb |
@@ -186,6 +274,7 @@ UNVERIFIED), `pressure` and the winds `not_in_files`. States:
 | `files_without_data` | | files read that hold no values of the main variable (warned; optional) |
 | `source_versions` | | the data versions the files read state, with how many files state each (all formats; optional, not checked by `validate`) |
 | `state_counts` | `"temperature: outside_physical_range 12, missing 300"` | how many points of each variable are in each state |
+| instrument-specific | e.g. `aeolus_channel`, `sample_rate` (FAAM), `sampled_from` | optional; set by the loaders where they apply |
 
 ## 6. Data states: absent, missing, bad, and qualified values
 
@@ -201,7 +290,7 @@ dataset attribute `availability`, with one of:
 
 | State | Meaning | Example |
 |---|---|---|
-| `not_measured` | the instrument cannot provide it | wind from AIRS |
+| `not_measured` | the instrument cannot provide it | wind from AIRS or SABER; `upward_wind` from radiosondes |
 | `not_in_files` | it exists for this instrument, but not in the files read | AIRS satellite position (removed from the eepc-0184 copies) |
 | `not_requested` | not asked for in this call | `source_file` without `file_source` |
 | `not_provided` | the data supply no per-point value (the CP may describe it) | `temperature_uncertainty` |
@@ -233,10 +322,10 @@ Initial registry (proposal), in three groups:
 | 2 | `missing` | NaN | a gap inside what was measured: a fill value or NaN at a scanned point, or between a profile's first and last value (see 6.3) |
 | 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
 | | **No value: removed as bad** | | |
-| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width) |
-| 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
+| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width; limb and trajectories: out of range only) |
+| 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb, time-height and trajectories: only below 100 km; nadir: at any height) |
 | 32 | `statistical_outlier` | NaN | marked by the instrument's statistical screen (`obs._screen`; IASI default: more than 5 x IQR beyond the quartiles of its height level in a rolling 10-min window, day and night separately; AIRS: none) |
-| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km) |
+| 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (limb, with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km; ROMEX `is_bad`; Aeolus `valid` 0. Trajectories, always: IAGOS validity flags 3 and 7, FAAM non-zero flags) |
 | | **Value present, but qualified** | | |
 | 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
 | 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
@@ -249,23 +338,33 @@ and their bits are still set.
 
 Instruments' own quality variables are not output unless asked for with
 `additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
-are implemented (`instrument_qc`, limb: MLS, SOFIE, HIRDLS), they set
-`instrument_flag` or `a_priori_dominated`; the rule and its source are in the
-temperature's `comment` and in `docs/quirks.md` (Q15, Q17).
+are implemented (limb, with `instrument_qc`: MLS, SOFIE, HIRDLS, ROMEX,
+Aeolus; trajectories: IAGOS, FAAM), they set `instrument_flag` or
+`a_priori_dominated`, and the rule is stated in a `comment`. For MLS,
+SOFIE and HIRDLS it is in the temperature's comment, with its source in
+`docs/quirks.md` (Q15, Q17). For ROMEX, Aeolus, IAGOS and FAAM it is in the
+comment of each screened variable, after "instrument_flag:".
 
-### 6.3 Shared rules (both formats)
+### 6.3 Shared rules (all formats)
 
-Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
-`tests/test_states_conformance.py`):
+Applied by every loader and by `to_profiles` (agreed 2026-11-25 for profiles
+and swaths; checked by `tests/test_states_conformance.py`, and for
+trajectories by `tests/test_new_loaders.py`):
 
 - **`no_observation` vs `missing`.** A NaN inside what was measured is
-  `missing`: in a profile, between its first and last measured point of that
-  variable (a fill value, a gap; points removed as bad count as measured); in a swath, a fill value at a scanned point. A NaN
-  outside it is `no_observation`: above or below a profile's values, padding
-  between profiles of different lengths, outside the swath, between segments.
+  `missing`: in a profile, between its first and last measured point of
+  that variable (a fill value, a gap; points removed as bad count as
+  measured); in a swath, a fill value at a scanned point; in a trajectory,
+  between a variable's first and last value in the flight. A NaN outside it
+  is `no_observation`: above or below a profile's values, padding between
+  profiles of different lengths, outside the swath, between segments, or
+  padding after a flight's last sample.
 - **Removed points.** A point removed as bad is removed in every data
   variable at that point, each carrying the reason (the limb loader follows
   MATLAB here; nadir derived variables take the main variable's states).
+  Trajectories are the exception: their variables come from separate
+  sensors, so a bad temperature or a provider's flag on one variable
+  removes only that variable; a bad position removes them all.
 - **Qualified states** (`derived`, `extrapolated`, `filled`) are set only on
   values that exist.
 - **`bad_geolocation`.** Nadir: latitude or longitude NaN or out of range,
@@ -276,7 +375,8 @@ Applied by both loaders and by `to_profiles` (agreed 2026-11-25; checked by
   `data` "preprocessed").
 - **Not raw data.** Files altered before loading give `data` "preprocessed"
   and a `preprocessing` text (GNSS; AIRS 3-D when read from the daily files;
-  not the planetary-wave files, a separate product).
+  not the planetary-wave files, a separate product). A model sampled as an
+  instrument gives `data` "sampled", and its values are `derived`.
 - **Conversions keep provenance.** `to_profiles` carries `source_file` and
   `original_files`, and keeps the swath's `availability` reason for any
   variable it lists.
@@ -335,15 +435,19 @@ created.
 `data.validate(ds, format)` checks dimensions, required variables, types,
 units, value ranges of coordinates, required attributes, that every data
 variable has a flag variable, that every NaN has a "no value" state, and that
-every optional variable is either present or listed in `availability`. It
-raises with a list of every problem. Every loader's tests run it on their
-outputs.
+every tracked optional variable (of the Dataset's format version) is either
+present or listed in `availability`. It raises with a list of every
+problem. Every loader's tests run it on their outputs.
 
 ## 10. Versioning
 
 Each format's `format_version` is raised on any incompatible change (a
 renamed or removed variable, changed units or dimensions). Adding optional
-variables or states is compatible. Changes are listed in `CHANGELOG.md`.
+variables or states is compatible. Requiring new `availability` entries is
+not, so the version is raised and `validate` asks older Datasets only for
+the entries of their own version. Changes are listed in `CHANGELOG.md`. On
+2026-11-27 profile went to versions 2 and 3 (§3) and swath to version 2
+(§4).
 
 ## 11. Saving to disk
 
@@ -358,8 +462,9 @@ later be read as valid. An existing file is replaced only with
 
 With `pack=True` (*agreed*, 2026-11-26: only variables where it is safe),
 data variables in K are stored as scaled integers at 0.01 K (ten times finer
-than the best data, 0.1 K), their uncertainties at 0.001 K, latitude and
-longitude at 1e-7 degree (about 1 cm), and altitude and `dx` at 1e-6 km
+than the best data, about 0.1 K: UNVERIFIED), their uncertainties at
+0.001 K, latitude and longitude at 1e-7 degree (about 1 cm), and altitude
+and `dx` at 1e-6 km
 (1 mm), unless their values are exactly float32 (read from the files, not
 computed: they compress well as they are); each as int16 if its values
 fit, else int32, else unpacked (never clipped), with NaN as `_FillValue`. Grid axes (variables with fewer than two

@@ -5,6 +5,43 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New `load_limb_sounders` instruments, all new code: `"LIMS"` (Nimbus-7
+  V6, 1978-10-25 to 1979-05-28), `"ROMEX"` (GNSS radio occultation, 2022-09
+  to 11; separate from `"GNSS"`) and `"Aeolus"` (L2B HLOS winds; option
+  `aeolus_channel`, "rayleigh" by default or "mie"). Aeolus profiles are
+  rebuilt from the files' observations, its HLOS sign was found from ERA5,
+  and loading it on the default 18-60 km heights gives a warning.
+  `instrument_qc` also flags ROMEX `is_bad` profiles and Aeolus `valid` 0
+  observations. [Claude]
+- New `obs.load_trajectories` and the "trajectory" format (flight, sample),
+  for `"DWDsondes"` (DWD high-resolution radiosondes, 1990-2024; option
+  `stations`), `"IAGOS"` (in-service aircraft, from unzipped files or the
+  zip archive; validity flags 3 and 7 removed) and `"FAAM"` (core data;
+  option `sample_rate`, "1hz" by default or "full"). [Claude]
+- `"Sampler"` also reads the sampler's netCDF output (e.g. SWANS) where a
+  day has no `sampled_<datenum>.mat`. The new option `sampled_from` (limb
+  and nadir) names the model: `data` is then "sampled", the attribute
+  `sampled_from` is set, and `origin` and state are `derived` (always so
+  for Sampler). [Claude]
+- Profile format version 2: the product "hlos_wind" (`hlos_wind`,
+  `hlos_wind_uncertainty`, `line_of_sight_azimuth`), which needs no
+  temperature. [Claude]
+- Profile format version 3 and swath format version 2: temperature,
+  pressure and the three winds are always accounted for. Where one is
+  absent and not required, `availability` says why (`not_measured` or
+  `not_in_files`), as time_height and trajectory already did. Older
+  versions still validate, and no value changes: other limb outputs differ
+  only in `format_version`, `availability`, the new `options` keys and
+  Sampler's attributes. [Claude]
+- Of several copies of a file, the newest wins. Not MATLAB-equivalent
+  (Q19): HIRDLS, SABER, SOFIE and MIPAS take the newest data version in the
+  file names when several files match a day (SABER: a month), as MLS does
+  (Q8); no file on eepc-0184 changes. IAGOS ranks copies of a flight by
+  version, then the file's date, then unzipped before zipped; FAAM by core
+  version, then revision. [Claude]
+- The providers' screening rules for ROMEX, Aeolus, IAGOS and FAAM are
+  stated in the variables' `comment`, and LIMS, ROMEX and Aeolus record
+  `files_without_data`. [Claude]
 - Not MATLAB-equivalent (Q18): `interp_type` "pchip", "spline" and "makima"
   give values only where "linear" does: no extrapolation beyond a profile's
   own values unless `extrapolate=True` (then as linear extrapolation from the

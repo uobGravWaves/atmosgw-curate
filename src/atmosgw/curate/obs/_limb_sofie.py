@@ -2,9 +2,11 @@
 Limb-sounder reader for SOFIE (GATS Level 2 netCDF files). Port of
 ``module_load_SOFIE.m`` (uobGravWaves/MultiInstrumentFunctions, commit 78eef78).
 
-Files: one per day, the first below the SOFIE folder whose path contains
-``Level2_<yyyy><ddd>``. Variables are read as ``rCDF`` reads them (see
-``readers.read_netcdf``): float64, with ``missing_value`` (-1e24) as NaN.
+Files: one per day, the file below the SOFIE folder whose path contains
+``Level2_<yyyy><ddd>`` (of several, the newest version in the name, e.g.
+``_01.3.nc``, else the first: Q19). Variables are read as ``rCDF`` reads
+them (see ``readers.read_netcdf``): float64, with ``missing_value``
+(-1e24) as NaN.
 ``Temperature`` and ``Pressure`` are [events x altitudes]; ``Altitude`` is one
 set of levels for all events; positions are those at 83 km
 (``Latitude_83km``, ``Longitude_83km``). ``Time_UT`` is in hours since the
@@ -23,7 +25,12 @@ from atmosgw.curate.obs._common import (
     note_version,
     year_and_day,
 )
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import (
+    VERSION_IN_NAME,
+    conform_vars,
+    loop_days,
+    newest_version,
+)
 from atmosgw.curate.readers import read_attrs, read_netcdf
 
 ENDORSED_KM = (15.0, 88.0)  # temperature (SOFIE V1.3 data description, Table 1)
@@ -44,7 +51,9 @@ def load(settings, inst_info, var_names):
     def find_file(day):
         year, doy = year_and_day(day)
         found = find_in(inst_info, f"Level2_{year:04d}{doy:03d}")
-        return choose_file(found, inst_info, day_label(day))
+        # several versions of a day: the newest (Q19; MATLAB takes the first)
+        return choose_file(found, inst_info, day_label(day),
+                           newest_version(VERSION_IN_NAME["SOFIE"]))
 
     def read_file(path, file_count, day):
         names = [FILE_NAMES.get(n, n) for n in var_names

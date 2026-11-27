@@ -15,25 +15,37 @@ Below a dataset's folder, any layout works: a flat folder of files (e.g.
 `~/HIRDLS/*.he5`), year folders, or any other nesting. For each day (or
 month, year or granule) a loader looks for the file's name:
 
-- the daily-file readers (HIRDLS, MLS, SABER, SOFIE, MIPAS) search the whole
-  folder for a name containing the date, as their MATLAB originals do;
+- the date-named readers (HIRDLS, MLS, SOFIE and MIPAS, daily; SABER,
+  monthly) search the whole folder for a name containing the date, as their
+  MATLAB originals do;
 - the others (ACE, GNSS, planetary-wave files, AIRS, IASI) try the usual path
   first (e.g. `yyyy/ace_v52_yyyydddd.mat`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc`),
   then search for that name anywhere below the folder (one folder listing per
   load: under a second for the largest folders checked, AIRS and IASI, about
   50 000 entries each);
-- ALOMAR files are looked for in the folder itself; Sampler files in
-  `sample_path` itself.
+- the newer readers (LIMS, ROMEX, Aeolus, DWD sondes, IAGOS, FAAM) search
+  the whole folder for their file names; IAGOS also looks inside zip
+  archives there;
+- ALOMAR files are looked for in the folder itself; Sampler MAT-files in
+  `sample_path` itself, its netCDF files anywhere below it.
 
-If more than one file has the name or date looked for, the first in search
-order is used (at each level, the contents of sub-folders before the files
-beside them, each in name order) and the
-choice is warned and listed in the output attribute `multiple_matches`; the
-newest MLS version is chosen instead of the first. A file at its usual path is
-used without looking further, except for IASI, whose files of a day are
-gathered from its day folder and anywhere else below the IASI folder (files
-in another day's folder are left out). Do not keep two copies of a product (e.g. two
-versions) under one folder unless you want this choice made for you.
+If more than one file has the name or date looked for, one is chosen, with
+a warning, and the choice is listed in the output attribute
+`multiple_matches`:
+
+- MLS, HIRDLS, SABER, SOFIE and MIPAS take the newest data version in the
+  file names (Q8, Q19 in `docs/quirks.md`; version numbers compare as
+  integers, so 1.40 is newer than 1.5);
+- the DWD, IAGOS and FAAM readers choose as described under each below;
+- otherwise, and between equal versions, the first in search order is used
+  (at each level, the contents of sub-folders before the files beside
+  them, each in name order).
+
+A file at its usual path is used without looking further, except for IASI,
+whose files of a day are gathered from its day folder and anywhere else
+below the IASI folder (files in another day's folder are left out). Do not
+keep two copies of a product (e.g. two versions) under one folder unless
+you want this choice made for you.
 
 File names must keep the patterns below: the date is taken from the name.
 
@@ -71,7 +83,7 @@ netCDF file declares.
   `Quality`, `Status`, `Convergence`; geolocation `Latitude`, `Longitude`,
   `Time` (s since 1993-01-01), `Pressure` (hPa, one set of levels); the
   `_FillValue` each field declares.
-- Checked: v6.01 (and v5 files, where both are present the newest is used).
+- Checked: v6.01 (and v5 files).
   The screening rules follow each version's data quality document
   (`_limb_mls.screen`).
 - Provenance: NASA GES DISC; v6 DOI 10.5067/AURA/MLS/DATA2620 (stated in the
@@ -164,6 +176,85 @@ netCDF file declares.
 - Provenance: made by running the Wright and Hindley (2018) sampler,
   https://github.com/corwin365/Model-Sampling.
 
+Where a day has no `sampled_<datenum>.mat`, the sampler's netCDF output is
+read instead: the first file below `sample_path` whose name ends
+`yyyydddd.nc`, as in the SWANS DYAMOND runs (e.g.
+`SWANS/HIRDLS/dyamond_geos3km/HIRDLS-dyamond_geos3km-2020d020.nc`).
+
+- Variables: [levels x profiles] `Lat`, `Lon`, `Time` (datenums), `Alt`,
+  `Prs`, `Temp`, `ObsProf` (`TSimple`, `Observed` and `ObsFile` are not
+  read); fill -9999 (`_FillValue`).
+- Checked: SWANS HIRDLS, MLS, GNSS and SABER (GEOS 3 km), 2020-01-20.
+- Pass `sampled_from` to name the model in the output (if omitted, "a model
+  (not named)").
+
+**LIMS** (Nimbus-7)
+
+- Files: one per day, `LIMS_2_yyyymmdd_V6.ASCII` (V6 revised Level 2,
+  ASCII). Each file holds complete orbits, so it runs into the next day,
+  and two start before their own day (1979-03-27, 1979-05-15); the
+  previous and next day's files are therefore read too.
+- Variables, per scan:
+  - a fixed-width header line (read by column, as its fields can run
+    together): the 30 km tangent point `alat`, `alon` (degrees east), `iday`
+    (day of the year), the time (GMT; read as `hour`, `minute`, `second`),
+    `idn`, `iud`, `iad`;
+  - 6 channel lines;
+  - 109 level lines of 18 values: `zt_std` (km), `pt_std` (mb), `tt_std`
+    (K), radiances, gradients, mixing ratios, `geo_heights` (km); fill 1e24.
+    `zt_std` is geometric height and `geo_heights` geopotential
+    (hypsometric check, 1978-11-08).
+- Checked: the 201 files of 1978-10-25 to 1979-05-28 on eepc-0184. Every
+  header is in range, the User's Guide example is reproduced, and each of
+  the 630,053 scans is returned once over the 214 days they cover. The
+  files of 1978-12-01 to 12-06 also have `idn` 0, which the guide does not
+  define (1 is day, 2 night). The cloud and removed-scan lists named in the
+  README are not held.
+- Provenance: LIMS V6 data (GATS, NASA GES DISC); User's Guide and README
+  beside the data.
+
+**ROMEX** (GNSS radio occultation)
+
+- Files: `romex_<mission>rmx[...]_100m_v1a[...].nc`, one or more per
+  mission, 2022-09-01 to 2022-11-30; netCDF.
+- Variables: `t` (s since 1970-01-01; 0: no time), `altitude` (500 levels,
+  10-59.9 km), [profile x level] `lat_full`, `lon_full`, `temp` (degrees C),
+  `press` (mb), `ref`, `Bend_ang`; per profile `lat`, `lon`, `azim`,
+  `is_bad`, `filestamp`. No global attributes.
+- `altitude` is geometric height. The files do not say so: it follows from
+  the hypsometric and ERA5 checks (`docs/validation.md`).
+- Checked: the 15 files on eepc-0184, every day 2022-09-01 to 11-30
+  (3,126,854 profiles, about 34,000 a day), against the merged GNSS files
+  (the same occultations: median differences -0.26 to +0.08 K) and ERA5.
+- Left as distributed: about 0.1% of profiles not marked `is_bad` exceed
+  330 K above 30 km (up to about 370 K).
+- Provenance: placeholder, to be updated later: who processed these files
+  and how to obtain them (ROMEX is taken to be the IROWG Radio Occultation
+  Modeling Experiment: UNVERIFIED).
+
+**Aeolus** (ALADIN Level 2B HLOS winds)
+
+- Files: `Aeolus_L2B_monthly_yyyy_mm.nc`, made from weekly VirES downloads
+  by `get_aeolus.py` (beside the data). A "monthly" file runs past its
+  month, so each day is also looked for in the previous month's file. The
+  files cover 2018-09 to 2023-04, with no data from 2022-10-05 to
+  2022-11-26.
+- Variables: per observation, for each channel (`ray`, `mie`): `<ch>_time`
+  (s since 2000-01-01), `_lat`, `_lon`, `_z_bot`, `_z_top` (m), `_hlos`,
+  `_hlos_err` (cm/s; missing: 32767 in `_hlos`, 65535 in `_hlos_err`),
+  `_obs_type`, `_valid`, `_az`; global `Sources` (L2B files, baselines,
+  processor versions).
+- The files have no profile identifier, so profiles are rebuilt from the
+  observations (`obs/_limb_aeolus.py`). The sign of HLOS is stated in
+  `hlos_wind`'s `sign_convention`; it was found from ERA5, not from ESA's
+  documentation.
+- Checked: the 15th of every month 2020-02 to 2023-04, and 2018-12-31,
+  2019-01-04 to 08, 2020-07-01 and 2022-06-01; three of these days against
+  ERA5. The separate `Aeolus/matlab/*_aeolus_hloswind.mat` files (2018-09
+  to 2022-01, Rayleigh only) are not read: they do not match these files
+  observation by observation.
+- Provenance: ESA Aeolus L2B (ALD_U_N_2B) through VirES (aeolus.services).
+
 **Your own files** (`Misc`): any MAT-files in the ACE format above, named
 `*<identifier>*yyyydddd*`, below `misc_path`.
 
@@ -204,11 +295,96 @@ netCDF file declares.
 - Variables: [rows x 60] `l1_lat`, `l1_lon`, `l1_time` (s since
   2000-01-01T00:00Z); `ret_temp` (K) [rows x 60 x level]; `ret_z` (km).
   Fills as for AIRS 3-D.
-- Checked: files of 2007-2016 on one machine; no version is stated in the
+- Checked: files of 2007-2018 on one machine; no version is stated in the
   files.
 - Provenance: the retrieval of L. Hoffmann (UNVERIFIED: reference to be
   added); placeholder, to be updated later: who made these files, from which
   data, and how to obtain them.
+
+**SWANS model output sampled as AIRS**: AIRS 3-D granule files
+(`SWANS/AIRS/dyamond_*/yyyy/ddd/airs_yyyy_ddd_ggg.nc`) load with
+`file_path` and `sampled_from` (checked: GEOS 3 km, 2020-01-20).
+
+### Trajectories (`load_trajectories`)
+
+**DWD high-resolution radiosondes** (`DWDsondes`, folder `sondes`)
+
+- Files: as unzipped from the DWD CDC (`.../radiosondes/high_resolution/
+  historical/<yyyy>/`):
+  - `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt`, one per station and
+    period (usually a year);
+  - beside it, `Metadaten_Sekunde_Aero_<station>.txt` (launch and end
+    times, sonde type) and `Metadaten_Geographie_<station>.txt` (station
+    position and name).
+- Variables: one `;`-separated row per sample: reference time, seconds
+  since launch, position, geopotential height (gpm), pressure (hPa),
+  temperature and dew point (degrees C), humidity (%), wind speed (m/s) and
+  the direction it blows from (degrees). -999 is missing, as is a position
+  of exactly 0.00.
+- No description of the fields is published with the files, so their
+  meanings are inferred from the files themselves
+  (`obs/_traj_dwd_sondes.py`).
+- Checked: 1993-06-15, 2004-01-01, 2020-01-07 and 2024-12-31 (up to 14
+  stations); against ERA5 on five days, which shows the times are UTC
+  (`docs/validation.md`); all 409 product files are in reference-time
+  order.
+- Copies: `1995/` holds older, shorter copies of ten stations' 1993 files.
+  Of several copies of a file, the one in the folder of its own year is
+  used, else the largest (recorded in `multiple_matches`).
+- Provenance: DWD Climate Data Center, CC BY (as noted beside the data;
+  credit DWD); `how_i_got_this_data.txt` beside the data.
+
+**IAGOS** (in-service aircraft, including MOZAIC; folder `IAGOS`)
+
+- Files: one per flight,
+  `IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<v>].nc[4]` in
+  `TimeSeries/iagos_<yyyy>/`, unzipped or in a zip archive (`iagos.zip` on
+  eepc-0184: 67,321 flights 1994-2024, 13 GB, about 111 GB unzipped).
+- Copies of a flight (the same departure time and number) are ranked
+  (C. Wright, 2026-11-27): the newest L2 version in the file name; then the
+  latest `date_modified` (else `date_created`) stated in the file; then
+  unzipped before zipped; then search order. An unzipped copy chosen over
+  the archive's is silent; any other choice is listed in
+  `multiple_matches`. On eepc-0184 (2026-11-27) 16,578 names carry versions
+  3.1.0-3.1.4 and the 50,711 MOZAIC-era `.nc` names carry none (the one
+  checked states no date either). The archive holds 29 flights of January
+  2023 in both `iagos_2022/` and `iagos_2023/`; one copy is read.
+- Variables (every 4 s): `UTC_time` (s since the departure day), `lat`,
+  `lon`, `gps_alt_AC`, `baro_alt_AC` (m), `air_press_AC` (Pa),
+  `air_temp_AC` and the package's `air_temp_P1` (L2 3.1) or `air_temp_PM`
+  (MOZAIC era) (K), `zon_wind_AC`, `mer_wind_AC` (m s-1), and trace gases.
+  None but the time is required: one a file lacks is NaN.
+- Flags and fills: `<var>_validity_flag` (0 good, 2 limited, 3 erroneous,
+  4 not validated, 7 missing) in L2 3.1 files; `<var>_val` (all -9999 in
+  the files checked) in older ones. Fill is -9999 (and -9999.9, e.g. in
+  `baro_alt_AC`); one 2023 flight has -999900 Pa, treated as missing.
+  About 2% of L2 3.1 flights have a package temperature whose every value
+  is flagged 3 or 7: their `air_temp_AC` is used.
+- Checked: flights of 1998-02-27, 2010-12-04, 2019-03-18 and 2023-11-15
+  (versions MOZAIC L2 revision 1.0, L2 3.1.0-3.1.2), against ERA5.
+  MOZAIC-era files have no GPS altitude.
+- Left as distributed: one 2023-11-15 flight (D-AIKE) has 82 take-off
+  samples of exactly 173.16 K marked good.
+- Provenance: IAGOS data portal (iagos-data.fr); the archive holds the
+  version used by Wright et al. (2024, ACP; UNVERIFIED: reference not
+  checked) and has not been updated since (`readme.txt` beside it).
+
+**FAAM** (research aircraft; folder `FAAM`)
+
+- Files: one per flight, `core_faam_<yyyymmdd>_v<nnn>_r<rev>_<flight>.nc`
+  (FAAM core data, netCDF).
+- Variables: `Time` (s since the flight day, 1 Hz), and measurements
+  (Time, sps<N>) at N per second, each with `<name>_FLAG` (bit masks, 0
+  good) and fill -9999: `LAT_GIN`, `LON_GIN`, `ALT_GIN` (m), `PS_RVSM`
+  (hPa), `TAT_DI_R`, `TAT_ND_R` (K), `U_C`, `V_C`, `W_C` (m s-1),
+  `PALT_RVS` (m) and about 150 more (some at 2, 4, 20 or 64 per second).
+- Copies: of several copies of a flight, the one with the highest core
+  version (`_v<nnn>_`), then the highest revision (`_r<rev>_`), is read.
+- Checked: the 27 flights of 2025-07-09 to 2025-08-01 on eepc-0184 (v005,
+  revision 0, processing software 25.0.0); three days against ERA5.
+- Provenance: FAAM core data (the files state the UK Government Open
+  Licence); placeholder, to be updated later: where these copies were
+  downloaded from.
 
 ### Time-height series (`load_time_height`)
 

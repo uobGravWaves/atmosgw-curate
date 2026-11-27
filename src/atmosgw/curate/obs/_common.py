@@ -27,7 +27,9 @@ the record of a load the same way:
 - ``note_version``, ``versions_text``, ``warn_mixed_versions``: the data
   version each file read states, the ``source_versions`` attribute, and one
   warning per load when the files read state different versions.
-- ``record_attrs``: a variable's ``source_variable`` and ``comment`` from the record.
+- ``record_attrs``: a variable's ``source_variable`` and ``comment`` from the
+  record (with the provider's screening rule, noted as ``<name>Bad``, after
+  "instrument_flag:").
 
 Data dicts use the MATLAB variable names (``Lat``, ``Temp`` ...) and datenum
 times; see ``limb.py`` and ``nadir.py``.
@@ -66,6 +68,7 @@ Change log
 2026/11/26 [Claude] note_version, versions_text, warn_mixed_versions: source_versions
 2026/11/26 [Claude] check_lon_range: lon_range in any convention
 2026/11/26 [Claude] warn_if_nothing_in_range; locate by a name index (same files)
+2026/11/27 [Claude] record_attrs: screening rules (<name>Bad notes) in the comment
 """
 
 import json
@@ -623,6 +626,10 @@ def record_attrs(name, record, interpolated=False):
         attrs["source_variable"] = record["source_variables"][name]
     if name in record["notes"]:
         attrs["comment"] = record["notes"][name]
+    if f"{name}Bad" in record["notes"]:  # (the provider's screening rule)
+        rule = "instrument_flag: " + record["notes"][f"{name}Bad"]
+        attrs["comment"] = (f"{attrs['comment']}; {rule}" if attrs.get("comment")
+                            else rule)
     if name == "Alt" and interpolated:
         attrs.pop("source_variable", None)
         origin = record["notes"].get(name) or record["source_variables"].get(name)

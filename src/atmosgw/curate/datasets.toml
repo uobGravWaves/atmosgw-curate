@@ -15,13 +15,23 @@
 #   raw  the instrument's data files, as distributed or lightly reformatted
 #   pws  planetary-wave-filtered data ("Hindley23" format, made by the group's
 #        MATLAB code)
+#   2d   AIRS only: L. Hoffmann's 2-D brightness-temperature granule files
 
 [datasets.ACE]
 raw = "ACE/raw"
 pws = "ACE/pws"
 
+[datasets.Aeolus]
+raw = "Aeolus/netCDF/Aeolus_L2B_monthly_flat_nc"
+
 [datasets.ALOMAR]
 raw = "lidar/ALOMAR"
+
+[datasets.DWDsondes]
+raw = "sondes"
+
+[datasets.FAAM]
+raw = "FAAM"
 
 [datasets.GNSS]
 raw = "GNSS/raw"
@@ -31,6 +41,12 @@ pws = "GNSS/pws"
 raw = "HIRDLS/raw"
 pws = "HIRDLS/pws"
 
+[datasets.IAGOS]
+raw = "IAGOS"
+
+[datasets.LIMS]
+raw = "LIMS"
+
 [datasets.MIPAS]
 raw = "MIPAS/raw"
 pws = "MIPAS/pws"
@@ -38,6 +54,9 @@ pws = "MIPAS/pws"
 [datasets.MLS]
 raw = "MLS/raw"
 pws = "MLS/pws"
+
+[datasets.ROMEX]
+raw = "GNSS/ROMEX"
 
 [datasets.SABER]
 raw = "SABER/raw"

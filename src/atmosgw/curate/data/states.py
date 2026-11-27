@@ -73,6 +73,7 @@ Change log
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] descriptions match the shared rules; counts_text
 2026/11/26 [Claude] docstring: Validation names the existing tests
+2026/11/27 [Claude] descriptions: trajectories; instrument_flag rules referenced
 
 """
 
@@ -96,16 +97,17 @@ STATES = (
           "asked for"),
     State("bad_geolocation", 8, True, "removed as bad",
           "latitude or longitude out of range (nadir: also NaN, time missing, or "
-          "a scan of implausible width; limb: out of range only, as MATLAB)"),
+          "a scan of implausible width; limb and trajectories: out of range "
+          "only)"),
     State("outside_physical_range", 16, True, "removed as bad",
           "temperature < 100 K (IASI: <= 100 K, its retrieval's lower bound), "
-          "or > 400 K (limb and time-height: only below 100 km; nadir: at any "
-          "height)"),
+          "or > 400 K (limb, time-height and trajectories: only below 100 km; "
+          "nadir: at any height)"),
     State("statistical_outlier", 32, True, "removed as bad",
           "marked by the instrument's statistical screen (obs._screen)"),
     State("instrument_flag", 64, True, "removed as bad",
-          "the instrument's own quality control marks it bad (MLS data quality "
-          "document rules; SOFIE heights not endorsed)"),
+          "the instrument's own quality control marks it bad (which rules: "
+          "docs/design/data_formats.md 6.2)"),
     State("derived", 128, False, "qualified value",
           "computed, not measured or retrieved (e.g. pressure from height)"),
     State("filled", 256, False, "qualified value",

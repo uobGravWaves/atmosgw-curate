@@ -25,9 +25,10 @@ src/atmosgw/curate/
     swath.py                  distances, regridding and vertical grids of swaths
     solar.py                  solar zenith angle; AIRS/IASI day-night switch
     readers.py                find files; read .mat, HDF5 and netCDF files
-    data/         data formats, data states, validate, to_profiles (proposal)
+    data/         data formats, data states, validate, to_profiles,
+                  to_netcdf/load_netcdf (proposal)
     obs/          instrument loaders: load_limb_sounders, load_nadir_sounders
-                  (preliminary), load_time_height
+                  (preliminary), load_time_height, load_trajectories
     instrument/   instrument characterisations (CPs)        (planned)
     context/      global context (GC) interface             (planned)
     analysis/     detrending, Stockwell wrappers            (planned)
@@ -114,8 +115,9 @@ module.
 ## Tests
 - `uv sync --extra dev`, then `uv run ruff check .` and `uv run pytest`.
   `pip install -e ".[dev]"` also works, with the newest allowed versions
-  instead of the locked ones. CI runs ruff and pytest on Python 3.11 and 3.13,
-with locked and with latest versions.
+  instead of the locked ones. CI runs ruff and pytest with the locked
+  versions on Python 3.11, 3.12 and 3.13 (Linux and Windows), and with the
+  latest versions on 3.11 and 3.13 (Linux).
 - Tests that compare against MATLAB reference outputs find them in
   `reference_dir`, set in the settings file of `README.md` ("Where the data
   are"; relative paths are under `data_dir`). They skip if it is not set or
