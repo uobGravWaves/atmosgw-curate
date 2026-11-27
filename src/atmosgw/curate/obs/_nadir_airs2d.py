@@ -5,10 +5,17 @@ granule files, with perturbations and variances).
 Files, below the AIRS 2-D folder (``datasets.toml``, ``AIRS`` ``2d``):
 ``YYYY/DDD/airs_YYYY_DDD_GGG.nc``, or ``DDD/airs_YYYY_DDD_GGG.nc`` (copies
 holding one year), else that name anywhere below the folder, one per
-granule: 135 along-track x 90 cross-track points (dimensions ``NTRACK``,
-``NXTRACK``), with ``time`` (seconds since 2000-01-01T00:00Z), ``lat``,
-``lon`` and, for each channel group, ``bt_<group>`` (K) and, except 8.1
-micron, its perturbation ``bt_<group>_pt`` (K) and variance
+granule; else, for a granule with no file of its own, its rows of the day's
+file as published (https://datapub.fz-juelich.de/slcs/airs/gravity_waves/
+data/perturbation/), ``YYYY/pert_airs_l1_YYYY_DDD.nc`` or that name anywhere
+below the folder: 240 granules of 135 rows in order (32,400 x 90; checked on
+2016-01-01 and 2019-01-01, the first row at 00:05:31 as granule 1), each
+granule's rows used only if their mean time is within 3 minutes of the
+granule's nominal middle. Granule and daily files alike: 135 along-track x
+90 cross-track points per granule (dimensions ``NTRACK``, ``NXTRACK``),
+with ``time`` (seconds since 2000-01-01T00:00Z), ``lat``, ``lon`` and,
+for each channel group, ``bt_<group>`` (K) and, except 8.1 micron, its
+perturbation ``bt_<group>_pt`` (K) and variance
 ``bt_<group>_var`` (K^2).
 
 Channel groups (``channels`` option; default all, in this order):
@@ -77,13 +84,32 @@ DERIVED = {
                "units": "K",
                "long_name": "brightness temperature perturbation",
                "comment": "from the files: computed by their producer (L. "
-                          "Hoffmann's processing); method not checked"},
+                          "Hoffmann's processing); in the daily files of "
+                          "2016-01-01 and 2019-01-01, the brightness "
+                          "temperature minus a 4th-order polynomial fitted "
+                          "across track to each row, to 1e-4 K"},
     "BTVar": {"output": "brightness_temperature_variance", "suffix": "_var",
               "units": "K2",
               "long_name": "brightness temperature variance",
               "comment": "from the files: computed by their producer (L. "
                          "Hoffmann's processing); method not checked"},
 }
+
+
+ROWS_PER_GRANULE = 135
+
+
+def find_daily_file(inst_info, day):
+    """Path of L. Hoffmann's daily file of a day (``pert_airs_l1_YYYY_DDD.nc``
+    anywhere below the folder), or None; looked up once per day."""
+    cache = inst_info.setdefault("_daily_files", {})
+    if day not in cache:
+        year, doy = year_and_day(day)
+        name = f"pert_airs_l1_{year:04d}_{doy:03d}.nc"
+        root = inst_info["path"]
+        cache[day] = locate(inst_info, os.path.join(root, f"{year:04d}", name), name,
+                            day_label(day), root)
+    return cache[day]
 
 
 def find_file(root, day, granule, inst_info=None):
@@ -118,18 +144,29 @@ def load(settings, inst_info, var_names):
     granules, file_list, fill_counts = [], [], {}
     for day, g in candidate_granules(settings):
         path = find_file(inst_info["path"], day, g, inst_info)
+        rows = None
+        if path is None:  # (else the granule's rows of the day's file)
+            path = find_daily_file(inst_info, day)
+            rows = slice((g - 1) * ROWS_PER_GRANULE, g * ROWS_PER_GRANULE)
+        mid = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
+        r0, r1 = (-np.inf, np.inf) if explicit else settings.get(
+            "request_range", settings["time_range"])
+        requested = r0 <= mid <= r1  # (missing granules recorded as the 3-D reader)
         if path is None:
-            mid = day + FIRST_START + (g - 0.5) * GRANULE_DAYS
-            r0, r1 = (-np.inf, np.inf) if explicit else settings.get(
-                "request_range", settings["time_range"])
-            if r0 <= mid <= r1:  # (as the 3-D reader)
+            if requested:
                 rec["files_not_found"].append(f"{day_label(day)} granule {g}")
             continue
         names = ["time", "lat", "lon"]
         for c in channels:
             base = CHANNELS[c][0]
             names += [base] + [base + d["suffix"] for d in DERIVED.values()]
-        values = _read_present(path, names)
+        values = _read_present(path, names, rows)
+        if rows is not None and not _granule_rows_match(values["time"], day, g):
+            if requested:
+                rec["files_not_found"].append(
+                    f"{day_label(day)} granule {g} (not where expected in "
+                    f"{os.path.basename(path)})")
+            continue
         rec["files_opened"] = rec.get("files_opened", 0) + 1
         # fill values and bad times, as the 3-D readers (_common.nadir_fill_to_nan)
         span = ((day - J2000) * 86400, (day + 1 - J2000) * 86400)
@@ -146,7 +183,9 @@ def load(settings, inst_info, var_names):
         mean = np.nanmean(time) if np.any(np.isfinite(time)) else np.nan
         if not explicit and not (t0 <= mean <= t1):
             continue
-        file_list.append(os.path.basename(path))
+        name = os.path.basename(path)
+        if rows is None or name not in file_list:  # (a daily file listed once)
+            file_list.append(name)
         n_along = values["lat"].shape[0]
 
         def stack(suffix, values=values, n_along=n_along):
@@ -160,7 +199,7 @@ def load(settings, inst_info, var_names):
         part = {"Lat": values["lat"].T, "Lon": values["lon"].T, "Time": time,
                 "Temp": stack(""), "Granule": np.full(n_along, float(g)),
                 "Day": np.full(n_along, float(day)),
-                "SourceFile": np.full(n_along, float(len(file_list))),
+                "SourceFile": np.full(n_along, float(file_list.index(name) + 1)),
                 "SourceRow": np.arange(1, n_along + 1, dtype=float)}
         for key, d in DERIVED.items():
             part[key] = stack(d["suffix"])
@@ -187,8 +226,23 @@ def load(settings, inst_info, var_names):
     return data, file_list
 
 
-def _read_present(path, names):
-    """The variables of names that the file has (others left out)."""
+def _granule_rows_match(seconds, day, granule):
+    """True if rows taken from a daily file are the granule's: their mean
+    time within 3 minutes of the granule's nominal middle (a granule lasts
+    6 minutes; 2016-01-01 and 2019-01-01 files: 240 x 135 rows, the first at
+    00:05:31, as granule 1)."""
+    with np.errstate(invalid="ignore"):
+        valid = np.where(seconds > 0, seconds, np.nan)
+    if seconds.shape[0] != ROWS_PER_GRANULE or not np.any(np.isfinite(valid)):
+        return False
+    mean = J2000 + np.nanmean(valid) / 86400
+    nominal = day + FIRST_START + (granule - 0.5) * GRANULE_DAYS
+    return abs(mean - nominal) < 3 / 1440
+
+
+def _read_present(path, names, rows=None):
+    """The variables of names that the file has (others left out); with rows,
+    only those rows of the first dimension."""
     with netCDF4.Dataset(path) as f:
         present = [n for n in names if n in f.variables]
-    return read_netcdf(path, present)
+    return read_netcdf(path, present, rows=rows)

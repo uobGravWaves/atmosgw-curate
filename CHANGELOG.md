@@ -5,6 +5,19 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New `load_nadir_sounders` instrument `"CrIS"` (new code): 2-D brightness
+  temperatures from L. Hoffmann's daily files, SNPP or NOAA-20 (new option
+  `satellite`), in 6-minute pseudo-granules by time. As each field of
+  regard's 3 x 3 fields of view rotate towards the swath edges, the swath
+  is regridded from every footprint's own position (new
+  `swath.regrid_footprints`), not along scan lines; `original_grid=True`
+  gives the footprints in rows and columns. netCDF's default fill
+  (9.97e36, in two of the 90 files checked) is read as missing. Other
+  instruments' values are unchanged; their `options` attribute gains
+  `"satellite": null`. [Claude]
+- AIRS 2-D (`product="2d"`) also reads L. Hoffmann's daily files as
+  published (`pert_airs_l1_yyyy_ddd.nc`), in 240 granules of 135 rows, for
+  granules without a file of their own. [Claude]
 - New `load_limb_sounders` instruments, all new code: `"LIMS"` (Nimbus-7
   V6, 1978-10-25 to 1979-05-28), `"ROMEX"` (GNSS radio occultation, 2022-09
   to 11; separate from `"GNSS"`) and `"Aeolus"` (L2B HLOS winds; option

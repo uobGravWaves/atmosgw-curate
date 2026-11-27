@@ -48,6 +48,7 @@ ds.attrs["files_read"]                           # the record of the load
 | `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, [Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling) output, your own files in the same format; planetary-wave-filtered versions | profiles, (profile, level) | port of MATLAB [`get_limbsounders`][get_limbsounders] |
 | | LIMS, ROMEX radio occultation, Aeolus HLOS winds; sampler output in netCDF (e.g. SWANS) | profiles | new code |
 | `obs.load_nadir_sounders` | AIRS 3-D retrievals, AIRS 2-D brightness temperatures, IASI 3-D retrievals; model output in the AIRS layout (e.g. SWANS) | swaths, (along_track, cross_track, level) | port of MATLAB [`prep_airs_3d`][prep_airs_3d], without its detrending and smoothing |
+| | CrIS 2-D brightness temperatures (SNPP, NOAA-20) | swaths | new code |
 | `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
 | `obs.load_trajectories` | DWD high-resolution radiosondes (`DWDsondes`), IAGOS and FAAM aircraft | flights, (flight, sample) | new code |
 | `data.to_profiles` | swaths and time-height series | profiles | new code |
@@ -86,10 +87,11 @@ with versions, dates and what was not covered.
   times), not the public Dataset.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
-- The newer readers (LIMS, ROMEX, Aeolus and `load_trajectories`; not yet
-  released) have no MATLAB counterpart. They are checked by known-answer
-  tests on synthetic files, censuses of whole archives, and comparisons
-  with ERA5 and the merged GNSS files.
+- The newer readers (LIMS, ROMEX, Aeolus, CrIS and `load_trajectories`;
+  not yet released) have no MATLAB counterpart. They are checked by
+  known-answer tests on synthetic files, censuses of whole archives, and
+  comparisons with ERA5 and the merged GNSS files (CrIS: with AIRS 2-D and
+  3-D, and between its two satellites).
 - Data states and the other metadata have no MATLAB counterpart. They are
   checked against shared rules by tests, and are still being reviewed.
 - Deliberate scientific changes from MATLAB (Q1-Q8) are listed with their
@@ -132,8 +134,9 @@ read (with units and fill values) and where the files come from.
 | SOFIE | GATS Level 2 v1.3 (netCDF) | any path containing `Level2_yyyyddd` |
 | ALOMAR lidar | yearly HDF5, V2026-07-27 | `yyyy_V2026-07-27_file4juli.h5` |
 | AIRS 3-D | L. Hoffmann's retrieval: daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
-| AIRS 2-D | L. Hoffmann's brightness-temperature granule files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
+| AIRS 2-D | L. Hoffmann's brightness-temperature granule files, else his published daily files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc`, `yyyy/pert_airs_l1_yyyy_ddd.nc` |
 | IASI 3-D | L. Hoffmann's retrieval, orbit files | `yyyy/ddd/iasi_yyyymmddhhmmss.nc` |
+| CrIS 2-D | L. Hoffmann's daily brightness-temperature perturbation files (SNPP, NOAA-20) | `pert_cris_<snpp\|j1>_yyyy_ddd.nc` |
 | LIMS | V6 revised Level 2 ASCII | `LIMS_2_yyyymmdd_V6.ASCII` |
 | ROMEX | GNSS RO per-mission netCDF, v1a | `romex_<mission>rmx..._100m_v1a....nc` |
 | Aeolus | L2B HLOS winds, monthly flat netCDF (VirES) | `Aeolus_L2B_monthly_yyyy_mm.nc` |

@@ -274,7 +274,7 @@ per variable (§6.3). `origin` is "measured".
 | `files_without_data` | | files read that hold no values of the main variable (warned; optional) |
 | `source_versions` | | the data versions the files read state, with how many files state each (all formats; optional, not checked by `validate`) |
 | `state_counts` | `"temperature: outside_physical_range 12, missing 300"` | how many points of each variable are in each state |
-| instrument-specific | e.g. `aeolus_channel`, `sample_rate` (FAAM), `sampled_from` | optional; set by the loaders where they apply |
+| instrument-specific | e.g. `aeolus_channel`, `sample_rate` (FAAM), `satellite` (CrIS), `sampled_from` | optional; set by the loaders where they apply |
 
 ## 6. Data states: absent, missing, bad, and qualified values
 

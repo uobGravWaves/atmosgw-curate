@@ -1,11 +1,12 @@
 """
 Operations on swaths stored as [cross-track x along-track (x ...)] arrays.
 
-Building blocks for nadir-sounder loaders (AIRS, IASI; later CrIS, IASI-NG):
+Building blocks for nadir-sounder loaders (AIRS, IASI, CrIS; later IASI-NG):
 distances across and along a swath, regridding a swath onto a regular grid in
 distance, and putting its levels onto a regular vertical grid. Port of the
 regridding in the MATLAB ``prep_airs_3d`` (its ``regularise_airs`` and its
-vertical-interpolation step).
+vertical-interpolation step), plus a regridding from footprints at their own
+positions (new code, for CrIS).
 
 Arrays are [cross x along (x level ...)], as MATLAB's ``l1_lat``,
 ``ret_temp`` (after its permute) and the nadir reader contract
@@ -29,6 +30,12 @@ Function                                                Returns
 ``regular_axis(values, n=None, spacing=None)``          regular 1-D axis over
                                                         the range of values
 ``regrid(lat, lon, fields, ...)``                       dict (see below)
+``footprint_track(lat, lon)``                           dict: the track of a
+                                                        swath of footprints
+``footprint_coordinates(lat, lon)``                     (along, cross) km of
+                                                        every footprint
+``regrid_footprints(lat, lon, fields, cross_axis,       dict, as ``regrid``
+...)``                                                  (see its docstring)
 ``regular_levels(z, spacing=3)``                        regular heights, km
 ``interpolate_levels(z, values, new_z)``                values on new_z
 ``unwrap_degrees(x)``                                   x with jumps > 180
@@ -93,6 +100,18 @@ As MATLAB, step for step:
 
 Sphere of radius 6371 km (``geodesy.EARTH_RADIUS_KM``), as MATLAB's defaults.
 
+Footprints (``regrid_footprints``; new code, no MATLAB equivalent): for
+swaths whose footprints do not lie on straight scan lines. The track is the
+point midway between each row's two middle footprints, smoothed over 3 rows
+(one CrIS scan: the rows of a scan are unevenly spaced and offset across
+track, and an unsmoothed track's heading zigzags with them); each
+footprint's cross-track distance and along-track offset from its row's
+track point are exact on the sphere (spherical right triangle); values are
+interpolated barycentrically in the Delaunay triangles of the footprints in
+(along, cross) km, so a field linear in distance is reproduced exactly, and
+a NaN vertex with a non-zero weight makes the grid point NaN. Every row
+needs positions (a row without them breaks the track's distances).
+
 Vertical (``regular_levels``, ``interpolate_levels``): a grid with the given
 spacing over the range of ``z``, starting at the lowest input level (MATLAB
 computes it relative to the middle level, but as min:step:max from the
@@ -115,7 +134,11 @@ Validation
 (mid-latitude, crossing the dateline, near the turning latitude) with each
 option (``tests/data/matlab_swath_fixtures.mat``); known answers (rotation
 in longitude, regular spacing, NaN outside, the vertical grid). Tolerances
-stated in the tests.
+stated in the tests. Footprints: ``tests/test_nadir_cris.py`` (known
+distances; a heading that ignores the zigzag within a scan; a linear field
+reproduced to 1e-3 K; fields linear in the true along- and cross-track
+distance returned as the grid's own distances to 3 km; no bridging of a
+missing footprint).
 
 Status
 ------
@@ -131,6 +154,8 @@ Usage
 Change log
 ----------
 2026/11/25 [Claude] initial version
+2026/11/27 [Claude] footprint_track, footprint_coordinates, regrid_footprints (CrIS)
+2026/11/27 [Claude] review: track smoothed over a scan; vertices option
 
 """
 
@@ -252,6 +277,229 @@ def regrid(lat, lon, fields, n_cross=None, n_along=None, dx_cross=None,
             "fields": new_fields, "flags": new_flags, "cross": new_cross,
             "along": new_along, "cross_edge": near,
             "spacing": spacing}
+
+
+def footprint_track(lat, lon, span=3):
+    """
+    The track of a swath of footprints [cross x along] (degrees): for each
+    along-track row, the point midway (on the sphere) between its two middle
+    footprints, smoothed by a centred mean over ``span`` rows (odd; fewer at
+    the ends); its cumulative along-track distance (km); and its heading
+    (degrees clockwise from north, from the smoothed point ``span`` rows
+    before to the one ``span`` rows after, using only points smoothed over
+    all ``span`` rows, so fewer at the ends). The default
+    span of 3 rows is one CrIS scan of the index layout: the midpoints of a
+    scan's 3 rows are 16 km apart but 22 km from the next scan's and offset
+    across track by up to a few km, so unsmoothed, the heading from
+    neighbouring rows zigzags by about 5 degrees (moving footprints at the
+    swath edge up to 90 km along track; found in review, 2019-01-01) and the
+    distance summed along the zigzag is too long (0.7% for a 1.5 km offset).
+    Returns dict ``lat``, ``lon``, ``along``, ``heading`` (each per row).
+    """
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+    mid = lat.shape[0] // 2
+    xyz = sum(_unit(lat[k], lon[k]) for k in (mid - 1, mid))  # [3 x along]
+    n = xyz.shape[1]
+    rows = np.arange(n)
+    half = np.minimum.reduce([np.full(n, span // 2), rows, n - 1 - rows])
+    if span > 1 and n > 2:
+        total = np.concatenate([np.zeros((3, 1)), np.cumsum(xyz, axis=1)], axis=1)
+        xyz = total[:, rows + half + 1] - total[:, rows - half]
+    # (headings between smoothed points over a whole window only, where any)
+    full = np.flatnonzero(half == span // 2)
+    lo, hi = (full[0], full[-1]) if full.size >= 2 else (0, n - 1)
+    t_lat, t_lon = _from_unit(*xyz)
+    step, _ = arc_distance(t_lat[:-1], t_lon[:-1], t_lat[1:], t_lon[1:])
+    along = np.concatenate([[0.0], np.cumsum(_deg2km(np.atleast_1d(step)))])
+    if n > 1:
+        before = np.clip(rows - span, lo, hi)
+        after = np.clip(rows + span, lo, hi)
+        heading = np.atleast_1d(azimuth(t_lat[before], t_lon[before],
+                                        t_lat[after], t_lon[after]))
+    else:
+        heading = np.zeros(n)
+    return {"lat": t_lat, "lon": t_lon, "along": along,
+            "heading": np.asarray(heading, dtype=float)}
+
+
+def footprint_coordinates(lat, lon, track=None):
+    """
+    Along- and cross-track distances (km) of every footprint [cross x along]
+    from the track (``footprint_track``): each footprint is measured from
+    its own row's track point, exactly on the sphere (spherical right
+    triangle with the great circle through the track point at its heading):
+    cross = asin(sin d sin A), along offset = atan2(sin d cos A, cos d), with
+    d the arc from the track point and A the bearing from the track heading;
+    cross is positive to the right of the heading. Returns (along, cross).
+    """
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+    track = footprint_track(lat, lon) if track is None else track
+    arc, bearing = arc_distance(track["lat"][None, :], track["lon"][None, :], lat, lon)
+    d = np.deg2rad(np.asarray(arc, dtype=float))
+    a = np.deg2rad(np.asarray(bearing, dtype=float) - track["heading"][None, :])
+    cross = np.arcsin(np.clip(np.sin(d) * np.sin(a), -1, 1)) * EARTH_RADIUS_KM
+    offset = np.arctan2(np.sin(d) * np.cos(a), np.cos(d)) * EARTH_RADIUS_KM
+    return track["along"][None, :] + offset, cross
+
+
+def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
+                      method="linear", extrapolate=False, flags=None, edge=0.0,
+                      max_edge_km=200.0, block=135, vertices=None):
+    """
+    Regrid footprints at their own positions onto a regular grid in distance,
+    for instruments whose footprints do not lie on straight scan lines (CrIS:
+    each field of regard's 3 x 3 fields of view rotate towards the swath
+    edges).
+
+    - ``lat``, ``lon``: [cross x along] footprint positions (degrees), in any
+      layout whose rows follow the track (CrIS: the index layout).
+    - ``fields``: dict of [cross x along (x ...)] arrays to regrid.
+    - ``cross_axis``: the regular cross-track axis (km, positive right of the
+      track); the along-track axis is regular over the track's distances,
+      ``n_along`` points or a step of ``dx_along`` km.
+    - ``method``: "linear": barycentric interpolation in the Delaunay
+      triangles of the footprints in (along, cross) km, which reproduces a
+      field linear in distance exactly; "nearest": the triangle's vertex with
+      the largest weight.
+    - A NaN at a vertex with a non-zero weight makes the grid point NaN (no
+      bridging of missing values); ``flags``: each grid point gets the OR of
+      the flags of those vertices.
+    - Grid points outside the triangles (outside the swath, or in a triangle
+      with an edge longer than ``max_edge_km``) are NaN with no flag, unless
+      the nearest footprint is within ``edge`` km, or ``extrapolate``: then
+      they take its value and flags, and are marked in ``extrapolated``.
+    - Triangulated in blocks of ``block`` output rows, each with the
+      footprints within 300 km along track of it.
+    - ``vertices``: [cross x along] bool, the footprints that may be
+      vertices (default: all with positions). Leaving out footprints that
+      never hold a value (CrIS fields of regard 1 and 30) lets grid points
+      beside them take the edge rule instead of a NaN vertex.
+
+    Returns a dict as ``regrid``: ``lat``, ``lon`` (the grid's own positions,
+    from the track and a step across at heading + 90 degrees), ``fields``,
+    ``flags``, ``cross``, ``along``, ``spacing``, and ``extrapolated``
+    [cross x along] (bool), ``track`` (``footprint_track``).
+    """
+    from scipy.spatial import Delaunay, cKDTree
+
+    method = method.lower()
+    if method not in ("linear", "nearest"):
+        raise ValueError("method must be 'linear' or 'nearest'.")
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+    track = footprint_track(lat, lon)
+    f_along, f_cross = footprint_coordinates(lat, lon, track)
+    new_cross = np.asarray(cross_axis, dtype=float)
+    new_along = regular_axis(track["along"], n_along or lat.shape[1], dx_along)
+    n_x, n_a = new_cross.size, new_along.size
+
+    # the grid's own positions: along the track, then a step across
+    def along_track(values):
+        return interp1(track["along"], values, new_along, "linear", True)
+
+    heading = along_track(unwrap_degrees(track["heading"]))
+    lat_mid = along_track(track["lat"])
+    lon_mid = along_track(unwrap_degrees(track["lon"]))
+    grid_lat, grid_lon = reckon(np.broadcast_to(lat_mid, (n_x, n_a)),
+                                np.broadcast_to(lon_mid, (n_x, n_a)),
+                                km2deg(np.broadcast_to(new_cross[:, None], (n_x, n_a))),
+                                np.broadcast_to(heading + 90, (n_x, n_a)))
+
+    flat = {name: np.asarray(v, dtype=float).reshape(lat.size, -1)
+            for name, v in fields.items()}
+    shapes = {name: np.shape(v)[2:] for name, v in fields.items()}
+    flat_flags = None if flags is None else np.asarray(flags).reshape(lat.size, -1)
+    points = np.column_stack([f_along.ravel(), f_cross.ravel()])
+    usable = np.all(np.isfinite(points), axis=1)
+    if vertices is not None:
+        usable &= np.asarray(vertices, dtype=bool).ravel()
+    out = {name: np.full((n_x * n_a, flat[name].shape[1]), np.nan) for name in flat}
+    out_flags = (None if flat_flags is None else
+                 np.zeros((n_x * n_a, flat_flags.shape[1]), dtype=flat_flags.dtype))
+    extrapolated = np.zeros(n_x * n_a, dtype=bool)
+    q_along = np.broadcast_to(new_along[None, :], (n_x, n_a)).ravel()
+    q_cross = np.broadcast_to(new_cross[:, None], (n_x, n_a)).ravel()
+    margin = 300.0  # km along track: more than a field of regard and its triangles
+    for start in range(0, n_a, block):
+        cols = np.arange(start, min(start + block, n_a))
+        a0, a1 = new_along[cols[0]], new_along[cols[-1]]
+        near = np.flatnonzero(usable & (points[:, 0] >= a0 - margin)
+                              & (points[:, 0] <= a1 + margin))
+        query = (np.arange(n_x)[:, None] * n_a + cols[None, :]).ravel()
+        q = np.column_stack([q_along[query], q_cross[query]])
+        if near.size < 3:
+            continue
+        tri = Delaunay(points[near])
+        simplex = tri.find_simplex(q)
+        inside = simplex >= 0
+        vertices = np.zeros((q.shape[0], 3), dtype=int)
+        weights = np.zeros((q.shape[0], 3))
+        if inside.any():
+            s = simplex[inside]
+            transform = tri.transform[s]
+            b = np.einsum("ijk,ik->ij", transform[:, :2], q[inside] - transform[:, 2])
+            weights[inside] = np.column_stack([b, 1 - b.sum(axis=1)])
+            vertices[inside] = tri.simplices[s]
+            # (long-edged triangles bridge more than the footprints' spacing)
+            corners = points[near][vertices[inside]]  # [n x 3 x 2]
+            sides = np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=2)
+            long_edge = np.max(sides, axis=1) > max_edge_km
+            keep = np.flatnonzero(inside)
+            inside[keep[long_edge]] = False
+        weights[~inside] = 0.0
+        used = weights > 1e-12
+        if method == "nearest":
+            best = np.argmax(weights, axis=1)
+            used = np.zeros_like(used)
+            used[np.arange(q.shape[0]), best] = inside
+            weights = used.astype(float)
+        source = near[vertices]  # [n x 3] footprint indices
+        for name, value in flat.items():
+            v = value[source]  # [n x 3 x k]
+            bad = np.any(np.isnan(v) & used[:, :, None], axis=1)
+            total = np.sum(np.where(used[:, :, None], weights[:, :, None] * v, 0.0),
+                           axis=1)
+            total[bad | ~inside[:, None]] = np.nan
+            out[name][query] = total
+        if out_flags is not None:
+            fv = flat_flags[source]  # [n x 3 x k]
+            out_flags[query] = np.bitwise_or.reduce(
+                np.where(used[:, :, None], fv, 0), axis=1)
+        # outside the triangles: the nearest footprint, if close enough
+        outside = np.flatnonzero(~inside)
+        if outside.size and (extrapolate or edge > 0):
+            dist, nearest = cKDTree(points[near]).query(q[outside])
+            take = outside[dist <= edge] if not extrapolate else outside
+            pick = near[nearest[dist <= edge]] if not extrapolate else near[nearest]
+            for name, value in flat.items():
+                out[name][query[take]] = value[pick]
+            if out_flags is not None:
+                out_flags[query[take]] = flat_flags[pick]
+            extrapolated[query[take]] = True
+
+    new_fields = {name: out[name].reshape((n_x, n_a) + shapes[name])
+                  for name in flat}
+    new_flags = (None if out_flags is None else
+                 out_flags.reshape((n_x, n_a) + np.shape(flags)[2:]))
+    spacing = (abs(new_cross[1] - new_cross[0]) if n_x > 1 else np.nan,
+               abs(new_along[1] - new_along[0]) if n_a > 1 else np.nan)
+    return {"lat": np.asarray(grid_lat), "lon": np.asarray(grid_lon),
+            "fields": new_fields, "flags": new_flags, "cross": new_cross,
+            "along": new_along, "spacing": spacing,
+            "extrapolated": extrapolated.reshape(n_x, n_a), "track": track}
+
+
+def _unit(lat, lon):
+    """(x, y, z) of points on the unit sphere."""
+    la, lo = np.deg2rad(lat), np.deg2rad(lon)
+    return np.array([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)])
+
+
+def _from_unit(x, y, z):
+    """(lat, lon) degrees of the directions (x, y, z) (need not be unit)."""
+    return (np.rad2deg(np.arctan2(z, np.hypot(x, y))), np.rad2deg(np.arctan2(y, x)))
 
 
 def regular_levels(z, spacing=3.0):

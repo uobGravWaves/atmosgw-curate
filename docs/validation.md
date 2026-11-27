@@ -87,8 +87,87 @@ that crashed now load, 11 differ only at bad data.
 
 AIRS 2-D: tests on synthetic files in the files' layout
 (`tests/test_nadir_airs2d.py`); loads of real files (2020-01-20, a processed
-test copy of L. Hoffmann's files; the originals are not on eepc-0184) gave
-valid swaths.
+test copy of L. Hoffmann's files) gave valid swaths. L. Hoffmann's daily
+files as published (2016-01-01 and 2019-01-01, downloaded to a scratch
+folder on 2026-11-27 and deleted after the checks; not kept on eepc-0184):
+
+- **Layout:** 32,400 x 90, 240 granules of 135 rows, the first row at
+  00:05:31 (granule 1); no NaN or fill values. Hour and whole-day loads
+  validate; every granule's rows pass the 3-minute time check; the
+  previous day's granule 240 is recorded as not found (its file was not
+  downloaded); availability as for the granule files (temperature,
+  pressure and winds `not_measured`).
+- **Against AIRS 3-D** (the same footprints: positions equal to 4e-6
+  degrees): the files' perturbations equal the brightness temperature minus
+  a 4th-order polynomial fitted across track to each row, to 1e-4 K
+  (4.3 and both 15 micron groups). With the same fit removed from the 3-D
+  temperature at each level, the 2-D perturbation correlates best with
+  the 3-D perturbation at 42 km (15 micron high, r 0.40 and 0.41) and 45 km
+  (4.3 micron, r 0.26 and 0.38), with a negative lobe at 30-33 km (r down
+  to -0.47), as expected of a weighting function a few scale heights deep
+  over a wave of about 20 km vertical wavelength (an interpretation, not
+  checked). The 15 micron low perturbation does not correlate with the 3-D
+  perturbation at any height from 15 to 60 km (|r| below 0.05); not
+  investigated. Peak heights from the data, not from published weighting
+  functions.
+
+CrIS 2-D (new code, 2026-11-27; L. Hoffmann's daily files):
+
+- **Tests:** `tests/test_nadir_cris.py`, on synthetic files laid out as the
+  real ones, with each field of regard's 3 x 3 pattern rotated (up to 50
+  degrees) and spread towards the edges. Footprint distances from the track
+  are exact to 1e-6 km; a brightness temperature linear in position is
+  reproduced by the regridding to 1e-3 K; fields linear in the true along-
+  and cross-track distance come back equal to the grid's own distances to
+  3 km out to the swath edges, with track points zigzagging across track
+  as in the real files; a missing footprint leaves at most 6 grid points
+  NaN (`missing`), with every other value unchanged; the native grid is the
+  index layout, footprint by footprint. Also tested: netCDF's default fill
+  (9.97e36) read as missing, and granule numbers following time in a file
+  with a gap.
+- **Independent review** (2026-11-27, of the first version): found the
+  track heading zigzagging with the 3-row scan pattern (values at the swath
+  edge up to 90 km from their place along track), the fill value 9.97e36
+  read as data (SNPP 2016-01-17, NOAA-20 2019-01-13), granule numbers
+  counted by rows in a file with a 4.6-hour gap (SNPP 2016-01-17), and
+  7.5% NaN in the outermost regridded column. All fixed; the numbers below
+  are after the fixes.
+- **The layout's effect, on real data** (SNPP, 2019-01-01, granules
+  100-109): each regridded value lies within a median 0.2 km of its grid
+  point at the centre of the swath and 1.1 km in the outer 8 columns (95%:
+  4.1 and 23 km), and 99.9% of points have values. The index layout through
+  the scan-line regridding used for AIRS would give 7.8 and 48.7 km (95%:
+  32 and 111 km), with 86.7% of points.
+- **Against the footprints** (SNPP, 2019-01-01, the whole day): regridded
+  values within 4 km and 1 min of a footprint differ from it by 0.11-0.17 K
+  at the 95th percentile (15 micron high, by latitude band; neighbouring
+  footprints differ by up to 1.03 K); none of 322,975 by more than 2 K. The
+  day's mean brightness temperature is unchanged (250.90 against 250.94 K).
+  The perturbation's standard deviation falls from 0.240 to 0.190 K:
+  interpolation averages footprint-to-footprint noise.
+- **SNPP against NOAA-20** (2019-01-01; regridded values within 25 km and
+  50 min of each other, 571,388 pairs): median difference +0.03 to +0.18 K
+  (8.1 to 15 micron high), correlation 0.946 (8.1 and 10.4 micron, which
+  see clouds) to 0.995 (15 micron high). 4.3 micron: 68 SNPP and 56
+  NOAA-20 footprints are NaN in the files where the other groups have
+  values.
+- **Against AIRS 2-D** (the daily files above; AIRS points within 25 km
+  and 30 min of a regridded CrIS value: about a million a day for SNPP,
+  median gap 8 min; 210,000 for NOAA-20, 26 min): brightness temperatures
+  correlate at 0.964-0.996, with AIRS minus CrIS medians of -1.2 K
+  (4.3 micron), -1.1 K (8.1), +0.7 to +0.9 K (15 low) and -0.5 to -0.6 K
+  (15 high), the channels being different averages (UNVERIFIED which).
+  Perturbations correlate weakly (15 micron high 0.08-0.40, 4.3 micron
+  0.14-0.63, 15 micron low near 0): the waves move in the minutes between
+  the overpasses, and the footprints differ.
+- **Against AIRS 3-D** (the same matching; 3-D perturbations as in the
+  AIRS 2-D check): the correlation peaks at the same heights as for AIRS
+  2-D (42-45 km for 15 micron high and 4.3 micron), at r 0.05-0.20.
+- **Existing instruments unchanged:** 23 real-data outputs (every loader,
+  `to_profiles`) bit-identical before and after, apart from the new
+  `satellite` key in `options` (`null` for AIRS and IASI).
+- **Not covered:** the 2022 MATLAB granules (not read); days other than
+  those named; NOAA-20 on 2016-01-01 (no file).
 
 The default IASI screen (rolling, 5 x IQR) was chosen from measurements on
 four dates (`help(atmosgw.curate.obs._screen)`). A study at 0.3.6 found it

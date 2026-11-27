@@ -9,7 +9,7 @@ loaders' docstrings (`help(load_limb_sounders)`, `help(load_nadir_sounders)`,
 | Loader | Format, dimensions | Instruments |
 |---|---|---|
 | `load_limb_sounders` | profile, (profile, level) | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, ALOMAR; LIMS, ROMEX, Aeolus (winds); Sampler, Misc |
-| `load_nadir_sounders` | swath, (along_track, cross_track, level) | AIRS (3-D, 2-D), IASI; model data in the AIRS layout |
+| `load_nadir_sounders` | swath, (along_track, cross_track, level) | AIRS (3-D, 2-D), IASI, CrIS (2-D); model data in the AIRS layout |
 | `load_time_height` | time_height, (time, level) | ALOMAR |
 | `load_trajectories` | trajectory, (flight, sample) | DWDsondes, IAGOS, FAAM |
 
@@ -145,7 +145,9 @@ ds = load_limb_sounders("2020-01-20", "Sampler", sampled_from="DYAMOND GEOS 3 km
 ## Nadir sounders
 
 Instruments: `"AIRS"` (3-D retrieval; 2-D brightness temperature with
-`product="2d"`) and `"IASI"` (3-D).
+`product="2d"`, from granule files or L. Hoffmann's published daily
+files), `"IASI"` (3-D) and `"CrIS"` (2-D brightness temperature,
+`product="2d"`; new code).
 
 ```python
 # two hours of AIRS, regridded to a regular distance grid (135 along-track x 90
@@ -177,6 +179,25 @@ regridded on its own, and `distance_along` restarts at each. `granule` and
 position or time (fill values in the files) form segments of their own:
 with `original_grid=True` they are kept, as `bad_geolocation`; a regridded
 swath leaves them out.
+
+**CrIS** reads L. Hoffmann's daily files for SNPP (the default) or, with
+`satellite="NOAA-20"`, NOAA-20, in pseudo-granules of 6 minutes (45 scans;
+90 x 135 points, as AIRS), numbered by time of day:
+
+```python
+ds = load_nadir_sounders(["2019-01-01T00:00", "2019-01-01T01:00"], "CrIS",
+                         product="2d", satellite="NOAA-20", channels=["15mu_high"])
+```
+
+Each field of regard holds 3 x 3 fields of view, a regular grid at nadir
+but rotated by up to about 50 degrees towards the swath edges. So the
+regridded swath is interpolated from every footprint's own position, not
+along scan lines: values stay within about 1 km of their grid point even at
+the edges (95%: 23 km; the scan-line method would put them about 50 km
+away). With
+`original_grid=True` the footprints are laid out in rows and columns (3 x
+field of regard + column across), each with its own position. The outermost
+fields of regard, 1 and 30, hold no values in these files.
 
 Model data sampled as AIRS, in the AIRS granule layout, load with
 `file_path` and `sampled_from` (as for the limb loader):
