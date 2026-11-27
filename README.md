@@ -42,9 +42,10 @@ ds.attrs["files_read"]                           # the record of the load
 
 | Function | Instruments | Returns | Origin |
 |---|---|---|---|
-| `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, [Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling) output, your own files in the same format; planetary-wave-filtered versions | profiles, (profile, level) | port of MATLAB [`get_limbsounders`][get_limbsounders] |
+| `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, [Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling) output (MAT or netCDF, e.g. SWANS), your own files in the same format; planetary-wave-filtered versions. New code: LIMS, ROMEX, Aeolus HLOS winds | profiles, (profile, level) | port of MATLAB [`get_limbsounders`][get_limbsounders]; new readers for LIMS, ROMEX, Aeolus |
 | `obs.load_nadir_sounders` | AIRS 3-D retrievals, AIRS 2-D brightness temperatures, IASI 3-D retrievals | swaths, (along_track, cross_track, level) | port of MATLAB [`prep_airs_3d`][prep_airs_3d], without its detrending and smoothing |
 | `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
+| `obs.load_trajectories` | DWD high-resolution radiosondes | flights, (flight, sample) | new code |
 | `data.to_profiles` | swaths and time-height series | profiles | new code |
 
 Each returns an `xarray.Dataset` in a format defined in
@@ -121,6 +122,10 @@ read (with units and fill values) and where the files come from.
 | AIRS 3-D | L. Hoffmann's retrieval: daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
 | AIRS 2-D | L. Hoffmann's brightness-temperature granule files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
 | IASI 3-D | L. Hoffmann's retrieval, orbit files | `yyyy/ddd/iasi_yyyymmddhhmmss.nc` |
+| LIMS | V6 revised Level 2 ASCII | `LIMS_2_yyyymmdd_V6.ASCII` |
+| ROMEX | GNSS RO per-mission netCDF, v1a | `romex_<mission>rmx..._100m_v1a....nc` |
+| Aeolus | L2B HLOS winds, monthly flat netCDF (VirES) | `Aeolus_L2B_monthly_yyyy_mm.nc` |
+| DWD radiosondes | high-resolution ("Sekundenwerte aero") text files | `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt` |
 
 Loaders find instrument data under a data root folder, set once per machine
 by either:

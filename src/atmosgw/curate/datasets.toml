@@ -20,8 +20,14 @@
 raw = "ACE/raw"
 pws = "ACE/pws"
 
+[datasets.Aeolus]
+raw = "Aeolus/netCDF/Aeolus_L2B_monthly_flat_nc"
+
 [datasets.ALOMAR]
 raw = "lidar/ALOMAR"
+
+[datasets.DWD-sondes]
+raw = "sondes"
 
 [datasets.GNSS]
 raw = "GNSS/raw"
@@ -31,6 +37,9 @@ pws = "GNSS/pws"
 raw = "HIRDLS/raw"
 pws = "HIRDLS/pws"
 
+[datasets.LIMS]
+raw = "LIMS"
+
 [datasets.MIPAS]
 raw = "MIPAS/raw"
 pws = "MIPAS/pws"
@@ -38,6 +47,9 @@ pws = "MIPAS/pws"
 [datasets.MLS]
 raw = "MLS/raw"
 pws = "MLS/pws"
+
+[datasets.ROMEX]
+raw = "GNSS/ROMEX"
 
 [datasets.SABER]
 raw = "SABER/raw"

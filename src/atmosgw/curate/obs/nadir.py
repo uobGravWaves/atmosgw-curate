@@ -67,6 +67,11 @@ Options (type, default; MATLAB name):
 - ``file_source`` (bool, False): also return ``source_file``, ``source_row``
   and ``original_files``.
 - ``file_path`` (str or Path, None): read the files from this folder.
+- ``sampled_from`` (str, None): the files are a model sampled as the
+  instrument (e.g. the SWANS DYAMOND runs in the AIRS granule format, read
+  with ``file_path``): this text names the model. The main variable's
+  ``origin`` is then "derived" with the ``derived`` state, ``data`` is
+  "sampled" and the attribute ``sampled_from`` records the model.
 - ``date_warning`` (bool, True), ``verbose`` (bool, False): as
   ``load_limb_sounders`` (including the warning when no granule's mean time
   lies in the requested times although nothing was missing).
@@ -198,6 +203,7 @@ Change log
 2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
 2026/11/26 [Claude] scan widths against a nominal width, not the median loaded (Q14);
   warning when no granule lies in the requested times; docstring: cross-track axis
+2026/11/27 [Claude] sampled_from: model data sampled as the instrument labelled (SWANS)
 
 """
 
@@ -311,6 +317,7 @@ def load_nadir_sounders(
     additional_vars=(),
     file_source=False,
     file_path=None,
+    sampled_from=None,
     date_warning=True,
     verbose=False,
 ):
@@ -515,6 +522,9 @@ def _prepare(time_range, instrument, options):
                           "keep_outliers", "day_night", "keep_native_geolocation",
                           "file_source", "date_warning", "verbose"))
     check_time_handling(options)
+    if options["sampled_from"] is not None and not isinstance(options["sampled_from"],
+                                                              str):
+        raise TypeError("sampled_from must be text naming the model, or None.")
     name = find_instrument(instrument, INSTRUMENTS)
     info = INSTRUMENTS[name]
     product = str(options["product"]).lower()
@@ -889,6 +899,11 @@ def _to_dataset(data, settings, call=None):
     """Arrange the arrays as a Dataset in the swath format."""
     ac = ("along_track", "cross_track")
     flags = data["Flags"]["Temp"].transpose(1, 0, 2)
+    sampled = settings.get("sampled_from")
+    if sampled:  # (a model sampled as the instrument: every value derived)
+        flags = flags.copy()  # (data["Flags"] is left as it was)
+        states.set_state(flags, np.isfinite(np.asarray(data["Temp"], dtype=float)
+                                            .transpose(1, 0, 2)), "derived")
     regular = settings["grid"] == "regular"
     three_d = settings["product"] == "3d"
     # the main variable: temperature on levels (3-D), or brightness temperature
@@ -1003,11 +1018,16 @@ def _to_dataset(data, settings, call=None):
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_nadir_sounders")
     # what was done to the files before loading, as the readers record it
     preprocessing = "; ".join(sorted(settings["record"].get("preprocessing", ())))
+    if sampled:
+        ds[main].attrs.update(origin="derived",
+                              comment=f"a model sampled as {settings['instrument']}: "
+                                      f"{sampled}")
     ds.attrs = {
         "format": "swath", "format_version": FORMATS["swath"]["version"],
         "instrument": settings["instrument"], "product": settings["product"],
         "characterisation": info["characterisation"][settings["product"]],
-        "data": "preprocessed" if preprocessing else "raw",
+        "data": ("sampled" if sampled else "preprocessed" if preprocessing
+                 else "raw"),
         "preprocessing": preprocessing,
         "heights": (("original" if settings["original_z"] else "interpolated")
                     if three_d else "none"),
@@ -1025,6 +1045,8 @@ def _to_dataset(data, settings, call=None):
                         "regular grid's position)"),
         "screen": settings["screen_text"],
     }
+    if sampled:
+        ds.attrs["sampled_from"] = str(sampled)
     return ds
 
 

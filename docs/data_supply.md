@@ -164,6 +164,63 @@ netCDF file declares.
 - Provenance: made by running the Wright and Hindley (2018) sampler,
   https://github.com/corwin365/Model-Sampling.
 
+Where a day has no `sampled_<datenum>.mat`, the first netCDF file in
+`sample_path` whose name ends `yyyydddd.nc` is read: the sampler's netCDF
+output, as in the SWANS DYAMOND runs (e.g.
+`SWANS/HIRDLS/dyamond_geos3km/HIRDLS-dyamond_geos3km-2020d020.nc`):
+[levels x profiles] `Lat`, `Lon`, `Time` (datenums), `Alt`, `Prs`, `Temp`,
+`ObsProf` (and `TSimple`, `Observed`, `ObsFile`, not read); fill -9999
+(`_FillValue`). Checked: SWANS HIRDLS, MLS, GNSS and SABER (GEOS 3 km),
+2020-01-20. Pass `sampled_from` to name the model in the output.
+
+**LIMS** (Nimbus-7)
+
+- Files: one per day, `LIMS_2_yyyymmdd_V6.ASCII` (V6 revised Level 2,
+  ASCII). Each day's file holds complete orbits and runs into the next day,
+  so the previous day's file is also read.
+- Variables: per scan a fixed-width header line (read by column: the
+  fields can run together), with the 30 km tangent point `alat`, `alon`
+  (degrees east), `iday` (day of the year), `time` (GMT), `idn`, `iud`,
+  `iad`; then 6 channel lines; then 109 level lines of 18 values (`zt_std`
+  km, `pt_std` mb, `tt_std` K, radiances, gradients, mixing ratios,
+  `geo_heights` km); fill 1e24.
+- Checked: the 201 files of 1978-10-25 to 1979-05-28 on eepc-0184 (every
+  header in range; values of the User's Guide example reproduced). The
+  files of 1978-12-01 to 12-06 also have `idn` 0, which the guide does not
+  define (1 day, 2 night). The cloud and removed-scan lists named in the
+  README are not held.
+- Provenance: LIMS V6 data (GATS, NASA GES DISC); User's Guide and README
+  beside the data.
+
+**ROMEX** (GNSS radio occultation)
+
+- Files: `romex_<mission>rmx[...]_100m_v1a[...].nc`, one or more per
+  mission, 2022-09-01 to 2022-11-30; netCDF.
+- Variables: `t` (s since 1970-01-01; 0: no time), `altitude` (500 levels,
+  10-59.9 km), [profile x level] `lat_full`, `lon_full`, `temp` (degrees C),
+  `press` (mb), `ref`, `Bend_ang`; per profile `lat`, `lon`, `azim`,
+  `is_bad`, `filestamp`. No global attributes.
+- Checked: the 15 files on eepc-0184 (2022-09-01, 10-15, 11-30): 31,000 to
+  38,000 profiles a day, mean temperatures within 0.7 K of the merged GNSS
+  files at 20, 30 and 40 km; some profiles not marked `is_bad` reach about
+  370 K.
+- Provenance: placeholder, to be updated later: who processed these files
+  (IROWG ROMEX) and how to obtain them.
+
+**Aeolus** (ALADIN Level 2B HLOS winds)
+
+- Files: `Aeolus_L2B_monthly_yyyy_mm.nc` (made from weekly VirES downloads
+  by `get_aeolus.py`, beside the data; a "monthly" file runs past its
+  month, so each day is also looked for in the previous month's file).
+- Variables: per observation, for `ray` and `mie`: `<ch>_time` (s since
+  2000-01-01), `_lat`, `_lon`, `_z_bot`, `_z_top` (m), `_hlos`, `_hlos_err`
+  (cm/s; 32767 and 65535 missing), `_obs_type`, `_valid`, `_az`; global
+  `Sources` (L2B files, baselines, processor versions).
+- Profiles are rebuilt from the observations (the files have no profile
+  identifier): see `obs/_limb_aeolus.py`.
+- Checked: 2018-12-31, 2019-01-05, 2019-01-07, 2022-06-01.
+- Provenance: ESA Aeolus L2B (ALD_U_N_2B) through VirES (aeolus.services).
+
 **Your own files** (`Misc`): any MAT-files in the ACE format above, named
 `*<identifier>*yyyydddd*`, below `misc_path`.
 
@@ -209,6 +266,29 @@ netCDF file declares.
 - Provenance: the retrieval of L. Hoffmann (UNVERIFIED: reference to be
   added); placeholder, to be updated later: who made these files, from which
   data, and how to obtain them.
+
+**SWANS model output sampled as AIRS**: AIRS 3-D granule files
+(`SWANS/AIRS/dyamond_*/yyyy/ddd/airs_yyyy_ddd_ggg.nc`) load with
+`file_path` and `sampled_from` (checked: GEOS 3 km, 2020-01-20).
+
+### Trajectories (`load_trajectories`)
+
+**DWD high-resolution radiosondes** (`DWD-sondes`, folder `sondes`)
+
+- Files: as unzipped from the DWD CDC (`.../radiosondes/high_resolution/
+  historical/<yyyy>/`): `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt`
+  (one per station and year), with `Metadaten_Sekunde_Aero_<station>.txt`
+  (launch and end times, sonde type) and `Metadaten_Geographie_<station>.txt`
+  (station position and name) beside it.
+- Variables: `;`-separated rows per sample: reference time, seconds since
+  launch, position, geopotential height (gpm), pressure (hPa), temperature
+  and dew point (degrees C), humidity (%), wind speed (m/s) and direction
+  (degrees, from); -999 missing; exactly 0.00 positions are also missing.
+- Checked: 1993-06-15, 2004-01-01, 2020-01-07, 2024-12-31 (14 stations).
+  The field meanings are inferred from the files (no description is
+  published with them): see `obs/_traj_dwd_sondes.py`.
+- Provenance: DWD Climate Data Center, CC BY (as noted beside the data; credit DWD);
+  `how_i_got_this_data.txt` beside the data.
 
 ### Time-height series (`load_time_height`)
 

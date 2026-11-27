@@ -21,8 +21,9 @@ Function                                      Returns
                                               variables
 ============================================  ==================================
 
-Formats: ``"swath"``, ``"profile"`` and ``"time_height"``, version 1
-(``FORMATS``).
+Formats: ``"swath"`` and ``"time_height"``, version 1; ``"profile"``,
+version 2 (version 1 Datasets are still accepted: version 2 only adds the
+HLOS wind product); ``"trajectory"``, version 1 (``FORMATS``).
 
 What ``validate`` checks:
 
@@ -30,7 +31,8 @@ What ``validate`` checks:
 - dimensions, and the order of each variable's dimensions;
 - required variables (some depend on ``product``, ``grid`` or the data:
   e.g. ``temperature`` for 3-D swaths, ``brightness_temperature`` for 2-D;
-  time_height: at least one of temperature and the winds);
+  profiles: ``temperature``, or ``hlos_wind`` for the "hlos_wind" product;
+  time_height and trajectory: at least one of temperature and the winds);
 - time_height: ``time`` never decreases and has no NaT (repeated times are
   allowed);
 - types: data variables float32 (profile format: float32 or float64, so the
@@ -77,6 +79,7 @@ Change log
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] profile format: data variables may be float64
 2026/11/26 [Claude] time_height format; checks of uncertainty variables
+2026/11/27 [Claude] profile format version 2 (HLOS wind product); trajectory format
 
 """
 
@@ -112,6 +115,9 @@ _PROFILE_DATA_TYPES = ("float32", "float64")
 # files hold float64); winds defined now for radars (no reader yet)
 _TH = ("time", "level")
 _WINDS = ("eastward_wind", "northward_wind", "upward_wind")
+
+# trajectory: (flight, sample)
+_TRAJ = ("flight", "sample")
 
 FORMATS = {
     "swath": {
@@ -170,7 +176,8 @@ FORMATS = {
         },
     },
     "profile": {
-        "version": 1,
+        "version": 2,
+        "accepted_versions": (1, 2),  # (2 adds the hlos_wind product only)
         "dims": ("profile", "level", "mode", "file"),
         "attrs": COMMON_ATTRS,
         "variables": {
@@ -184,6 +191,12 @@ FORMATS = {
                              required=True),
             "temperature": dict(kind="data", dims=("profile", "level"), units="K",
                                 required="raw", dtypes=_PROFILE_DATA_TYPES),
+            # (version 2: Aeolus winds; the uncertainty is checked as any
+            # <name>_uncertainty)
+            "hlos_wind": dict(kind="data", dims=("profile", "level"), units="m s-1",
+                              required="hlos", dtypes=_PROFILE_DATA_TYPES),
+            "line_of_sight_azimuth": dict(kind="coord", dims=("profile", "level"),
+                                          units="degree", required="hlos"),
             "pressure": dict(kind="data", dims=("profile", "level"), units="hPa",
                              required=True, dtypes=_PROFILE_DATA_TYPES),
             "temperature_residual": dict(kind="data", dims=("profile", "level"),
@@ -225,6 +238,38 @@ FORMATS = {
             "session": dict(kind="index", dims=("time",), tracked=True),
             "source_profile": dict(kind="index", dims=("time",), tracked=True),
             "source_file": dict(kind="index", dims=("time",), tracked=True),
+            "original_files": dict(kind="text", dims=("file",), tracked=True),
+        },
+    },
+    # in-situ measurements along a path (radiosondes; later aircraft and
+    # balloons): one row per flight, samples in path order, padded with NaN
+    # (NaT for time) to the longest flight; no level grid
+    "trajectory": {
+        "version": 1,
+        "dims": ("flight", "sample", "file"),
+        "attrs": COMMON_ATTRS,
+        "require_one_of": ("temperature",) + _WINDS,
+        "variables": {
+            "latitude": dict(kind="coord", dims=_TRAJ, units="degrees_north",
+                             range=(-90, 90), required=True),
+            "longitude": dict(kind="coord", dims=_TRAJ, units="degrees_east",
+                              range=(-180, 180), required=True),
+            "time": dict(kind="time", dims=_TRAJ, required=True),
+            "altitude": dict(kind="coord", dims=_TRAJ, units="km", required=True),
+            "temperature": dict(kind="data", dims=_TRAJ, units="K", tracked=True,
+                                dtypes=_PROFILE_DATA_TYPES),
+            "pressure": dict(kind="data", dims=_TRAJ, units="hPa", tracked=True,
+                             dtypes=_PROFILE_DATA_TYPES),
+            **{name: dict(kind="data", dims=_TRAJ, units="m s-1", tracked=True,
+                          dtypes=_PROFILE_DATA_TYPES)
+               for name in _WINDS},
+            "flight_id": dict(kind="text", dims=("flight",), required=True,
+                              unique=True),
+            "platform_id": dict(kind="text", dims=("flight",), required=True),
+            "platform_name": dict(kind="text", dims=("flight",), tracked=True),
+            "platform_type": dict(kind="text", dims=("flight",), tracked=True),
+            "start_time": dict(kind="time", dims=("flight",), required=True),
+            "source_file": dict(kind="index", dims=("flight",), tracked=True),
             "original_files": dict(kind="text", dims=("file",), tracked=True),
         },
     },
@@ -274,9 +319,14 @@ def problems(ds, format_name):
     if ds.attrs.get("format") != format_name:
         out.append(f"attribute 'format' is {ds.attrs.get('format')!r}, "
                    f"not {format_name!r}")
-    if ds.attrs.get("format_version") != spec["version"]:
+    accepted = spec.get("accepted_versions", (spec["version"],))
+    if ds.attrs.get("format_version") not in accepted:
         out.append(f"attribute 'format_version' is "
-                   f"{ds.attrs.get('format_version')!r}, not {spec['version']}")
+                   f"{ds.attrs.get('format_version')!r}, not "
+                   + " or ".join(str(v) for v in accepted))
+    if (format_name == "profile" and str(ds.attrs.get("product")) == "hlos_wind"
+            and ds.attrs.get("format_version") == 1):
+        out.append("the 'hlos_wind' product needs profile format version 2")
     for attr in spec["attrs"]:
         if attr not in ds.attrs:
             out.append(f"missing dataset attribute {attr!r}")
@@ -343,8 +393,10 @@ def _conditions(ds, format_name):
         "3d": format_name == "swath" and product == "3d",
         "2d": format_name == "swath" and product == "2d",
         "regular": str(ds.attrs.get("grid", "")).lower() == "regular",
-        "raw": format_name == "profile" and not data.startswith("planetary"),
+        "raw": (format_name == "profile" and not data.startswith("planetary")
+                and product != "hlos_wind"),
         "pw": format_name == "profile" and data.startswith("planetary"),
+        "hlos": format_name == "profile" and product == "hlos_wind",
     }
 
 
@@ -374,6 +426,10 @@ def _check_variable(ds, name, var):
         elif np.any(values[1:] < values[:-1]):
             out.append(f"{name!r} decreases (it must be sorted; repeated values "
                        "are allowed)")
+    if var.get("unique") and v.size:
+        values, counts = np.unique(np.asarray(v).ravel(), return_counts=True)
+        if np.any(counts > 1):
+            out.append(f"{name!r} has repeated values (e.g. {values[counts > 1][0]!r})")
     if "units" in var and v.attrs.get("units") != var["units"]:
         out.append(f"{name!r} has units {v.attrs.get('units')!r}, expected "
                    f"{var['units']!r}")

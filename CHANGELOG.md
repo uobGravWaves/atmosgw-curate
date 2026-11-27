@@ -5,6 +5,28 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New instruments for `load_limb_sounders` (new code, no MATLAB equivalent):
+  `"LIMS"` (Nimbus-7, V6 ASCII, 1978-10-25 to 1979-05-28; dates before
+  1979 are accepted for LIMS only), `"ROMEX"` (GNSS radio occultation,
+  2022-09 to 2022-11; kept apart from `"GNSS"`, which holds many of the
+  same occultations) and `"Aeolus"` (L2B HLOS winds, option
+  `aeolus_channel` "rayleigh" (Rayleigh-clear, default) or "mie"
+  (Mie-cloudy); profiles rebuilt from the observations; the HLOS sign
+  convention is a placeholder). [Claude]
+- Profile format version 2: the "hlos_wind" product (`hlos_wind`,
+  `hlos_wind_uncertainty`, `line_of_sight_azimuth`) needs no temperature.
+  Version 1 Datasets are still accepted by `validate`; the limb loader's
+  outputs for the other instruments are unchanged except
+  `format_version` 2. [Claude]
+- New `obs.load_trajectories` and the "trajectory" format (flight, sample):
+  in-situ measurements along a path, first the DWD high-resolution
+  radiosondes (`"DWD-sondes"`, option `stations`), each sample at its own
+  drifting position. [Claude]
+- Sampler output in netCDF (as in the SWANS DYAMOND runs) is read by
+  `"Sampler"` where a day has no `sampled_<datenum>.mat`. New option
+  `sampled_from` (limb and nadir loaders) names the model: `origin`
+  "derived" with the `derived` state, `data` "sampled" and the attribute
+  `sampled_from` (limb Sampler output now always has `data` "sampled"). [Claude]
 - Not MATLAB-equivalent (Q18): `interp_type` "pchip", "spline" and "makima"
   give values only where "linear" does: no extrapolation beyond a profile's
   own values unless `extrapolate=True` (then as linear extrapolation from the

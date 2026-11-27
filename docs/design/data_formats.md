@@ -12,12 +12,14 @@ Stockwell wrappers, Parameter Engine, sampler and Fuse. This document defines
 those outputs as named, versioned **formats**, so that "parallel interfaces"
 can be checked, not just agreed.
 
-Formats now: **profile** (limb sounders, occultation, lidar; the output of
-`load_limb_sounders`), **swath** (nadir sounders; `load_nadir_sounders`,
-see `nadir_loader.md`) and **time_height** (ground-based series at one site:
-the ALOMAR lidar now, radars later; `load_time_height`, §4a, since
-2026-11-26). Later, as loaders for them are written: **point series**
-(balloons) and **image** (ground-based imagers).
+Formats now: **profile** (limb sounders, occultation, lidar, Aeolus winds;
+the output of `load_limb_sounders`; version 2 since 2026-11-27), **swath**
+(nadir sounders; `load_nadir_sounders`, see `nadir_loader.md`),
+**time_height** (ground-based series at one site: the ALOMAR lidar now,
+radars later; `load_time_height`, §4a, since 2026-11-26) and **trajectory**
+(in-situ measurements along a path: radiosondes now, aircraft and balloons
+later; `load_trajectories`, §4b, since 2026-11-27). Later, as a loader for
+it is written: **image** (ground-based imagers).
 
 The specification will live in code in `atmosgw/curate/data/` (a new folder,
 already in the README's planned layout): `formats.py` (the definitions below
@@ -71,7 +73,12 @@ as data), `states.py` (the registry of data states, §6) and
 - **Packing (scale and offset):** only for files written to disk, never in
   memory (xarray unpacks on reading). See §11.
 
-## 3. Format "profile", version 1
+## 3. Format "profile", version 2
+
+Version 2 (2026-11-27) adds the "hlos_wind" product (Aeolus): for it,
+`hlos_wind` and `line_of_sight_azimuth` are required instead of
+`temperature`. Every version 1 Dataset is also a valid version 2 Dataset,
+and `validate` accepts both versions.
 
 **Dimensions:** `profile`, `level`; optional `mode` (planetary-wave modes),
 `file`. `profile` may have length 0.
@@ -81,7 +88,10 @@ as data), `states.py` (the registry of data states, §6) and
 | `latitude`, `longitude` | (profile, level) | degrees | yes |
 | `time` | (profile, level) | — | yes |
 | `altitude` | (profile, level) | km | yes |
-| `temperature` | (profile, level) | K | yes, unless PW data |
+| `temperature` | (profile, level) | K | yes, unless PW data or the "hlos_wind" product |
+| `hlos_wind` | (profile, level) | m s-1 | "hlos_wind" product: horizontal line-of-sight wind; attribute `sign_convention` (Aeolus: PLACEHOLDER, not yet checked) |
+| `hlos_wind_uncertainty` | (profile, level) | m s-1 | optional (§7); Aeolus: the L2B error estimate as distributed |
+| `line_of_sight_azimuth` | (profile, level) | degree | "hlos_wind" product: as in the files |
 | `pressure` | (profile, level) | hPa | yes; `origin` attribute says whether measured or derived (§6.3) |
 | `temperature_residual`, `temperature_pw` | (profile, level[, mode]) | K | PW data |
 | `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
@@ -167,6 +177,40 @@ heights (all on a 0.15 km lattice, so no interpolation), `temperature` from
 `T1_lidar` with `temperature_uncertainty` from `T1_lidar_unc` (kind
 UNVERIFIED), `pressure` and the winds `not_in_files`. States:
 `no_observation`, `missing`, `outside_physical_range`.
+
+## 4b. Format "trajectory", version 1
+
+In-situ measurements along a path: radiosonde ascents now; aircraft and
+balloon flights later. Agreed with C. Wright on 2026-11-27 as a separate
+format, conceptually like the others: the same variable names, flags,
+origins and attributes, without a level grid.
+
+**Dimensions:** `flight`, `sample`; optional `file`. One row per flight,
+its samples in path order, padded with NaN (NaT for times) to the longest
+flight. `flight` may have length 0.
+
+| Variable | Dimensions | Units | Required |
+|---|---|---|---|
+| `latitude`, `longitude` | (flight, sample) | degrees | yes (each sample's own position: drift is kept) |
+| `time` | (flight, sample) | — | yes |
+| `altitude` | (flight, sample) | km | yes; `comment` says if it is geopotential |
+| `temperature`, `pressure` | (flight, sample) | K, hPa | optional, tracked |
+| `eastward_wind`, `northward_wind`, `upward_wind` | (flight, sample) | m s-1 | optional, tracked; at least one of these and temperature |
+| `<variable>_flag` | as `<variable>` | — | yes, for each data variable (§6) |
+| `flight_id`, `platform_id` | (flight) | — | yes |
+| `platform_name`, `platform_type` | (flight) | — | optional, tracked |
+| `start_time` | (flight) | — | yes: the start (launch) time |
+| `source_file` | (flight) | — | optional |
+| `original_files` | (file) | — | optional |
+
+Data variables may be float32 or float64. Required attributes: §5. A
+flight is selected by its `start_time`.
+
+DWD radiosondes (`load_trajectories(..., "DWD-sondes")`, product
+"sounding"): altitude is geopotential height; `reference_time` (flight, the
+nominal synoptic time) is added; `upward_wind` is `not_in_files`; origin
+"measured". States: `no_observation` (padding and before a variable's
+first value), `missing`, `outside_physical_range` (temperature only).
 
 ## 5. Required dataset attributes (all formats)
 

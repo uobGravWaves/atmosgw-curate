@@ -512,7 +512,7 @@ def test_pw_states_over_modes(syn):
 
 def test_format_attributes(syn):
     ds = misc(syn, "synlin")
-    assert ds.attrs["format"] == "profile" and ds.attrs["format_version"] == 1
+    assert ds.attrs["format"] == "profile" and ds.attrs["format_version"] == 2
     assert ds.attrs["product"] == "temperature"
     assert ds.attrs["characterisation"] == "Misc-TEMPERATURE-placeholder/0"
     listed = states.parse_availability(ds.attrs["availability"])

@@ -2,7 +2,8 @@
 Load limb-sounder and other profile data in a common format.
 
 Load temperature profiles from several instruments (ACE-FTS, GNSS radio
-occultation, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar), from
+occultation, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar; new code:
+LIMS and ROMEX), Aeolus HLOS wind profiles (new code), from
 planetary-wave-filtered versions of them, from the output of the Wright and
 Hindley (2018) sampler (https://github.com/corwin365/Model-Sampling), or
 from any files in the same MATLAB format ("Misc"), and return them on one
@@ -27,7 +28,13 @@ it would mean in MATLAB (use ``matlab_time.make_datetime(2022, 1, 34)`` for
 that).
 
 ``instrument``: ``"ACE"``, ``"GNSS"``, ``"HIRDLS"``, ``"MIPAS"``, ``"MLS"``,
-``"SABER"``, ``"SOFIE"``, ``"ALOMAR"``, ``"Sampler"`` or ``"Misc"`` (any case).
+``"SABER"``, ``"SOFIE"``, ``"ALOMAR"``, ``"LIMS"``, ``"ROMEX"``, ``"Aeolus"``,
+``"Sampler"`` or ``"Misc"`` (any case). LIMS, ROMEX and Aeolus are new code
+(no MATLAB equivalent): see their readers (``obs/_limb_lims.py``,
+``obs/_limb_romex.py``, ``obs/_limb_aeolus.py``) for the files and the
+choices made. Aeolus gives ``hlos_wind`` (and ``hlos_wind_uncertainty``,
+``line_of_sight_azimuth``) instead of ``temperature``, product
+"hlos_wind".
 ALOMAR, a lidar at a fixed site, is also loaded by ``load_time_height`` as a
 [time x level] series; here it gives a UserWarning saying so.
 
@@ -77,7 +84,13 @@ Options (type, default):
 - ``extrapolate`` (bool, False): extrapolate beyond each profile's heights
   when interpolating (any method).
 - ``sample_path`` (str or Path, None): folder of the sampler output (Sampler
-  only).
+  only): ``sampled_<datenum>.mat``, else netCDF output named
+  ``*yyyydddd.nc`` (e.g. SWANS).
+- ``sampled_from`` (str, None): names the model the data were sampled from
+  (attribute ``sampled_from``; ``data`` "sampled"; ``origin`` "derived").
+  Sampler output is always labelled so.
+- ``aeolus_channel`` (str, "rayleigh"): Aeolus only: "rayleigh"
+  (Rayleigh-clear observations) or "mie" (Mie-cloudy).
 - ``instrument_qc`` (bool, True): apply the provider's own screening where
   implemented: MLS, its data quality documents' temperature rules (v5.0x and
   v6.x; ``obs._limb_mls.screen``); SOFIE, the heights endorsed for
@@ -163,7 +176,8 @@ type (float64 from most readers; the profile format allows float32 or
 float64).
 
 Attributes of the Dataset, recording the load: ``format`` ("profile"),
-``format_version`` (1), ``product`` ("temperature"), ``characterisation``
+``format_version`` (2), ``product`` ("temperature"; "hlos_wind" for Aeolus),
+``characterisation``
 (``<instrument>-TEMPERATURE-placeholder/0``, until the characterisation
 packages exist), ``availability`` (optional variables of the format not in
 the Dataset, and why), ``state_counts`` (points in each state, per
@@ -308,6 +322,7 @@ Change log
 2026/11/26 [Claude] lon_range in any longitude convention (any number of turns)
 2026/11/26 [Claude] pchip/spline/makima: no extrapolation or bridging of gaps (Q18);
   warning when no data lie in the requested times
+2026/11/27 [Claude] LIMS, ROMEX, Aeolus (HLOS winds, profile format v2); sampled_from
 
 """
 
@@ -325,11 +340,14 @@ from atmosgw.curate.matlab_compat import unwrap_rows, wrap_to_pi
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import (
     _limb_ace_gnss,
+    _limb_aeolus,
     _limb_alomar,
     _limb_hirdls,
+    _limb_lims,
     _limb_mipas,
     _limb_mls,
     _limb_pwdata,
+    _limb_romex,
     _limb_saber,
     _limb_sampler,
     _limb_sofie,
@@ -373,6 +391,10 @@ _PIECEWISE = ("linear", "nearest", "next", "previous")  # (the others: pchip ...
 INSTRUMENTS = {
     "ACE": {"time_range": (datenum(2004, 1, 35), _FAR), "height_range": (18, 125),
             "reader": _limb_ace_gnss},
+    "Aeolus": {"time_range": (datenum(2018, 9, 1), datenum(2023, 5, 2)),
+               "height_range": (0, 30), "reader": _limb_aeolus,
+               # (winds, not temperature: the main variables and the product)
+               "variables": ("HLOS", "HLOSErr", "LOSAz"), "product": "hlos_wind"},
     "ALOMAR": {"time_range": (datenum(2003, 1, 1), _FAR), "height_range": (0, 80),
                "reader": _limb_alomar},
     "GNSS": {"time_range": (datenum(2000, 1, 1), _FAR), "height_range": (0, 40),
@@ -383,10 +405,14 @@ INSTRUMENTS = {
                               "at some levels"},
     "HIRDLS": {"time_range": (datenum(2005, 1, 29), datenum(2008, 1, 77)),
                "height_range": (0, 80), "reader": _limb_hirdls},
+    "LIMS": {"time_range": (datenum(1978, 10, 25), datenum(1979, 5, 28)),
+             "height_range": (0, 80), "reader": _limb_lims},
     "MIPAS": {"time_range": (datenum(2002, 7, 2), datenum(2012, 4, 8)),
               "height_range": (0, 80), "reader": _limb_mipas},
     "MLS": {"time_range": (datenum(2004, 1, 275), _FAR), "height_range": (0, 100),
             "reader": _limb_mls},
+    "ROMEX": {"time_range": (datenum(2022, 9, 1), datenum(2022, 11, 30)),
+              "height_range": (10, 60), "reader": _limb_romex},
     "SABER": {"time_range": (datenum(2002, 1, 1), _FAR), "height_range": (0, 120),
               "reader": _limb_saber},
     "SOFIE": {"time_range": (datenum(2007, 1, 135), _FAR), "height_range": (10, 110),
@@ -403,11 +429,13 @@ OUTPUT_NAMES = {
     "Pres": "pressure", "Alt": "altitude", "Temp_Residual": "temperature_residual",
     "Temp_PW": "temperature_pw", "SourceProf": "source_profile",
     "SourceFile": "source_file", "OriginalFiles": "original_files", "dx": "dx",
+    "HLOS": "hlos_wind", "HLOSErr": "hlos_wind_uncertainty",
+    "LOSAz": "line_of_sight_azimuth",
 }
 
 # the data variables of the profile format (each gets a state flag)
 _DATA_VARIABLES = ("temperature", "pressure", "temperature_residual",
-                   "temperature_pw")
+                   "temperature_pw", "hlos_wind")
 # product name, for the attributes (proposal: one product, temperature
 # profiles, for every limb instrument)
 _PRODUCT = "temperature"
@@ -418,6 +446,15 @@ _ATTRS = {
     "temperature_residual": {"units": "K",
                              "long_name": "temperature minus planetary waves"},
     "temperature_pw": {"units": "K", "long_name": "planetary-wave temperature"},
+    "hlos_wind": {"units": "m s-1", "long_name": "horizontal line-of-sight wind",
+                  "sign_convention": _limb_aeolus.SIGN_CONVENTION},
+    "hlos_wind_uncertainty": {
+        "units": "m s-1", "long_name": "uncertainty of hlos_wind",
+        "comment": "the provider's HLOS error estimate, as distributed (the kind "
+                   "of uncertainty is not stated in the files)"},
+    "line_of_sight_azimuth": {"units": "degree",
+                              "long_name": "azimuth of the line of sight, as in "
+                                           "the files"},
     "pressure": {"units": "hPa", "standard_name": "air_pressure"},
     "altitude": COORD_ATTRS["altitude"],
     "source_profile": {"long_name": "profile number in the source file (1-based)"},
@@ -453,6 +490,8 @@ def load_limb_sounders(
     sample_path=None,
     keep_duplicate_occultations=False,
     instrument_qc=True,
+    aeolus_channel="rayleigh",
+    sampled_from=None,
 ):
     # (the module docstring, so that help(load_limb_sounders) shows it all)
     options = {k: v for k, v in locals().items() if k not in ("time_range",
@@ -489,7 +528,9 @@ def _load_limb_arrays(time_range, instrument, **options):
         var_names = ["Lat", "Lon", "Time", "Temp_Residual", "Temp_PW", "Pres", "Alt",
                      "SourceProf", "SourceFile"]
     else:
-        var_names = ["Lat", "Lon", "Time", "Temp", "Pres", "Alt", "SourceProf",
+        # (the instrument's main variables: temperature, except for Aeolus winds)
+        main = INSTRUMENTS[settings["instrument_name"]].get("variables", ("Temp",))
+        var_names = ["Lat", "Lon", "Time", *main, "Pres", "Alt", "SourceProf",
                      "SourceFile"]
     # source indices are made only if asked for (MATLAB makes them, interpolates
     # them and drops them at the end; the other results are the same)
@@ -499,13 +540,14 @@ def _load_limb_arrays(time_range, instrument, **options):
     var_names = var_names + list(settings["additional_vars"])
     # which pressures the reader estimated from height, point by point (for the
     # output's data states; not in the MATLAB, so taken out of data at the end)
-    if "Pres" in var_names and reader in (_limb_ace_gnss, _limb_pwdata):
+    if "Pres" in var_names and reader in (_limb_ace_gnss, _limb_pwdata, _limb_aeolus):
         var_names = var_names + ["PresEstimated"]
     # the provider's own screening (MLS: its data quality document), point by
     # point, for the instrument_flag state (taken out of data below)
     # (MLS: its data quality document; SOFIE: the endorsed heights; HIRDLS:
     # values dominated by the a priori, kept but marked)
-    if settings["instrument_qc"] and reader in (_limb_mls, _limb_sofie):
+    if settings["instrument_qc"] and reader in (_limb_mls, _limb_sofie, _limb_aeolus,
+                                                 _limb_romex):
         var_names = var_names + ["InstrumentBad"]
     if settings["instrument_qc"] and reader is _limb_hirdls:
         var_names = var_names + ["APrioriDominated"]
@@ -760,10 +802,23 @@ def _prepare(time_range, instrument, options):
     name = find_instrument(instrument, INSTRUMENTS,
                            " (for AIRS and IASI use load_nadir_sounders)")
     info = INSTRUMENTS[name]
+    channel = str(options.get("aeolus_channel") or "rayleigh").lower()
+    if channel not in _limb_aeolus.CHANNELS:
+        raise ValueError(f"aeolus_channel must be one of "
+                         f"{', '.join(_limb_aeolus.CHANNELS)}, not {channel!r}.")
+    sampled_from = options.get("sampled_from")
+    if sampled_from is not None and not isinstance(sampled_from, str):
+        raise TypeError("sampled_from must be text naming the model, or None.")
 
     # heights
     if options["height_scale"] is None:
         height_scale = np.arange(18, 60.5, 0.5)
+        if name == "Aeolus" and not options["original_z"]:
+            warnings.warn(
+                "Aeolus winds lie mostly below 18 km, the bottom of the default "
+                "height_scale (18 to 60 km): pass height_scale (e.g. "
+                "np.arange(0, 25.5, 0.5)) or original_z=True to keep them.",
+                UserWarning, stacklevel=4)
     else:
         height_scale = np.asarray(options["height_scale"], dtype=float).ravel()
     for label, values in (("height_scale", height_scale),
@@ -786,13 +841,17 @@ def _prepare(time_range, instrument, options):
 
     # times: datenums inside, so the MATLAB time rules apply exactly
     raw = to_datenums(time_range)
-    if np.any(raw < datenum(1979, 1, 1)):
-        raise ValueError("time_range must be in the satellite era (1979 or later).")
+    # (LIMS, from 1978-10-25, is the one instrument with data before 1979)
+    earliest = info["time_range"][0] if name == "LIMS" else datenum(1979, 1, 1)
+    if np.any(raw < earliest):
+        raise ValueError("time_range must be in the satellite era (1979 or later; "
+                         "LIMS from 1978-10-25).")
     if options["date_warning"]:
         warn_if_no_data(raw, name, info["time_range"], stacklevel=3)
     expanded, scalar = expand_time_range(raw, options["time_handling"])
 
     settings = dict(options, instrument=name, instrument_name=name,
+                    aeolus_channel=channel, sampled_from=sampled_from,
                     time_range=expanded, scalar_time=scalar,
                     height_scale=height_scale, height_range=height_range,
                     lat_range=lat_range, lon_range=lon_range,
@@ -962,7 +1021,7 @@ def _origin(out, value, settings):
     finite = np.isfinite(value)
     if out in ("temperature_residual", "temperature_pw"):
         return "derived", finite  # planetary-wave filtering
-    if settings["instrument_name"] == "Sampler":
+    if settings["instrument_name"] == "Sampler" or settings.get("sampled_from"):
         return "derived", finite  # sampled from a model
     if out == "pressure":
         if settings["record"]["notes"].get("Pres") == ESTIMATED_PRES:
@@ -1018,7 +1077,13 @@ def _to_dataset(data, settings, call=None):
         origin, derived = _origin(out, value, settings)
         if derived is not None:
             states.set_state(flag, derived, "derived")
-        var_attrs.update(origin=origin, ancillary_variables=f"{out}_flag")
+        ancillary = f"{out}_flag"
+        if f"{out}_uncertainty" in variables:  # (NaN wherever the value is)
+            u_dims, u_value, u_attrs = variables[f"{out}_uncertainty"]
+            u_value = np.where(np.isnan(value), np.nan, u_value)
+            variables[f"{out}_uncertainty"] = (u_dims, u_value, u_attrs)
+            ancillary += f" {out}_uncertainty"
+        var_attrs.update(origin=origin, ancillary_variables=ancillary)
         variables[f"{out}_flag"] = (dims, flag, states.flag_attrs())
         flags_by_variable[out] = flag
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
@@ -1026,17 +1091,21 @@ def _to_dataset(data, settings, call=None):
     availability = {n: "not_requested" for n in tracked
                     if n not in variables and n not in coords}
     availability.update({f"{out}_uncertainty": "not_provided"
-                         for out in _DATA_VARIABLES if out in variables})
+                         for out in _DATA_VARIABLES if out in variables
+                         and f"{out}_uncertainty" not in variables})
     instrument = settings["instrument_name"]
+    product = INSTRUMENTS[instrument].get("product", _PRODUCT)
+    sampled = instrument == "Sampler" or bool(settings.get("sampled_from"))
     # (the PW files are a separate product: the raw files' text does not apply)
     preprocessing = ("" if settings["hindley_pws"]
                      else INSTRUMENTS[instrument].get("preprocessing", ""))
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_limb_sounders")
     attrs = {
         "format": "profile", "format_version": FORMATS["profile"]["version"],
-        "instrument": instrument, "product": _PRODUCT,
-        "characterisation": f"{instrument}-{_PRODUCT.upper()}-placeholder/0",
+        "instrument": instrument, "product": product,
+        "characterisation": f"{instrument}-{product.upper()}-placeholder/0",
         "data": ("planetary-wave-filtered" if settings["hindley_pws"]
+                 else "sampled" if sampled
                  else "preprocessed" if preprocessing else "raw"),
         "preprocessing": preprocessing,
         "heights": "original" if settings["original_z"] else "interpolated",
@@ -1045,6 +1114,10 @@ def _to_dataset(data, settings, call=None):
         **common,
         "state_counts": states.counts_text(flags_by_variable),
     }
+    if sampled:
+        attrs["sampled_from"] = settings.get("sampled_from") or "a model (not named)"
+    if instrument == "Aeolus":
+        attrs["aeolus_channel"] = settings["aeolus_channel"]
     return xr.Dataset(variables, coords=coords, attrs=attrs)
 
 
