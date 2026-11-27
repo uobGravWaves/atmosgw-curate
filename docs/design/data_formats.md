@@ -1,9 +1,9 @@
 # Design: common data formats
 
 **Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1).
-After 0.6.0 (CHANGELOG, Unreleased): `data.to_netcdf` with packing (section
-11), profile format version 2 (§3) and the trajectory format (§4b), both
-2026-11-27. Parts still planned, not implemented: the `analysis` steps
+After 0.6.0 (CHANGELOG, Unreleased): `data.to_netcdf` with packing (§11);
+on 2026-11-27, profile format version 2 (§3) and the trajectory format
+(§4b). Parts still planned, not implemented: the `analysis` steps
 (detrend, smooth, fill).
 Points marked *agreed* were agreed with C. Wright on 2026-11-25.
 
@@ -75,10 +75,10 @@ The specification lives in code in `atmosgw/curate/data/`: `formats.py`
 
 ## 3. Format "profile", version 2
 
-Version 2 (2026-11-27) adds the "hlos_wind" product (Aeolus): for it,
-`hlos_wind` and `line_of_sight_azimuth` are required instead of
-`temperature`. Every version 1 Dataset is also a valid version 2 Dataset,
-and `validate` accepts both versions.
+Version 2 (2026-11-27) adds the "hlos_wind" product (Aeolus), which needs
+`hlos_wind` and `line_of_sight_azimuth` instead of `temperature` (so would
+fail a version 1 check). Every version 1 Dataset is a valid version 2 one;
+`validate` accepts both.
 
 **Dimensions:** `profile`, `level`; optional `mode` (planetary-wave modes),
 `file`. `profile` may have length 0.
@@ -89,7 +89,7 @@ and `validate` accepts both versions.
 | `time` | (profile, level) | — | yes |
 | `altitude` | (profile, level) | km | yes |
 | `temperature` | (profile, level) | K | yes, unless PW data or the "hlos_wind" product |
-| `hlos_wind` | (profile, level) | m s-1 | "hlos_wind" product: horizontal line-of-sight wind; attribute `sign_convention` (Aeolus: -u sin(az) - v cos(az), az clockwise from north; from comparison with ERA5) |
+| `hlos_wind` | (profile, level) | m s-1 | "hlos_wind" product: horizontal line-of-sight wind; attribute `sign_convention` states the sign |
 | `hlos_wind_uncertainty` | (profile, level) | m s-1 | optional (§7); Aeolus: the L2B error estimate as distributed |
 | `line_of_sight_azimuth` | (profile, level) | degree | "hlos_wind" product: as in the files |
 | `pressure` | (profile, level) | hPa | yes; `origin` attribute says whether measured or derived (§6.3) |
@@ -183,9 +183,8 @@ UNVERIFIED), `pressure` and the winds `not_in_files`. States:
 
 ## 4b. Format "trajectory", version 1
 
-In-situ measurements along a path: radiosonde ascents and aircraft
-flights now; balloon flights later. Agreed with C. Wright on 2026-11-27 as a separate
-format, conceptually like the others: the same variable names, flags,
+In-situ measurements along a path (radiosondes, aircraft; balloons later).
+Agreed with C. Wright on 2026-11-27: the other formats' names, flags,
 origins and attributes, without a level grid.
 
 **Dimensions:** `flight`, `sample`; optional `file`. One row per flight,
@@ -210,18 +209,15 @@ flight. `flight` may have length 0.
 Data variables may be float32 or float64. Required attributes: §5.
 Instruments may add per-flight variables (dimension `flight`) and per-sample
 extras. A flight is selected by its `start_time`, so flights are never
-split. *Flagged for long flights:* a superpressure balloon flies for weeks
-to months, so a request for a day in the middle of a flight would find no
-flight starting then. Such instruments will need the samples inside the
-requested times instead (the flight marked as cut); the layout itself
-(per-sample position, time and height; pressure, temperature and the three
-winds, winds from GPS positions as `origin` "derived") already fits.
+split. *Flagged for long flights:* superpressure balloons fly for weeks, so
+they will need the samples inside the requested times instead (the flight
+marked as cut); the layout already fits (GPS-derived winds as `origin`
+"derived").
 
 States: `no_observation` (padding, and before or after a variable's
-values), `missing`, `outside_physical_range` (temperature only: the sensors
-are separate, so a bad temperature is not removed from the winds),
-`instrument_flag` (the provider's flags, per variable), `bad_geolocation`.
-Origin "measured".
+values), `missing`, `outside_physical_range`, `instrument_flag` (the
+provider's flags, per variable), `bad_geolocation`; removal per variable
+(§6.3). Origin "measured".
 
 - DWD radiosondes (`"DWDsondes"`, product "sounding"): altitude is
   geopotential height; `reference_time` (the nominal synoptic time) is
@@ -299,8 +295,8 @@ Initial registry (proposal), in three groups:
 | 2 | `missing` | NaN | a gap inside what was measured: a fill value or NaN at a scanned point, or between a profile's first and last value (see 6.3) |
 | 4 | `outside_requested_range` | NaN | removed because outside the height, latitude or longitude range asked for |
 | | **No value: removed as bad** | | |
-| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width) |
-| 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb and time-height: only below 100 km; nadir: at any height) |
+| 8 | `bad_geolocation` | NaN | latitude or longitude outside its range (nadir: also not finite, a missing time, or a scan of implausible width; limb and trajectories: out of range only) |
+| 16 | `outside_physical_range` | NaN | temperature < 100 K (IASI: <= 100 K), or > 400 K (limb, time-height and trajectories: only below 100 km; nadir: at any height) |
 | 32 | `statistical_outlier` | NaN | marked by the instrument's statistical screen (`obs._screen`; IASI default: more than 5 x IQR beyond the quartiles of its height level in a rolling 10-min window, day and night separately; AIRS: none) |
 | 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (limb, with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km; ROMEX `is_bad`; Aeolus `valid` 0. Trajectories, always: IAGOS validity flags 3 and 7, FAAM non-zero flags) |
 | | **Value present, but qualified** | | |
@@ -316,9 +312,10 @@ and their bits are still set.
 Instruments' own quality variables are not output unless asked for with
 `additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
 are implemented (limb, with `instrument_qc`: MLS, SOFIE, HIRDLS, ROMEX,
-Aeolus; trajectories: IAGOS, FAAM), they set
-`instrument_flag` or `a_priori_dominated`; the rule and its source are in the
-temperature's `comment` and in `docs/quirks.md` (Q15, Q17).
+Aeolus; trajectories: IAGOS, FAAM), they set `instrument_flag` or
+`a_priori_dominated`. For MLS, SOFIE and HIRDLS the rule and its source are
+in the temperature's `comment` and `docs/quirks.md` (Q15, Q17); for the
+others, in the reader's docstring.
 
 ### 6.3 Shared rules (all formats)
 
@@ -418,9 +415,7 @@ outputs.
 Each format's `format_version` is raised on any incompatible change (a
 renamed or removed variable, changed units or dimensions). Adding optional
 variables or states is compatible. Changes are listed in `CHANGELOG.md`.
-The profile format went to version 2 (2026-11-27) because a "hlos_wind"
-Dataset has no temperature and would fail a version 1 check; every version
-1 Dataset is still a valid version 2 one, and `validate` accepts both.
+Profile went to version 2 on 2026-11-27 (§3).
 
 ## 11. Saving to disk
 

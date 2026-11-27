@@ -80,9 +80,8 @@ last value in the flight), ``outside_physical_range`` (temperature < 100 K,
 or > 400 K below 100 km), ``instrument_flag`` (IAGOS validity flags 3 and 7
 on pressure, temperature and winds; FAAM non-zero flags; no switch to turn
 these off, but ``keep_outliers`` keeps the values) and ``bad_geolocation``
-(position out of range). A bad temperature or a flag on one variable
-removes only that variable (the sensors are separate); a bad position
-removes them all. ``origin`` "measured". ``availability``: ``upward_wind``
+(position out of range); removal per variable (6.3). ``origin``
+"measured". ``availability``: ``upward_wind``
 not_in_files (DWD, IAGOS), the uncertainties not_provided. Attributes: as
 the other loaders (``format`` "trajectory", ``format_version``,
 ``instrument``, ``product`` "sounding" (DWD) or "flight" (IAGOS, FAAM),
@@ -111,10 +110,8 @@ Validation
 ----------
 ``tests/test_new_loaders.py`` (synthetic files of each instrument:
 parsing, the DWD bisection against a full read, times, winds, flags, states,
-options, repeated files and revisions). Real files: DWD on 1993-06-15,
-2004-01-01, four days of 2020 and 2024-12-31; IAGOS on four days
-(1998-2023); FAAM on three days of 2025; each against ERA5, with censuses
-and day-boundary checks (``docs/validation.md``).
+options, repeated files and revisions). Real files, against ERA5 and with
+censuses and day-boundary checks: ``docs/validation.md``.
 
 Status
 ------

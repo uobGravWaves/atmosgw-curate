@@ -35,9 +35,11 @@ What ``validate`` checks:
   time_height and trajectory: at least one of temperature and the winds);
 - time_height: ``time`` never decreases and has no NaT (repeated times are
   allowed);
-- types: data variables float32 (profile format: float32 or float64, so the
-  limb loader's values are kept exactly); coordinates float64; ``time``
-  ``datetime64[us]``; flags ``states.FLAG_DTYPE``;
+- the "hlos_wind" product needs profile format version 2;
+- trajectory: ``flight_id`` values unique;
+- types: data variables float32 (profile and trajectory formats: float32 or
+  float64, so the loaders' values are kept exactly); coordinates float64;
+  ``time`` ``datetime64[us]``; flags ``states.FLAG_DTYPE``;
 - ``units`` attributes; latitude in [-90, 90], longitude in [-180, 180];
 - required dataset attributes, and that ``characterisation`` looks like
   ``<id>/<version>``;
@@ -61,11 +63,12 @@ New code (no MATLAB equivalent).
 Validation
 ----------
 ``tests/test_data_formats.py``: a valid example of each format passes, and
-each kind of fault is reported.
+each kind of fault is reported; the trajectory format and profile version 2
+also in ``tests/test_new_loaders.py``.
 
 Status
 ------
-Proposal (format version 1 is a draft for agreement). AI-originated
+Proposal (the format versions are drafts for agreement). AI-originated
 (Claude), from the design agreed with C. Wright on 2026-11-25; to be
 reviewed by C. Wright.
 

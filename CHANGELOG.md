@@ -5,37 +5,27 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
-- New instruments for `load_limb_sounders` (new code, no MATLAB equivalent):
-  `"LIMS"` (Nimbus-7, V6 ASCII, 1978-10-25 to 1979-05-28; dates before
-  1979 are accepted for LIMS only), `"ROMEX"` (GNSS radio occultation,
-  2022-09 to 2022-11; kept apart from `"GNSS"`, which holds many of the
-  same occultations) and `"Aeolus"` (L2B HLOS winds, option
-  `aeolus_channel` "rayleigh" (Rayleigh-clear, default) or "mie"
-  (Mie-cloudy); profiles rebuilt from the observations; the HLOS sign
-  convention, -u sin(az) - v cos(az), found by comparison with ERA5; a
-  warning when Aeolus is loaded on the default 18-60 km heights, which hold
-  little of its data). [Claude]
-- Profile format version 2: the "hlos_wind" product (`hlos_wind`,
-  `hlos_wind_uncertainty`, `line_of_sight_azimuth`) needs no temperature.
-  Version 1 Datasets are still accepted by `validate`; the limb loader's
-  outputs for the other instruments are unchanged except
-  `format_version` 2 (and Sampler's `data`, below). `instrument_qc` also
-  marks ROMEX `is_bad` profiles and Aeolus `valid` 0 observations as
-  `instrument_flag`; LIMS has no screening. [Claude]
+- New `load_limb_sounders` instruments (new code): `"LIMS"` (Nimbus-7 V6,
+  1978-10-25 to 1979-05-28), `"ROMEX"` (GNSS radio occultation, 2022-09 to
+  11; separate from `"GNSS"`) and `"Aeolus"` (L2B HLOS winds; option
+  `aeolus_channel` "rayleigh" (default) or "mie"; profiles rebuilt from the
+  observations; HLOS sign found from ERA5; warned on the default 18-60 km
+  heights). `instrument_qc` also flags ROMEX `is_bad` and Aeolus `valid` 0.
+  [Claude]
+- Profile format version 2: product "hlos_wind" (`hlos_wind`,
+  `hlos_wind_uncertainty`, `line_of_sight_azimuth`), no temperature needed;
+  version 1 still validates. Other limb outputs change only in
+  `format_version`, the new `options` keys and Sampler's attributes. [Claude]
 - New `obs.load_trajectories` and the "trajectory" format (flight, sample):
-  in-situ measurements along a path, each sample at its own position, time
-  and height. Instruments: `"DWDsondes"` (DWD high-resolution radiosondes,
-  1990-2024, option `stations`), `"IAGOS"` (in-service aircraft, read from
-  the zip archive or unzipped files, unzipped files preferred and the zip
-  the backup, copies matched by flight; package temperature and GPS altitude
-  where present; validity flags 3 and 7 removed) and `"FAAM"` (research
-  aircraft core data; option `sample_rate` "1hz" (means of unflagged 32 Hz
-  samples, default) or "full"). [Claude]
-- Sampler output in netCDF (as in the SWANS DYAMOND runs) is read by
-  `"Sampler"` where a day has no `sampled_<datenum>.mat`. New option
-  `sampled_from` (limb and nadir loaders) names the model: `origin`
-  "derived" with the `derived` state, `data` "sampled" and the attribute
-  `sampled_from` (limb Sampler output now always has `data` "sampled"). [Claude]
+  `"DWDsondes"` (DWD high-resolution radiosondes 1990-2024, option
+  `stations`), `"IAGOS"` (unzipped files, else the zip archive; package
+  temperature and GPS altitude where some values are not flagged 3 or 7;
+  those flags removed) and `"FAAM"` (core data; option `sample_rate` "1hz",
+  default, or "full"). [Claude]
+- `"Sampler"` reads netCDF sampler output (e.g. SWANS) where a day has no
+  `sampled_<datenum>.mat`. New option `sampled_from` (limb and nadir) names
+  the model: `data` "sampled", attribute `sampled_from`, `origin` and state
+  `derived` (always for Sampler). [Claude]
 - Not MATLAB-equivalent (Q18): `interp_type` "pchip", "spline" and "makima"
   give values only where "linear" does: no extrapolation beyond a profile's
   own values unless `extrapolate=True` (then as linear extrapolation from the

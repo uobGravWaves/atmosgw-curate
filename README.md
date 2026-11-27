@@ -86,11 +86,9 @@ with versions, dates and what was not covered.
   times), not the public Dataset.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
-- The newer readers (LIMS, ROMEX, Aeolus, `load_trajectories`) are new code:
-  known-answer tests on synthetic files, censuses of whole archives (every
-  LIMS scan and ROMEX profile returned once), and comparisons with ERA5
-  (temperatures, winds and the Aeolus HLOS sign) and with the merged GNSS
-  files. Not yet released.
+- The newer readers (LIMS, ROMEX, Aeolus, `load_trajectories`; not yet
+  released): synthetic known-answer tests, whole-archive censuses, and
+  comparisons with ERA5 and the merged GNSS files.
 - Data states and the other metadata have no MATLAB counterpart. They are
   checked against shared rules by tests, and are still being reviewed.
 - Deliberate scientific changes from MATLAB (Q1-Q8) are listed with their
@@ -114,8 +112,10 @@ with versions, dates and what was not covered.
 ## Where the data are
 
 The loaders read the products below, found by file name anywhere below the
-dataset's folder (`datasets.toml`; ALOMAR and Sampler MAT-files in the
-folder itself): a flat folder of files works as well as year folders. Another version of a product may work but has not been checked.
+dataset's folder (`datasets.toml`; ALOMAR files in the folder itself,
+Sampler files in `sample_path`): a flat folder of files works as well as
+year folders. Another version of a product may work but has not been
+checked.
 The version each file states is recorded in `ds.attrs["source_versions"]`.
 `docs/data_supply.md` gives, for each product, the file names, the variables
 read (with units and fill values) and where the files come from.

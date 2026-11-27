@@ -5,16 +5,12 @@ flight, 1994-2024.
 
 Files: ``IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<version>].nc[4]``
 (departure time and a two-digit number), in ``TimeSeries/iagos_<yyyy>/``.
-On eepc-0184 they are only in a zip archive (``IAGOS/iagos.zip``, 13 GB,
-67,321 entries, about 111 GB unzipped). Unzipped files anywhere below the
-folder (e.g. the archive's ``TimeSeries/iagos_<yyyy>/`` unzipped beside it,
-or newer downloads in the same layout) are preferred; the archive is the
-backup for flights with no unzipped copy, read directly (in memory, nothing
-is unzipped). Copies are matched by flight (departure time and number), not
-file name, so a newer version unzipped beside the archive replaces the
-archive's older one. The archive holds the version used
-in Wright et al. (2024, ACP; UNVERIFIED: reference not checked here) and has
-not been updated since (readme beside it).
+Unzipped files anywhere below the folder are preferred; zip archives (on
+eepc-0184 ``IAGOS/iagos.zip``, the version used in Wright et al. (2024,
+ACP; UNVERIFIED: reference not checked here)) are the backup for flights
+not unzipped, read in memory. Copies are matched by flight (departure time
+and number), so any unzipped copy (e.g. a newer version) replaces the
+archive's.
 
 Two generations (checked on four flights, 1998, 2010, 2019, 2023):
 
@@ -35,24 +31,21 @@ Both: ``UTC_time`` (s since the departure day, from ``units``), ``lat``,
 ``arrival_airport``, ``flight_name`` attributes.
 
 Output (decided by C. Wright, 2026-11-27): ``Temp`` = the IAGOS package
-temperature (P1 or PM) where the file has values not flagged 3 or 7 (a
-review found 3 of 150 L2 3.1 flights with every package value flagged),
-else the aircraft's
-(``air_temp_AC``), recorded per flight in ``temperature_source``; ``Alt`` =
-GPS altitude (geometric) where the flight has any not flagged 3 or 7, else
-barometric altitude
-(pressure altitude), recorded per flight in ``altitude_source``; ``Pres`` =
+temperature (P1 or PM) where the flight has values not flagged 3 or 7 (3
+of 150 L2 3.1 flights reviewed had none), else the aircraft's
+(``air_temp_AC``), per flight in ``temperature_source``; ``Alt`` = GPS
+altitude (geometric) likewise, else barometric (pressure altitude), per
+flight in ``altitude_source``; ``Pres`` =
 ``air_press_AC`` / 100 (hPa); ``U``, ``V`` = ``zon_wind_AC``,
 ``mer_wind_AC``. Screening (``<var>Bad``): validity flag 3 (erroneous) or 7
 (missing) is ``instrument_flag``; 0, 2 and 4 are kept (old files: no
 screening). Every other file variable is available through
 ``additional_vars`` by its name (NaN where a flight lacks it). Pressures
 <= 0 are missing too (a 2023-11-15 flight of D-AIKE has 79 values of
--999900 Pa). The same 2023 flight has 82 samples at take-off with
-``air_temp_AC`` exactly 173.16 K (-100 degrees C) and flag 0 (good), beside
-those pressures: a fill value in disguise, not removed (only the
-physical-range check applies). ``platform_id`` is the registration, the fourth field of
-``platform`` (new) or ``title`` (old).
+-999900 Pa); its 82 take-off samples of ``air_temp_AC`` exactly 173.16 K
+(flag 0) look like a disguised fill value but are kept. ``platform_id`` is
+the registration, the fourth field of ``platform`` (new) or ``title``
+(old).
 
 Flights are selected by their departure time (``departure_UTC_time``, else
 the first time in the file); only files whose name time is within a day of
@@ -97,11 +90,13 @@ def load(settings, inst_info):
                              "air_temp_AC", "U": "zon_wind_AC", "V": "mer_wind_AC"})
     note(inst_info, "Pres", "air_press_AC (Pa) / 100")
     note(inst_info, "Temp", "IAGOS package temperature (air_temp_P1 or air_temp_PM) "
-                            "where the file has values, else the aircraft's "
-                            "(air_temp_AC); per flight in temperature_source")
+                            "where the flight has values not flagged 3 or 7, else "
+                            "the aircraft's (air_temp_AC); per flight in "
+                            "temperature_source")
     note(inst_info, "Alt", "GPS altitude (geometric, gps_alt_AC) where the flight "
-                           "has any, else barometric altitude (baro_alt_AC, "
-                           "pressure altitude); per flight in altitude_source")
+                           "has values not flagged 3 or 7, else barometric "
+                           "altitude (baro_alt_AC, pressure altitude); per "
+                           "flight in altitude_source")
     for key in ("Pres", "Temp", "U", "V"):
         note(inst_info, f"{key}Bad", "validity flag 3 (erroneous) or 7 (missing)")
     start, end = settings["time_range"]

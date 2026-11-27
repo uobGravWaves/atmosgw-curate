@@ -88,7 +88,8 @@ Options (type, default):
   ``*yyyydddd.nc`` (e.g. SWANS).
 - ``sampled_from`` (str, None): names the model the data were sampled from
   (attribute ``sampled_from``; ``data`` "sampled"; ``origin`` "derived").
-  Sampler output is always labelled so.
+  Sampler output is always labelled so (``sampled_from`` "a model (not
+  named)" if not given).
 - ``aeolus_channel`` (str, "rayleigh"): Aeolus only: "rayleigh"
   (Rayleigh-clear observations) or "mie" (Mie-cloudy; the observation-type
   meanings are inferred from the files, UNVERIFIED).
@@ -203,7 +204,7 @@ version; a warning if the files state different versions, except GNSS),
 ``files_not_found`` (dates, SABER months, ALOMAR years or Aeolus months
 (yyyy-mm) that had no file; a warning is given, unless ``date_warning`` is
 False), ``files_without_data`` (files read that hold no temperature at all;
-warned)
+warned; not recorded for LIMS, ROMEX or Aeolus)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
 ``to_netcdf``.

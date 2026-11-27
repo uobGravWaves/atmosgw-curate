@@ -175,7 +175,8 @@ output, as in the SWANS DYAMOND runs (e.g.
 [levels x profiles] `Lat`, `Lon`, `Time` (datenums), `Alt`, `Prs`, `Temp`,
 `ObsProf` (and `TSimple`, `Observed`, `ObsFile`, not read); fill -9999
 (`_FillValue`). Checked: SWANS HIRDLS, MLS, GNSS and SABER (GEOS 3 km),
-2020-01-20. Pass `sampled_from` to name the model in the output.
+2020-01-20. Pass `sampled_from` to name the model in the output (else "a
+model (not named)").
 
 **LIMS** (Nimbus-7)
 
@@ -211,7 +212,7 @@ output, as in the SWANS DYAMOND runs (e.g.
 - `altitude` is geometric height (not stated in the files; hypsometric
   and ERA5 checks, `docs/validation.md`).
 - Checked: the 15 files on eepc-0184, every day 2022-09-01 to 11-30
-  (3,126,854 profiles, 31,000 to 38,000 a day); against the merged GNSS
+  (3,126,854 profiles, about 34,000 a day); against the merged GNSS
   files (same occultations, median differences -0.26 to +0.08 K) and ERA5.
   About 0.1% of profiles not marked `is_bad` exceed 330 K above 30 km
   (up to about 370 K); they are left as distributed.
@@ -226,16 +227,16 @@ output, as in the SWANS DYAMOND runs (e.g.
   month, so each day is also looked for in the previous month's file).
 - Variables: per observation, for `ray` and `mie`: `<ch>_time` (s since
   2000-01-01), `_lat`, `_lon`, `_z_bot`, `_z_top` (m), `_hlos`, `_hlos_err`
-  (cm/s; 32767 and 65535 missing), `_obs_type`, `_valid`, `_az`; global
-  `Sources` (L2B files, baselines, processor versions).
+  (cm/s; missing: 32767 in `_hlos`, 65535 in `_hlos_err`), `_obs_type`,
+  `_valid`, `_az`; global `Sources` (L2B files, baselines, processor
+  versions).
 - Profiles are rebuilt from the observations (the files have no profile
-  identifier): see `obs/_limb_aeolus.py`.
-- HLOS sign: `hlos_wind` = -u sin(az) - v cos(az) with az = `<ch>_az`,
-  found by comparison with ERA5 (not from ESA's documentation).
-- The files cover 2018-09 to 2023-04.
+  identifier): see `obs/_limb_aeolus.py`. HLOS sign: `hlos_wind`'s
+  `sign_convention` (found from ERA5, not ESA's documentation).
+- The files cover 2018-09 to 2023-04, with no data from 2022-10-05 to
+  2022-11-26.
 - Checked: the 15th of every month 2020-02 to 2023-04, and 2018-12-31,
-  2019-01-04 to 08, 2022-06-01; against ERA5 on three days.
-  The files have no data from 2022-10-05 to 2022-11-26. The separate
+  2019-01-04 to 08, 2020-07-01, 2022-06-01; against ERA5 on three days. The separate
   `Aeolus/matlab/*_aeolus_hloswind.mat` files (2018-09 to 2022-01,
   Rayleigh only) are not read: they do not match these files observation by
   observation.
@@ -305,28 +306,25 @@ output, as in the SWANS DYAMOND runs (e.g.
   and dew point (degrees C), humidity (%), wind speed (m/s) and direction
   (degrees, from); -999 missing; exactly 0.00 positions are also missing.
 - Checked: 1993-06-15, 2004-01-01, 2020-01-07, 2024-12-31 (up to 14
-  stations); against ERA5 on five days (times are UTC); all 409 product
-  files are in reference-time order. The field meanings are inferred from
+  stations); against ERA5 on five days (`docs/validation.md`; times are
+  UTC); all 409 product files are in reference-time order. The field meanings are inferred from
   the files (no description is published with them): see
   `obs/_traj_dwd_sondes.py`.
 - Provenance: DWD Climate Data Center, CC BY (as noted beside the data;
   credit DWD); `how_i_got_this_data.txt` beside the data.
 - Two folders hold a copy of the same file: `1995/` has older, shorter
   copies of ten stations' 1993 files. The copy in the folder of its own
-  year is used (recorded in `multiple_matches`).
+  year is used, else the largest (recorded in `multiple_matches`).
 
 **IAGOS** (in-service aircraft, including MOZAIC; folder `IAGOS`)
 
 - Files: one per flight, `IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<v>].nc[4]`
-  in `TimeSeries/iagos_<yyyy>/`; read from a zip archive of them
-  (`iagos.zip`, as kept on eepc-0184: 67,321 flights 1994-2024, 13 GB, about
-  111 GB unzipped) or from unzipped files. Unzipped files (e.g. unzipped
-  beside the archive in the same `TimeSeries/iagos_<yyyy>/` layout) are
-  preferred, with no warning; the archive is the backup for flights with no
-  unzipped copy. Copies are matched by flight (departure time and number),
-  not file name, so a newer version unzipped beside the archive replaces the
-  archive's copy; among several unzipped copies of a flight the newest L2
-  version is used (recorded in `multiple_matches`).
+  in `TimeSeries/iagos_<yyyy>/`, unzipped or in a zip archive (`iagos.zip`
+  on eepc-0184: 67,321 flights 1994-2024, 13 GB, about 111 GB unzipped).
+  Unzipped files are preferred, silently; the archive is the backup for
+  flights not unzipped. Copies are matched by flight (departure time and
+  number), so any unzipped copy replaces the archive's; of several
+  unzipped copies the newest L2 version is used (in `multiple_matches`).
 - Variables (every 4 s): `UTC_time` (s since the departure day), `lat`,
   `lon`, `gps_alt_AC`, `baro_alt_AC` (m), `air_press_AC` (Pa), `air_temp_AC`
   and the package's `air_temp_P1` (L2 3.1) or `air_temp_PM` (MOZAIC era)
