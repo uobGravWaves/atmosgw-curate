@@ -72,10 +72,12 @@ Science
 -------
 DWD: see ``obs/_traj_dwd_sondes.py`` for the meanings of the file fields,
 which are inferred from the files (no description is published with them):
-times from the launch time plus seconds since launch (UTC assumed,
-UNVERIFIED); winds from speed and the direction the wind blows from
-(checked against the balloons' drift); positions of the sonde, or of the
-station where the files give none (early years).
+times from the launch time plus seconds since launch (UTC, checked against
+ERA5); winds from speed and the direction the wind blows from (checked
+against the balloons' drift); positions of the sonde, or of the station
+where the files give none (early years). IAGOS and FAAM: see
+``obs/_traj_iagos.py`` and ``obs/_traj_faam.py``. Comparisons with ERA5
+are in ``docs/validation.md``.
 
 Origin
 ------
@@ -102,6 +104,7 @@ Usage
 Change log
 ----------
 2026/11/27 [Claude] initial version (DWD radiosondes)
+2026/11/27 [Claude] IAGOS and FAAM; per-variable instrument flags; upward_wind
 
 """
 
@@ -219,7 +222,8 @@ def load_trajectories(
     settings["files_read"] = list(file_list)
     warn_missing_files(settings, stacklevel=2)
     warn_multiple_matches(settings, stacklevel=2)
-    warn_mixed_versions(settings, stacklevel=2)
+    # (IAGOS: flights of one day are often L2 3.1.1 and 3.1.2: not warned)
+    warn_mixed_versions(settings, stacklevel=2, exempt=("IAGOS",))
     warn_if_nothing_in_range(settings, len(flights), stacklevel=2, what="flights")
     if (settings["scalar_time"] and settings["time_handling"] == "strict"
             and not flights):
@@ -248,8 +252,14 @@ def _prepare(time_range, instrument, options):
                 | {"latitude", "longitude", "time", "altitude", "start_time",
                    "source_file", "original_files"})
     check_additional_vars(options, reserved)
-    for option, default in _SPECIFIC.items():  # (options of other instruments)
-        if option not in info["options"] and options[option] != default:
+    def given(option):  # (a value other than the default)
+        value = options[option]
+        if option == "sample_rate":
+            return str(value).lower() != _SPECIFIC[option]
+        return value is not None
+
+    for option in _SPECIFIC:  # (options of other instruments)
+        if option not in info["options"] and given(option):
             users = [n for n, i in INSTRUMENTS.items() if option in i["options"]]
             raise TypeError(f"{option} applies to {', '.join(users)} only, not {name}.")
     if str(options["sample_rate"]).lower() not in ("1hz", "full"):

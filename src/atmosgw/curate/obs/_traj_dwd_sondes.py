@@ -32,8 +32,12 @@ from the files (2026-11-27, stations 01757 in 2004 and 2020 and 01303 in
   for 95% of flights, the metadata times being to the minute); sample time
   = ``AE_Start`` + ``MESSZEITPUNKT``. Where AE_Start is not a valid time
   (43 of 383,195 metadata rows) or missing, the reference time is used
-  (recorded). Times are taken as UTC (UNVERIFIED: not stated; the DWD CDC
-  convention). Launches are 13-76 min before the reference time.
+  (recorded). Times are UTC (not stated in the files; against ERA5 on four
+  days of 2020, the wind differences are smallest with no time shift, and
+  grow for shifts of 30, 60 and 120 min either way). Launches are 13-76 min
+  before the reference time.
+- ``AE_GPM`` is geopotential height: height increments equal the
+  hypsometric thickness to 0.06% at 10-40 km (2020-01-07).
 - ``AE_DD`` is the direction the wind blows from, clockwise from north:
   with u = -FF sin(DD), v = -FF cos(DD), the balloons' drift over 300
   flights correlates 0.98 (east) and 0.99 (north) with the mean wind.
@@ -55,6 +59,7 @@ Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
+2026/11/27 [Claude] UTC and geopotential heights confirmed (ERA5, hypsometric checks)
 """
 
 import math
@@ -193,8 +198,8 @@ def load(settings, inst_info):
                 f"({counts['filled_positions']} of {counts['flights']} flights)")
     note(inst_info, "Lat", position)
     note(inst_info, "Lon", position)
-    note(inst_info, "Time", f"launch time (AE_Start) + MESSZEITPUNKT (s); UTC "
-                            f"assumed (UNVERIFIED); reference time used as the "
+    note(inst_info, "Time", f"launch time (AE_Start) + MESSZEITPUNKT (s), UTC "
+                            f"(checked against ERA5); reference time used as the "
                             f"launch time for {counts['no_launch_time']} flights "
                             f"without a valid AE_Start")
     if counts.get("repeated"):

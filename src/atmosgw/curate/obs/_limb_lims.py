@@ -17,7 +17,10 @@ the standard pressure grid (1000 to 0.001 mb), top level first.
 - Level lines: ``dang_std zt_std pt_std tt_std rad_std1..6 tg_std1..2
   qmix_std1..5 geo_heights`` (``LEVEL_NAMES``); 1e24 is missing (NaN).
 
-Output: ``Temp`` = tt_std (K), ``Alt`` = zt_std (km, "height"), ``Pres`` =
+Output: ``Temp`` = tt_std (K), ``Alt`` = zt_std (km, geometric height:
+its increments exceed the hypsometric thickness by the geometric/
+geopotential ratio, while those of ``geo_heights`` match it to 0.04%;
+1978-11-08), ``Pres`` =
 pt_std (mb = hPa), position = the 30 km tangent point (``alat``, ``alon``,
 degrees east, 0-360) for every level, as the files give one per scan.
 ``Time`` = the day ``iday`` (day of the year, of the file's year, or the next

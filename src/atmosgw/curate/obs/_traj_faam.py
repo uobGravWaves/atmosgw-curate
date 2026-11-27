@@ -28,7 +28,9 @@ Sample rate (``sample_rate``, decided by C. Wright, 2026-11-27): "1hz"
 (NaN, and the flag kept, if none is unflagged), at the centre of the
 second's samples (Time + 15.5/32 s for 32 Hz); "full": every sample, at
 Time + k/N s. Extras at other rates are averaged the same way ("1hz") or
-repeated to 32 Hz ("full").
+repeated to 32 Hz ("full"; rates that do not divide 32, e.g. 20 or 64 Hz,
+are refused there). Flagged positions (``LAT_GIN_FLAG`` ...) have no value.
+Of several revisions of a flight in the folder, the highest is read.
 
 Flights are selected by their start (``time_coverage_start``, else the
 first time).
@@ -37,6 +39,8 @@ Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
+2026/11/27 [Claude] review fixes: highest revision per flight; flagged positions NaN;
+  extras of rates other than divisors of 32 refused at sample_rate='full'
 """
 
 import math
@@ -78,7 +82,16 @@ def load(settings, inst_info):
         day = found.group(1)
         when = datenum(int(day[:4]), int(day[4:6]), int(day[6:8]))
         if math.floor(start) - 1 <= when <= end:
-            files.append(path)
+            files.append((found.group(4), int(found.group(3)), path))
+    # one revision of each flight: the highest (recorded if there are several)
+    newest = {}
+    for flight, revision, path in sorted(files):
+        if flight in newest:
+            record(inst_info)["multiple_matches"].append(
+                f"flight {flight}: revisions {newest[flight][0]} and {revision} -> "
+                f"used {revision}")
+        newest[flight] = (revision, path)
+    files = [path for _, path in newest.values()]
     if not find_in(inst_info, "core_faam_*.nc"):
         record(inst_info)["files_not_found"].append("core_faam files")
     flights, file_list = [], []
@@ -125,6 +138,11 @@ def read_flight(handle, settings):
                 mean = np.nanmean(good, axis=1)
             no_good = np.all(flagged | np.isnan(value), axis=1)
             return mean, no_good & np.any(flagged, axis=1)
+        if FULL_RATE % value.shape[1]:  # (e.g. 20 or 64 Hz: no exact placing)
+            raise ValueError(
+                f"{name} is at {value.shape[1]} Hz, which cannot be placed on the "
+                f"{FULL_RATE} Hz samples of sample_rate='full'; use "
+                "sample_rate='1hz' for it.")
         repeat = FULL_RATE // value.shape[1]
         return (np.repeat(value, repeat, axis=1).ravel(),
                 np.repeat(flagged, repeat, axis=1).ravel())
@@ -139,6 +157,8 @@ def read_flight(handle, settings):
         value, flagged = per_sample(name)
         if key == "Alt":
             value = value / 1000.0
+        if key in ("Lat", "Lon", "Alt"):
+            value = np.where(flagged, np.nan, value)  # (flagged position: none)
         out[key] = value
         if key in ("Pres", "Temp", "U", "V", "W"):
             out[f"{key}Bad"] = flagged

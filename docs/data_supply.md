@@ -22,8 +22,11 @@ month, year or granule) a loader looks for the file's name:
   then search for that name anywhere below the folder (one folder listing per
   load: under a second for the largest folders checked, AIRS and IASI, about
   50 000 entries each);
-- ALOMAR files are looked for in the folder itself; Sampler files in
-  `sample_path` itself.
+- the newer readers (LIMS, ROMEX, Aeolus, DWD sondes, IAGOS, FAAM) search
+  the whole folder for their file names; IAGOS also looks inside zip
+  archives there;
+- ALOMAR files are looked for in the folder itself; Sampler MAT-files in
+  `sample_path` itself, its netCDF files anywhere below it.
 
 If more than one file has the name or date looked for, the first in search
 order is used (at each level, the contents of sub-folders before the files
@@ -176,16 +179,19 @@ output, as in the SWANS DYAMOND runs (e.g.
 **LIMS** (Nimbus-7)
 
 - Files: one per day, `LIMS_2_yyyymmdd_V6.ASCII` (V6 revised Level 2,
-  ASCII). Each day's file holds complete orbits and runs into the next day,
-  so the previous day's file is also read.
+  ASCII). Each file holds complete orbits, so it runs into the next day
+  (and two start before their own day: 1979-03-27, 1979-05-15); the
+  previous and next day's files are also read.
 - Variables: per scan a fixed-width header line (read by column: the
   fields can run together), with the 30 km tangent point `alat`, `alon`
   (degrees east), `iday` (day of the year), `time` (GMT), `idn`, `iud`,
   `iad`; then 6 channel lines; then 109 level lines of 18 values (`zt_std`
   km, `pt_std` mb, `tt_std` K, radiances, gradients, mixing ratios,
-  `geo_heights` km); fill 1e24.
+  `geo_heights` km); fill 1e24. `zt_std` is geometric height and
+  `geo_heights` geopotential (hypsometric check, 1978-11-08).
 - Checked: the 201 files of 1978-10-25 to 1979-05-28 on eepc-0184 (every
-  header in range; values of the User's Guide example reproduced). The
+  header in range; values of the User's Guide example reproduced; every
+  one of the 630,053 scans returned once over the 214 days they cover). The
   files of 1978-12-01 to 12-06 also have `idn` 0, which the guide does not
   define (1 day, 2 night). The cloud and removed-scan lists named in the
   README are not held.
@@ -200,12 +206,16 @@ output, as in the SWANS DYAMOND runs (e.g.
   10-59.9 km), [profile x level] `lat_full`, `lon_full`, `temp` (degrees C),
   `press` (mb), `ref`, `Bend_ang`; per profile `lat`, `lon`, `azim`,
   `is_bad`, `filestamp`. No global attributes.
-- Checked: the 15 files on eepc-0184 (2022-09-01, 10-15, 11-30): 31,000 to
-  38,000 profiles a day, mean temperatures within 0.7 K of the merged GNSS
-  files at 20, 30 and 40 km; some profiles not marked `is_bad` reach about
-  370 K.
+- `altitude` is geometric height (not stated in the files; hypsometric
+  and ERA5 checks, `docs/validation.md`).
+- Checked: the 15 files on eepc-0184, every day 2022-09-01 to 11-30
+  (3,126,854 profiles, 31,000 to 38,000 a day); against the merged GNSS
+  files (same occultations, median differences -0.26 to +0.08 K) and ERA5.
+  About 0.1% of profiles not marked `is_bad` exceed 330 K above 30 km
+  (up to about 370 K); they are left as distributed.
 - Provenance: placeholder, to be updated later: who processed these files
-  (IROWG ROMEX) and how to obtain them.
+  and how to obtain them (ROMEX is taken to be the IROWG Radio Occultation
+  Modeling Experiment: UNVERIFIED).
 
 **Aeolus** (ALADIN Level 2B HLOS winds)
 
@@ -218,7 +228,14 @@ output, as in the SWANS DYAMOND runs (e.g.
   `Sources` (L2B files, baselines, processor versions).
 - Profiles are rebuilt from the observations (the files have no profile
   identifier): see `obs/_limb_aeolus.py`.
-- Checked: 2018-12-31, 2019-01-05, 2019-01-07, 2022-06-01.
+- HLOS sign: `hlos_wind` = -u sin(az) - v cos(az) with az = `<ch>_az`,
+  found by comparison with ERA5 (not from ESA's documentation).
+- Checked: the 15th of every month with data (2020-02 to 2023-04), and
+  2018-12-31, 2019-01-04 to 08, 2022-06-01; against ERA5 on three days.
+  The files have no data from 2022-10-05 to 2022-11-26. The separate
+  `Aeolus/matlab/*_aeolus_hloswind.mat` files (2018-09 to 2022-01,
+  Rayleigh only) are not read: they do not match these files observation by
+  observation.
 - Provenance: ESA Aeolus L2B (ALD_U_N_2B) through VirES (aeolus.services).
 
 **Your own files** (`Misc`): any MAT-files in the ACE format above, named
@@ -284,11 +301,58 @@ output, as in the SWANS DYAMOND runs (e.g.
   launch, position, geopotential height (gpm), pressure (hPa), temperature
   and dew point (degrees C), humidity (%), wind speed (m/s) and direction
   (degrees, from); -999 missing; exactly 0.00 positions are also missing.
-- Checked: 1993-06-15, 2004-01-01, 2020-01-07, 2024-12-31 (14 stations).
-  The field meanings are inferred from the files (no description is
-  published with them): see `obs/_traj_dwd_sondes.py`.
-- Provenance: DWD Climate Data Center, CC BY (as noted beside the data; credit DWD);
-  `how_i_got_this_data.txt` beside the data.
+- Checked: 1993-06-15, 2004-01-01, 2020-01-07, 2024-12-31 (up to 14
+  stations); against ERA5 on five days (times are UTC); all 409 product
+  files are in reference-time order. The field meanings are inferred from
+  the files (no description is published with them): see
+  `obs/_traj_dwd_sondes.py`.
+- Provenance: DWD Climate Data Center, CC BY (as noted beside the data;
+  credit DWD); `how_i_got_this_data.txt` beside the data.
+- Two folders hold a copy of the same file: `1995/` has older, shorter
+  copies of ten stations' 1993 files. The copy in the folder of its own
+  year is used (recorded in `multiple_matches`).
+
+**IAGOS** (in-service aircraft, including MOZAIC; folder `IAGOS`)
+
+- Files: one per flight, `IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<v>].nc[4]`
+  in `TimeSeries/iagos_<yyyy>/`; read from a zip archive of them
+  (`iagos.zip`, as kept on eepc-0184: 67,321 flights 1994-2024, 13 GB, about
+  111 GB unzipped) or from unzipped files. A file unzipped beside the
+  archive is used instead of the archive's copy.
+- Variables (every 4 s): `UTC_time` (s since the departure day), `lat`,
+  `lon`, `gps_alt_AC`, `baro_alt_AC` (m), `air_press_AC` (Pa), `air_temp_AC`
+  and the package's `air_temp_P1` (L2 3.1) or `air_temp_PM` (MOZAIC era)
+  (K), `zon_wind_AC`, `mer_wind_AC` (m s-1), trace gases; validity flags
+  `<var>_validity_flag` (0 good, 2 limited, 3 erroneous, 4 not validated, 7
+  missing) in L2 3.1 files, `<var>_val` (all -9999 in the files checked) in
+  older ones; fill -9999 (and -9999.9, e.g. in `baro_alt_AC`); one 2023
+  flight has -999900 Pa (treated as missing). About 2% of L2 3.1 flights
+  have a package temperature whose every value is flagged 3 or 7: their
+  `air_temp_AC` is used. The archive holds 29 flights of January 2023 in
+  both `iagos_2022/` and `iagos_2023/`; one copy is read.
+- Checked: flights of 1998-02-27, 2010-12-04, 2019-03-18 and 2023-11-15
+  (versions MOZAIC L2 revision 1.0, L2 3.1.0-3.1.2), against ERA5.
+  MOZAIC-era files have no GPS altitude. One 2023-11-15 flight (D-AIKE) has
+  82 take-off samples of exactly 173.16 K marked good; left as distributed.
+- Provenance: IAGOS data portal (iagos-data.fr); the archive holds the
+  version used by Wright et al. (2024, ACP; UNVERIFIED: reference not
+  checked) and has not been updated since (`readme.txt` beside it).
+
+**FAAM** (research aircraft; folder `FAAM`)
+
+- Files: one per flight, `core_faam_<yyyymmdd>_v<nnn>_r<rev>_<flight>.nc`
+  (FAAM core data, netCDF).
+- Variables: `Time` (s since the flight day, 1 Hz); measurements (Time,
+  sps<N>) at N per second with `<name>_FLAG` (bit masks, 0 good) and fill
+  -9999: `LAT_GIN`, `LON_GIN`, `ALT_GIN` (m), `PS_RVSM` (hPa), `TAT_DI_R`,
+  `TAT_ND_R` (K), `U_C`, `V_C`, `W_C` (m s-1), `PALT_RVS` (m) and about 150
+  more (some at 2, 4, 20 or 64 per second). Of several revisions
+  (`_r<rev>_`) of a flight, the highest is read.
+- Checked: the 27 flights of 2025-07-09 to 2025-08-01 on eepc-0184 (v005,
+  revision 0, processing software 25.0.0); three days against ERA5.
+- Provenance: FAAM core data (the files state the UK Government Open
+  Licence); placeholder, to be updated later: where these copies were
+  downloaded from.
 
 ### Time-height series (`load_time_height`)
 

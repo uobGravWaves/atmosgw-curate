@@ -31,9 +31,12 @@ Both: ``UTC_time`` (s since the departure day, from ``units``), ``lat``,
 ``arrival_airport``, ``flight_name`` attributes.
 
 Output (decided by C. Wright, 2026-11-27): ``Temp`` = the IAGOS package
-temperature (P1 or PM) where the file has values, else the aircraft's
+temperature (P1 or PM) where the file has values not flagged 3 or 7 (a
+review found 3 of 150 L2 3.1 flights with every package value flagged),
+else the aircraft's
 (``air_temp_AC``), recorded per flight in ``temperature_source``; ``Alt`` =
-GPS altitude (geometric) where the flight has any, else barometric altitude
+GPS altitude (geometric) where the flight has any not flagged 3 or 7, else
+barometric altitude
 (pressure altitude), recorded per flight in ``altitude_source``; ``Pres`` =
 ``air_press_AC`` / 100 (hPa); ``U``, ``V`` = ``zon_wind_AC``,
 ``mer_wind_AC``. Screening (``<var>Bad``): validity flag 3 (erroneous) or 7
@@ -41,7 +44,10 @@ GPS altitude (geometric) where the flight has any, else barometric altitude
 screening). Every other file variable is available through
 ``additional_vars`` by its name (NaN where a flight lacks it). Pressures
 <= 0 are missing too (a 2023-11-15 flight of D-AIKE has 79 values of
--999900 Pa). ``platform_id`` is the registration, the fourth field of
+-999900 Pa). The same 2023 flight has 82 samples at take-off with
+``air_temp_AC`` exactly 173.16 K (-100 degrees C) and flag 0 (good), beside
+those pressures: a fill value in disguise, not removed (only the
+physical-range check applies). ``platform_id`` is the registration, the fourth field of
 ``platform`` (new) or ``title`` (old).
 
 Flights are selected by their departure time (``departure_UTC_time``, else
@@ -52,6 +58,8 @@ Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
+2026/11/27 [Claude] review fixes: sources from usable values; copies only among the
+  flights asked for; -9999.9 fill
 """
 
 import math
@@ -94,24 +102,25 @@ def load(settings, inst_info):
     sources = _sources(inst_info["path"])
     # one copy of each file (e.g. a zip and some files unzipped from it): an
     # unzipped file before a zip member, else the first; recorded
+    # the files whose name time is within a day of the request; one copy of
+    # each (e.g. a zip and some files unzipped from it, or a flight in two
+    # year folders of the zip): an unzipped file before a zip member, else
+    # the first; recorded (only for the flights looked at)
     copies = {}
-    for entry in sources:
-        copies.setdefault(os.path.basename(entry[1]), []).append(entry)
-    sources = []
-    for name, entries in copies.items():
-        entries.sort(key=lambda e: e[0].endswith(".zip"))
-        sources.append(entries[0])
-        if len(entries) > 1:
-            record(inst_info)["multiple_matches"].append(
-                f"{name}: {len(entries)} copies -> used "
-                + (f"{os.path.basename(entries[0][0])} member" if
-                   entries[0][0].endswith(".zip") else entries[0][1]))
-    candidates = []
     for source, member, stamp in sources:
         when = datenum(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]),
                        int(stamp[8:10]), int(stamp[10:12]), int(stamp[12:14]))
         if math.floor(start) - 1 <= when <= end + 1:
-            candidates.append((when, source, member))
+            copies.setdefault(os.path.basename(member), []).append(
+                (when, source, member))
+    candidates = []
+    for name, entries in copies.items():
+        entries.sort(key=lambda e: e[1].endswith(".zip"))
+        candidates.append(entries[0])
+        if len(entries) > 1:
+            record(inst_info)["multiple_matches"].append(
+                f"{name}: {len(entries)} copies -> used "
+                + "/".join(entries[0][2].replace(os.sep, "/").split("/")[-2:]))
     candidates.sort()
     if not sources:
         record(inst_info)["files_not_found"].append(
@@ -154,7 +163,8 @@ def read_flight(handle, settings):
             return None
         value = np.asarray(handle[name][:], dtype=float)
         fill = getattr(handle[name], "_FillValue", FILL)
-        value[(value == float(fill)) | (value == FILL)] = np.nan
+        # (-9999.9 also appears, e.g. in baro_alt_AC: anything <= -9999 is fill)
+        value[(value == float(fill)) | (value <= FILL)] = np.nan
         return value
 
     def bad(name):
@@ -175,11 +185,15 @@ def read_flight(handle, settings):
     n = seconds.size
     time = np.where(keep, base + seconds / 86400.0, np.nan)
 
-    temp_source = next((t for t in PACKAGE_TEMPS if t in names
-                        and np.any(np.isfinite(get(t)))), "air_temp_AC")
-    gps = get("gps_alt_AC")
-    alt_source = ("gps_alt_AC" if gps is not None and np.any(np.isfinite(gps))
-                  else "baro_alt_AC")
+    def usable(name):
+        """True if the file has values of name not flagged 3 or 7."""
+        value = get(name)
+        return value is not None and bool(np.any(np.isfinite(value) & ~bad(name)))
+
+    # (a package temperature or GPS altitude whose every value is flagged
+    # erroneous or missing is not used: about 2% of L2 3.1 flights)
+    temp_source = next((t for t in PACKAGE_TEMPS if usable(t)), "air_temp_AC")
+    alt_source = "gps_alt_AC" if usable("gps_alt_AC") else "baro_alt_AC"
     out = {
         "Lat": get("lat"), "Lon": get("lon"), "Time": time,
         "Alt": get(alt_source) / 1000.0,

@@ -51,15 +51,20 @@ With ``instrument_qc``, observations with ``valid`` 0 are
 ``instrument_flag``. Extras (``additional_vars``): ``z_bot``, ``z_top``
 (km), ``obs_type``, ``valid``.
 
-Sign convention of HLOS: PLACEHOLDER (as distributed in the L2B product; not
-yet checked). The group's MATLAB ``aeolus_uv2hlos.m`` computes
-HLOS = -u sin(az) - v cos(az).
+Sign convention of HLOS (``SIGN_CONVENTION``), as distributed in the L2B
+product: HLOS = -u sin(az) - v cos(az), az = ``<ch>_az`` (degrees clockwise
+from north), as in the group's MATLAB ``aeolus_uv2hlos.m``. This is from a
+comparison with ERA5 winds (2026-11-27; 2019-01-07, 2020-07-01,
+2022-06-01, both channels, 2-20 km: correlation 0.81-0.98 and slope
+0.99-1.02 with this sign; -0.81 to -0.98 with the other), not from ESA's
+documentation (UNVERIFIED against it).
 
 Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] exact duplicate observations read once; 12 s margin at day edges
+2026/11/27 [Claude] HLOS sign convention stated, from comparison with ERA5
 """
 
 import math
@@ -85,8 +90,10 @@ CHANNELS = {"rayleigh": ("ray", 2), "mie": ("mie", 1)}  # (prefix, obs_type used
 JUMP_KM = 3.0  # a bin this far above the previous one starts a new profile
 MAX_SPAN_S = 12.0  # a profile spans at most this long
 HLOS_FILL, ERR_FILL = 32767, 65535
-SIGN_CONVENTION = ("PLACEHOLDER: as distributed in the Aeolus L2B product; "
-                   "not yet checked")
+SIGN_CONVENTION = ("hlos_wind = -u sin(az) - v cos(az), az = "
+                   "line_of_sight_azimuth (degrees clockwise from north); from "
+                   "comparison with ERA5 (2026-11-27), not from ESA "
+                   "documentation")
 EXTRAS = ("z_bot", "z_top", "obs_type", "valid")
 
 _SOURCE = re.compile(r"'(\w+)',\s*'([\w.]+)'\)")

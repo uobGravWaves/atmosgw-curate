@@ -12,16 +12,22 @@ reference outputs.
   same occultations) and `"Aeolus"` (L2B HLOS winds, option
   `aeolus_channel` "rayleigh" (Rayleigh-clear, default) or "mie"
   (Mie-cloudy); profiles rebuilt from the observations; the HLOS sign
-  convention is a placeholder). [Claude]
+  convention, -u sin(az) - v cos(az), found by comparison with ERA5; a
+  warning when Aeolus is loaded on the default 18-60 km heights, which hold
+  little of its data). [Claude]
 - Profile format version 2: the "hlos_wind" product (`hlos_wind`,
   `hlos_wind_uncertainty`, `line_of_sight_azimuth`) needs no temperature.
   Version 1 Datasets are still accepted by `validate`; the limb loader's
   outputs for the other instruments are unchanged except
   `format_version` 2. [Claude]
 - New `obs.load_trajectories` and the "trajectory" format (flight, sample):
-  in-situ measurements along a path, first the DWD high-resolution
-  radiosondes (`"DWDsondes"`, option `stations`), each sample at its own
-  drifting position. [Claude]
+  in-situ measurements along a path, each sample at its own position, time
+  and height. Instruments: `"DWDsondes"` (DWD high-resolution radiosondes,
+  1990-2024, option `stations`), `"IAGOS"` (in-service aircraft, read from
+  the zip archive or unzipped files; package temperature and GPS altitude
+  where present; validity flags 3 and 7 removed) and `"FAAM"` (research
+  aircraft core data; option `sample_rate` "1hz" (means of unflagged 32 Hz
+  samples, default) or "full"). [Claude]
 - Sampler output in netCDF (as in the SWANS DYAMOND runs) is read by
   `"Sampler"` where a day has no `sampled_<datenum>.mat`. New option
   `sampled_from` (limb and nadir loaders) names the model: `origin`

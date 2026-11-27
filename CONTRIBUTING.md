@@ -27,7 +27,7 @@ src/atmosgw/curate/
     readers.py                find files; read .mat, HDF5 and netCDF files
     data/         data formats, data states, validate, to_profiles (proposal)
     obs/          instrument loaders: load_limb_sounders, load_nadir_sounders
-                  (preliminary), load_time_height
+                  (preliminary), load_time_height, load_trajectories
     instrument/   instrument characterisations (CPs)        (planned)
     context/      global context (GC) interface             (planned)
     analysis/     detrending, Stockwell wrappers            (planned)

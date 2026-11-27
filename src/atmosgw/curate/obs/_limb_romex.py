@@ -1,6 +1,7 @@
 """
-Limb-loader reader for ROMEX (the IROWG Radio Occultation Modeling
-Experiment) GNSS radio-occultation profiles, 2022-09-01 to 2022-11-30.
+Limb-loader reader for ROMEX GNSS radio-occultation profiles, 2022-09-01 to
+2022-11-30 (ROMEX taken to be the IROWG Radio Occultation Modeling
+Experiment: UNVERIFIED).
 
 Files: one or more per mission, ``romex_<mission>rmx[...]_100m_v1a[...].nc``,
 anywhere below the ROMEX folder (e.g. ``romex_coseqrmx_100m_v1a-003.nc``,
@@ -16,8 +17,11 @@ Bad", 0 or 1; meaning not documented in the files), ``filestamp``
 (occultation id, e.g. ``C2E1.2022.244.05.02.R24``).
 
 Output: ``Temp`` = temp + 273.15 (K); ``Pres`` = press (mb = hPa);
-``Alt`` = altitude (km, as the files name it; whether geometric or
-geopotential height is not stated: UNVERIFIED); positions per level from
+``Alt`` = altitude (km): geometric height (not stated in the files; on
+2022-10-15 the height increments exceed the hypsometric thickness by the
+geometric/geopotential ratio, 0.5% at 10-20 km to 1.5% at 40-50 km, and as
+geopotential height COSMIC-2 profiles sit within 30-70 m of ERA5's at the
+same pressure); positions per level from
 lat_full/lon_full, else the profile's lat/lon. Profiles without a time
 (``t`` = 0) are not returned; the number is recorded in the time
 variable's comment. With ``instrument_qc``, every level of a profile with
@@ -37,6 +41,7 @@ Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
+2026/11/27 [Claude] altitude found to be geometric (hypsometric and ERA5 checks)
 """
 
 import math

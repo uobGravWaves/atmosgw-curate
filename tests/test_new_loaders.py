@@ -200,7 +200,7 @@ def test_aeolus_profiles_units_and_states(tmp_path):
     assert states.has_state(flag, "instrument_flag")[1, 1] and np.isnan(hlos[1, 1])
     # uncertainty NaN wherever the wind is
     assert np.all(np.isnan(ds.hlos_wind_uncertainty.values[np.isnan(hlos)]))
-    assert ds.hlos_wind.attrs["sign_convention"].startswith("PLACEHOLDER")
+    assert ds.hlos_wind.attrs["sign_convention"].startswith("hlos_wind = -u sin(az)")
     assert ds.pressure.attrs["origin"] == "derived"
     assert "L2B baseline 2B16 processor 03.90" in ds.attrs["source_versions"]
     # the cloudy observation is not used by the Rayleigh channel
@@ -676,3 +676,59 @@ def test_faam_rates_and_flags(tmp_path):
         load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path, sample_rate="full")
     with pytest.raises(TypeError, match="stations"):
         load_trajectories("2025-07-09", "FAAM", file_path=tmp_path, stations=1)
+
+
+def test_iagos_review_fixes(tmp_path):
+    import zipfile
+    # a flight whose package temperature is all flagged erroneous: the
+    # aircraft's is used
+    work = tmp_path / "work"
+    work.mkdir()
+    path = work / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4"
+    iagos_file(path)
+    with netCDF4.Dataset(path, "a") as f:
+        f["air_temp_P1_validity_flag"][:] = 3
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=work)
+    assert ds.temperature_source.values[0] == "air_temp_AC"
+    assert ds.temperature.values[0, 0] == 220.0
+    # copies of a flight on another day are not reported for this day
+    other = work / "IAGOS_timeseries_2019010100000001_L2_3.1.2.nc4"
+    iagos_file(other)
+    with zipfile.ZipFile(tmp_path / "iagos.zip", "w") as archive:
+        for folder in ("iagos_2018", "iagos_2019"):
+            archive.write(other, f"TimeSeries/{folder}/{other.name}")
+        archive.write(path, f"TimeSeries/iagos_2019/{path.name}")
+    (tmp_path / "zip").mkdir()
+    (tmp_path / "iagos.zip").rename(tmp_path / "zip" / "iagos.zip")
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "zip")
+    assert ds.attrs["multiple_matches"] == ""
+    with pytest.raises(TypeError, match="sample_rate"):
+        load_trajectories("2019-03-18", "IAGOS", file_path=work, sample_rate="FULL")
+    assert load_trajectories("2019-03-18", "IAGOS", file_path=work,
+                             sample_rate="1HZ").sizes["flight"] == 1
+
+
+def test_faam_review_fixes(tmp_path):
+    faam_file(tmp_path / "core_faam_20250709_v005_r0_c999.nc")
+    with netCDF4.Dataset(tmp_path / "core_faam_20250709_v005_r0_c999.nc", "a") as f:
+        f.createDimension("sps20", 20)
+        v = f.createVariable("X20", "f4", ("Time", "sps20"), fill_value=-9999.0)
+        v[:] = 1.0
+        f["LAT_GIN_FLAG"][0, :] = 1  # (no position for second 0)
+    with pytest.raises(ValueError, match="20 Hz"):
+        load_trajectories("2025-07-09", "FAAM", file_path=tmp_path, sample_rate="full",
+                          additional_vars=["X20"])
+    ds = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                           additional_vars=["X20"])
+    assert ds.X20.values[0, 0] == 1.0  # (1 Hz: any rate)
+    assert np.isnan(ds.latitude.values[0, 0]) and ds.latitude.values[0, 1] == 50.0
+    full = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                             sample_rate="full")
+    assert np.all(np.isnan(full.latitude.values[0, :32]))
+    # a second revision of the flight: the highest is read
+    faam_file(tmp_path / "core_faam_20250709_v005_r1_c999.nc")
+    with pytest.warns(UserWarning, match="more than one"):
+        ds = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                               file_source=True)
+    assert ds.sizes["flight"] == 1
+    assert ds.original_files.values[0] == "core_faam_20250709_v005_r1_c999.nc"

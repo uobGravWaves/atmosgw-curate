@@ -1,13 +1,16 @@
 # AtmosGW Curate
 
 Python tools that load observations of atmospheric gravity waves, from
-satellites and ground-based instruments, into common documented formats.
+satellites, ground-based instruments, radiosondes and aircraft, into common
+documented formats.
 Each value records why it is missing or how it was obtained, and each
-Dataset records how it was loaded. Most of the loading code is ported from
-the group's MATLAB code and checked against it. Wave analysis (a general
+Dataset records how it was loaded. Much of the loading code is ported from
+the group's MATLAB code and checked against it; the rest is new code, checked
+against other data (`docs/validation.md`). Wave analysis (a general
 detrender, Stockwell wrappers) is planned but not yet here.
 
-Status: pre-alpha (0.x). The data formats are version 1 proposals.
+Status: pre-alpha (0.x). The data formats are proposals (profile version
+2; swath, time_height and trajectory version 1).
 
 ## Quick start
 
@@ -42,10 +45,11 @@ ds.attrs["files_read"]                           # the record of the load
 
 | Function | Instruments | Returns | Origin |
 |---|---|---|---|
-| `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, [Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling) output (MAT or netCDF, e.g. SWANS), your own files in the same format; planetary-wave-filtered versions. New code: LIMS, ROMEX, Aeolus HLOS winds | profiles, (profile, level) | port of MATLAB [`get_limbsounders`][get_limbsounders]; new readers for LIMS, ROMEX, Aeolus |
-| `obs.load_nadir_sounders` | AIRS 3-D retrievals, AIRS 2-D brightness temperatures, IASI 3-D retrievals | swaths, (along_track, cross_track, level) | port of MATLAB [`prep_airs_3d`][prep_airs_3d], without its detrending and smoothing |
+| `obs.load_limb_sounders` | ACE, GNSS, HIRDLS, MIPAS, MLS, SABER, SOFIE, the ALOMAR lidar, [Wright and Hindley sampler](https://github.com/corwin365/Model-Sampling) output, your own files in the same format; planetary-wave-filtered versions | profiles, (profile, level) | port of MATLAB [`get_limbsounders`][get_limbsounders] |
+| | LIMS, ROMEX radio occultation, Aeolus HLOS winds; sampler output in netCDF (e.g. SWANS) | profiles | new code |
+| `obs.load_nadir_sounders` | AIRS 3-D retrievals, AIRS 2-D brightness temperatures, IASI 3-D retrievals; model output in the AIRS layout (e.g. SWANS) | swaths, (along_track, cross_track, level) | port of MATLAB [`prep_airs_3d`][prep_airs_3d], without its detrending and smoothing |
 | `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
-| `obs.load_trajectories` | DWD high-resolution radiosondes | flights, (flight, sample) | new code |
+| `obs.load_trajectories` | DWD high-resolution radiosondes (`DWDsondes`), IAGOS and FAAM aircraft | flights, (flight, sample) | new code |
 | `data.to_profiles` | swaths and time-height series | profiles | new code |
 
 Each returns an `xarray.Dataset` in a format defined in
@@ -80,6 +84,11 @@ with versions, dates and what was not covered.
   times), not the public Dataset.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
+- The newer readers (LIMS, ROMEX, Aeolus, `load_trajectories`) are new code:
+  known-answer tests on synthetic files, censuses of whole archives (every
+  LIMS scan and ROMEX profile returned once), and comparisons with ERA5
+  (temperatures, winds and the Aeolus HLOS sign) and with the merged GNSS
+  files. Not yet released.
 - Data states and the other metadata have no MATLAB counterpart. They are
   checked against shared rules by tests, and are still being reviewed.
 - Deliberate scientific changes from MATLAB (Q1-Q8) are listed with their
@@ -93,9 +102,9 @@ with versions, dates and what was not covered.
 | `docs/usage.md` | how to load data and read what comes back |
 | loader docstrings (`help(load_limb_sounders)` ...) | every option, output variable and attribute |
 | `docs/data_supply.md` | the input files each loader reads, and their provenance |
-| `docs/design/data_formats.md` | the profile, swath and time_height formats; data states |
+| `docs/design/data_formats.md` | the profile, swath, time_height and trajectory formats; data states |
 | `docs/validation.md` | every check against MATLAB and real data, and what was not covered |
-| `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q8), with sizes |
+| `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q18), with sizes |
 | `docs/theory/relations.md` | physical relations [R1]-[R3], their sources and checks |
 | `CHANGELOG.md` | changes by version |
 | `CONTRIBUTING.md` | package layout, style, porting, documentation and tests |
@@ -126,6 +135,9 @@ read (with units and fill values) and where the files come from.
 | ROMEX | GNSS RO per-mission netCDF, v1a | `romex_<mission>rmx..._100m_v1a....nc` |
 | Aeolus | L2B HLOS winds, monthly flat netCDF (VirES) | `Aeolus_L2B_monthly_yyyy_mm.nc` |
 | DWD radiosondes | high-resolution ("Sekundenwerte aero") text files | `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt` |
+| IAGOS | L2 time series, one netCDF per flight (in a zip, or unzipped) | `IAGOS_timeseries_<yyyymmddHHMMSS><nn>....nc[4]` |
+| FAAM | core data, one netCDF per flight (v005) | `core_faam_yyyymmdd_v005_r<rev>_<flight>.nc` |
+| SWANS (model) | sampler netCDF output; AIRS granule layout | `<INST>-dyamond_<model>-yyyydddd.nc`; as AIRS 3-D |
 
 Loaders find instrument data under a data root folder, set once per machine
 by either:
