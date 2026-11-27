@@ -16,12 +16,25 @@ reference outputs.
   `hlos_wind_uncertainty`, `line_of_sight_azimuth`), no temperature needed;
   version 1 still validates. Other limb outputs change only in
   `format_version`, the new `options` keys and Sampler's attributes. [Claude]
+- Profile format version 3 (the winds, and temperature where not required)
+  and swath format version 2 (pressure, the winds, 2-D temperature) list
+  those absent in `availability` (`not_measured` or `not_in_files`), as
+  time_height and trajectory already did; older versions still validate.
+  Values unchanged. [Claude]
 - New `obs.load_trajectories` and the "trajectory" format (flight, sample):
   `"DWDsondes"` (DWD high-resolution radiosondes 1990-2024, option
-  `stations`), `"IAGOS"` (unzipped files, else the zip archive; package
-  temperature and GPS altitude where some values are not flagged 3 or 7;
-  those flags removed) and `"FAAM"` (core data; option `sample_rate` "1hz",
-  default, or "full"). [Claude]
+  `stations`), `"IAGOS"` (unzipped files or the zip archive; copies ranked
+  by version, then the file's date, then unzipped; package temperature and
+  GPS altitude where some values are not flagged 3 or 7; those flags
+  removed) and `"FAAM"` (core data; option `sample_rate` "1hz", default, or
+  "full"). [Claude]
+- Not MATLAB-equivalent (Q19): HIRDLS, SABER, SOFIE and MIPAS take the newest
+  data version in the file names when several files match a day (SABER: a
+  month), as MLS
+  (Q8). No file on eepc-0184 changes. [Claude]
+- The providers' screening rules (ROMEX, Aeolus, IAGOS, FAAM) are in the
+  variables' `comment`; LIMS, ROMEX and Aeolus record `files_without_data`.
+  [Claude]
 - `"Sampler"` reads netCDF sampler output (e.g. SWANS) where a day has no
   `sampled_<datenum>.mat`. New option `sampled_from` (limb and nadir) names
   the model: `data` "sampled", attribute `sampled_from`, `origin` and state

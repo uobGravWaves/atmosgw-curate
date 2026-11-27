@@ -150,8 +150,9 @@ gross errors, not accuracy.
     0.99-1.02; with the other sign, -0.81 to -0.98.
   - DWD sondes, 2020-01-07, 01-08, 04-15, 07-15, 2004-01-01: temperature
     within 0.2 K (mean), wind slope 1.00-1.05. Time shifts of ±30-120 min
-    (2020 days): wind RMS smallest unshifted, or within 0.01 m/s of it
-    (2020-04-15, -30 min), so times are UTC.
+    (2020 days): wind RMS smallest, or within 0.01 m/s of it, unshifted,
+    and larger for whole-hour shifts: times are UTC (a sub-hour offset
+    would be implausible).
   - ROMEX, 2022-10-15, each mission 10-50 km: mean -1.0 to +0.5 K, slope
     0.97-1.07; COSMIC-2 heights as geometric match ERA5's within 30-70 m.
   - IAGOS, 1998-02-27, 2010-12-04, 2019-03-18, 2023-11-15, above 400 hPa:
@@ -168,6 +169,12 @@ gross errors, not accuracy.
   full rate, and spurious IAGOS duplicate warnings: all fixed, with tests.
 - **Found in the data** (ROMEX above 330 K, IAGOS 173.16 K): see
   `docs/data_supply.md`; not screened.
+- **Later the same day** (profile format 3, swath 2, Q19, IAGOS copy
+  ranking, screening comments, `files_without_data`): 23 real-data outputs
+  (every loader, `to_profiles`, the new readers) old against new: every
+  variable bit-identical; only `format_version`, `availability` (incl.
+  DWD/IAGOS `upward_wind` now `not_measured`) and the new comments differ.
+  ERA5 comparison rerun: unchanged.
 
 ## Changes since the MATLAB comparisons
 

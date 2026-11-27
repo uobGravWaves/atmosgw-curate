@@ -2,8 +2,8 @@
 
 **Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1).
 After 0.6.0 (CHANGELOG, Unreleased): `data.to_netcdf` with packing (§11);
-on 2026-11-27, profile format version 2 (§3) and the trajectory format
-(§4b). Parts still planned, not implemented: the `analysis` steps
+on 2026-11-27, profile format versions 2 and 3 (§3), swath version 2 (§4)
+and the trajectory format (§4b). Parts still planned, not implemented: the `analysis` steps
 (detrend, smooth, fill).
 Points marked *agreed* were agreed with C. Wright on 2026-11-25.
 
@@ -14,7 +14,7 @@ those outputs as named, versioned **formats**, so that "parallel interfaces"
 can be checked, not just agreed.
 
 Formats now: **profile** (limb sounders, occultation, lidar, Aeolus winds;
-the output of `load_limb_sounders`; version 2 since 2026-11-27), **swath**
+the output of `load_limb_sounders`; version 3 since 2026-11-27), **swath**
 (nadir sounders; `load_nadir_sounders`, see `nadir_loader.md`),
 **time_height** (ground-based series at one site: the ALOMAR lidar now,
 radars later; `load_time_height`, §4a, since 2026-11-26) and **trajectory**
@@ -73,12 +73,15 @@ The specification lives in code in `atmosgw/curate/data/`: `formats.py`
 - **Packing (scale and offset):** only for files written to disk, never in
   memory (xarray unpacks on reading). See §11.
 
-## 3. Format "profile", version 2
+## 3. Format "profile", version 3
 
 Version 2 (2026-11-27) adds the "hlos_wind" product (Aeolus), which needs
 `hlos_wind` and `line_of_sight_azimuth` instead of `temperature` (so would
-fail a version 1 check). Every version 1 Dataset is a valid version 2 one;
-`validate` accepts both.
+fail a version 1 check). Version 3 (2026-11-27, C. Wright: every format
+returns temperature, pressure and the three winds where present, and says
+why where not) tracks the winds, and temperature where not required, in
+`availability` (pressure stays required). `validate` accepts all three versions, each with the
+entries of its own version.
 
 **Dimensions:** `profile`, `level`; optional `mode` (planetary-wave modes),
 `file`. `profile` may have length 0.
@@ -88,7 +91,8 @@ fail a version 1 check). Every version 1 Dataset is a valid version 2 one;
 | `latitude`, `longitude` | (profile, level) | degrees | yes |
 | `time` | (profile, level) | — | yes |
 | `altitude` | (profile, level) | km | yes |
-| `temperature` | (profile, level) | K | yes, unless PW data or the "hlos_wind" product |
+| `temperature` | (profile, level) | K | yes, unless PW data or the "hlos_wind" product; then tracked (v3) |
+| `eastward_wind`, `northward_wind`, `upward_wind` | (profile, level) | m s-1 | optional, tracked (v3) |
 | `hlos_wind` | (profile, level) | m s-1 | "hlos_wind" product: horizontal line-of-sight wind; attribute `sign_convention` states the sign |
 | `hlos_wind_uncertainty` | (profile, level) | m s-1 | optional (§7); Aeolus: the L2B error estimate as distributed |
 | `line_of_sight_azimuth` | (profile, level) | degree | "hlos_wind" product: as in the files |
@@ -110,9 +114,17 @@ point; planetary-wave data, sampled data). *Proposals:* `product`
 "temperature" and `characterisation` `<instrument>-TEMPERATURE-placeholder/0`
 for every limb instrument but Aeolus ("hlos_wind",
 `Aeolus-HLOS_WIND-placeholder/0`); `origin` "retrieved" for limb
-temperatures and pressures.
+temperatures and pressures. `availability`: the winds `not_measured`
+(Aeolus gives only the line-of-sight component), ALOMAR's `not_in_files`
+(as in §4a); Aeolus temperature `not_measured`; PW temperature
+`not_in_files`.
 
-## 4. Format "swath", version 1
+## 4. Format "swath", version 2
+
+Version 2 (2026-11-27, with profile version 3) tracks pressure, the winds
+and, where not required (2-D), temperature; version 1 Datasets are still
+accepted. AIRS and IASI: pressure `not_in_files` (3-D) or `not_measured`
+(2-D); the winds and 2-D temperature `not_measured`.
 
 **Dimensions:** `along_track`, `cross_track`, then `level` (3-D products) or
 `channel` (2-D products with several channels; absent with one). The order is
@@ -123,7 +135,8 @@ fixed. `along_track` may have length 0.
 | `latitude`, `longitude` | (along_track, cross_track) | degrees | yes |
 | `time` | (along_track, cross_track) | — | yes |
 | `altitude` | (level) | km | 3-D; on the native grid, (along_track, cross_track, level) if heights vary by point |
-| `temperature` | (along_track, cross_track, level) | K | 3-D |
+| `temperature` | (along_track, cross_track, level) | K | 3-D; else tracked (v2) |
+| `pressure`, `eastward_wind`, `northward_wind`, `upward_wind` | (along_track, cross_track, level) | hPa, m s-1 | optional, tracked (v2) |
 | `brightness_temperature` | (along_track, cross_track[, channel]) | K | 2-D |
 | `channel_wavenumber` | (channel) | cm^-1 | 2-D with channels |
 | `channel_name` | (channel) | — | 2-D with channels: the channel or channel group |
@@ -221,11 +234,11 @@ provider's flags, per variable), `bad_geolocation`; removal per variable
 
 - DWD radiosondes (`"DWDsondes"`, product "sounding"): altitude is
   geopotential height; `reference_time` (the nominal synoptic time) is
-  added; `upward_wind` is `not_in_files`.
+  added; `upward_wind` is `not_measured`.
 - IAGOS (`"IAGOS"`, product "flight"): altitude is GPS (geometric) where
   the flight has it, else barometric; per flight `departure_airport`,
   `arrival_airport`, `temperature_source`, `altitude_source`;
-  `upward_wind` is `not_in_files`.
+  `upward_wind` is `not_measured`.
 - FAAM (`"FAAM"`, product "flight"): all three winds; attribute
   `sample_rate` ("1hz" or "full").
 
@@ -233,7 +246,7 @@ provider's flags, per variable), `bad_geolocation`; removal per variable
 
 | Attribute | Example | Notes |
 |---|---|---|
-| `format`, `format_version` | `"swath"`, `1` | |
+| `format`, `format_version` | `"swath"`, `2` | |
 | `instrument` | `"AIRS"` | |
 | `product` | `"3d"` | |
 | `characterisation` | `"AIRS-3D-placeholder/0"` | id and version of the instrument's characterisation package (CP). *Agreed:* placeholders, `<INSTRUMENT>-<PRODUCT>-placeholder/0`, until the CP work sets the naming; the validator accepts them, and changing them later is compatible |
@@ -263,7 +276,7 @@ dataset attribute `availability`, with one of:
 
 | State | Meaning | Example |
 |---|---|---|
-| `not_measured` | the instrument cannot provide it | wind from AIRS |
+| `not_measured` | the instrument cannot provide it | wind from AIRS or SABER; `upward_wind` from radiosondes |
 | `not_in_files` | it exists for this instrument, but not in the files read | AIRS satellite position (removed from the eepc-0184 copies) |
 | `not_requested` | not asked for in this call | `source_file` without `file_source` |
 | `not_provided` | the data supply no per-point value (the CP may describe it) | `temperature_uncertainty` |
@@ -313,9 +326,10 @@ Instruments' own quality variables are not output unless asked for with
 `additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
 are implemented (limb, with `instrument_qc`: MLS, SOFIE, HIRDLS, ROMEX,
 Aeolus; trajectories: IAGOS, FAAM), they set `instrument_flag` or
-`a_priori_dominated`. For MLS, SOFIE and HIRDLS the rule and its source are
-in the temperature's `comment` and `docs/quirks.md` (Q15, Q17); for the
-others, in the reader's docstring.
+`a_priori_dominated`. The rule is in the variables' `comment`: for MLS,
+SOFIE and HIRDLS in the temperature's (sources in `docs/quirks.md`, Q15,
+Q17); for ROMEX, Aeolus (with `instrument_qc`), IAGOS and FAAM in each
+screened variable's, after "instrument_flag:".
 
 ### 6.3 Shared rules (all formats)
 
@@ -406,7 +420,8 @@ created.
 `data.validate(ds, format)` checks dimensions, required variables, types,
 units, value ranges of coordinates, required attributes, that every data
 variable has a flag variable, that every NaN has a "no value" state, and that
-every optional variable is either present or listed in `availability`. It
+every tracked optional variable (of the Dataset's format version) is either
+present or listed in `availability`. It
 raises with a list of every problem. Every loader's tests run it on their
 outputs.
 
@@ -415,7 +430,8 @@ outputs.
 Each format's `format_version` is raised on any incompatible change (a
 renamed or removed variable, changed units or dimensions). Adding optional
 variables or states is compatible. Changes are listed in `CHANGELOG.md`.
-Profile went to version 2 on 2026-11-27 (§3).
+On 2026-11-27 profile went to versions 2 and 3 (§3) and swath to version 2
+(§4).
 
 ## 11. Saving to disk
 

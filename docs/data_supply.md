@@ -28,12 +28,12 @@ month, year or granule) a loader looks for the file's name:
 - ALOMAR files are looked for in the folder itself; Sampler MAT-files in
   `sample_path` itself, its netCDF files anywhere below it.
 
-If more than one file has the name or date looked for, the first in search
-order is used (at each level, the contents of sub-folders before the files
-beside them, each in name order) and the
-choice is warned and listed in the output attribute `multiple_matches`; the
-newest MLS version is chosen instead of the first (and the DWD, IAGOS and
-FAAM readers choose as described below). A file at its usual path is
+If more than one file has the name or date looked for, the choice is warned
+and listed in the output attribute `multiple_matches`. MLS, HIRDLS, SABER,
+SOFIE and MIPAS take the newest data version in the file names (Q8, Q19);
+the DWD, IAGOS and FAAM readers choose as described below; otherwise, and of
+equal versions, the first in search order is used (at each level, the
+contents of sub-folders before the files beside them, each in name order). A file at its usual path is
 used without looking further, except for IASI, whose files of a day are
 gathered from its day folder and anywhere else below the IASI folder (files
 in another day's folder are left out). Do not keep two copies of a product (e.g. two
@@ -75,7 +75,7 @@ netCDF file declares.
   `Quality`, `Status`, `Convergence`; geolocation `Latitude`, `Longitude`,
   `Time` (s since 1993-01-01), `Pressure` (hPa, one set of levels); the
   `_FillValue` each field declares.
-- Checked: v6.01 (and v5 files, where both are present the newest is used).
+- Checked: v6.01 (and v5 files).
   The screening rules follow each version's data quality document
   (`_limb_mls.screen`).
 - Provenance: NASA GES DISC; v6 DOI 10.5067/AURA/MLS/DATA2620 (stated in the
@@ -321,10 +321,13 @@ model (not named)").
 - Files: one per flight, `IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<v>].nc[4]`
   in `TimeSeries/iagos_<yyyy>/`, unzipped or in a zip archive (`iagos.zip`
   on eepc-0184: 67,321 flights 1994-2024, 13 GB, about 111 GB unzipped).
-  Unzipped files are preferred, silently; the archive is the backup for
-  flights not unzipped. Copies are matched by flight (departure time and
-  number), so any unzipped copy replaces the archive's; of several
-  unzipped copies the newest L2 version is used (in `multiple_matches`).
+  Copies of a flight (same departure time and number) are ranked: newest
+  L2 version (file name), then latest `date_modified` (else
+  `date_created`) in the file, then unzipped, then search order (C. Wright,
+  2026-11-27). An unzipped copy chosen over the archive's is silent; other
+  choices are in `multiple_matches`. On eepc-0184 (2026-11-27): versions
+  3.1.0-3.1.4 in 16,578 names, none in the 50,711 MOZAIC-era `.nc` names
+  (the one checked states no date either).
 - Variables (every 4 s): `UTC_time` (s since the departure day), `lat`,
   `lon`, `gps_alt_AC`, `baro_alt_AC` (m), `air_press_AC` (Pa), `air_temp_AC`
   and the package's `air_temp_P1` (L2 3.1) or `air_temp_PM` (MOZAIC era)

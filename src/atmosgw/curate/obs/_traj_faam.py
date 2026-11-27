@@ -21,7 +21,8 @@ Choices: ``TAT_DI_R`` rather than the non-deiced ``TAT_ND_R`` (available
 as an extra), as it is usable in icing too (UNVERIFIED which FAAM
 recommends for general use); ``Alt`` = ``ALT_GIN`` (GPS, decided by C.
 Wright, 2026-11-27), pressure altitude ``PALT_RVS`` as an extra. A sample
-whose flag is non-zero is ``instrument_flag`` (``<key>Bad``).
+whose flag is non-zero is ``instrument_flag`` (``<key>Bad``; the rule is in
+each variable's ``comment``).
 
 Sample rate (``sample_rate``, decided by C. Wright, 2026-11-27): "1hz"
 (default): for each second, the mean of that second's unflagged samples
@@ -41,6 +42,7 @@ Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] review fixes: highest revision per flight; flagged positions NaN;
   extras of rates other than divisors of 32 refused at sample_rate='full'
+2026/11/27 [Claude] flag rule in the variables' comments
 """
 
 import math
@@ -70,6 +72,10 @@ def load(settings, inst_info):
                            "altitude) / 1000; pressure altitude PALT_RVS as an extra")
     note(inst_info, "Temp", "TAT_DI_R (deiced; the non-deiced TAT_ND_R as an extra)")
     rate = settings.get("sample_rate", "1hz")
+    for key in ("Pres", "Temp", "U", "V", "W"):
+        note(inst_info, f"{key}Bad",
+             f"{FILE_NAMES[key]}_FLAG non-zero" + (" for every sample of the second"
+                                                   if rate == "1hz" else ""))
     note(inst_info, "Time", "1 Hz: mean of each second's unflagged 32 Hz samples, at "
                             "their centre" if rate == "1hz" else
                             "every 32 Hz sample, at Time + k/32 s")

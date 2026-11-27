@@ -21,9 +21,12 @@ Function                                      Returns
                                               variables
 ============================================  ==================================
 
-Formats: ``"swath"`` and ``"time_height"``, version 1; ``"profile"``,
-version 2 (version 1 Datasets are still accepted: version 2 only adds the
-HLOS wind product); ``"trajectory"``, version 1 (``FORMATS``).
+Formats (``FORMATS``): ``"profile"`` version 3 (2 added the HLOS wind
+product; 3 lists the winds, and temperature where not required, in
+``availability`` when absent), ``"swath"`` version 2 (lists pressure, the
+winds and, for 2-D, temperature), ``"time_height"`` and ``"trajectory"``
+version 1 (they list temperature, pressure and the winds from the start).
+Older versions are still accepted, without the newer entries.
 
 What ``validate`` checks:
 
@@ -52,9 +55,10 @@ What ``validate`` checks:
   ``comment`` saying what kind it is, is named in ``<name>``'s
   ``ancillary_variables``, and is NaN wherever ``<name>`` is NaN (it has no
   flag of its own);
-- every tracked optional variable (viewing geometry, uncertainties, source
-  indices ...) is either present or listed in ``availability`` with a known
-  state.
+- every tracked optional variable (temperature, pressure, the winds,
+  viewing geometry, uncertainties, source indices ...) is either present or
+  listed in ``availability`` with a known state (entries added in a later
+  format version are not required of older Datasets).
 
 Origin
 ------
@@ -63,8 +67,8 @@ New code (no MATLAB equivalent).
 Validation
 ----------
 ``tests/test_data_formats.py``: a valid example of each format passes, and
-each kind of fault is reported; the trajectory format and profile version 2
-also in ``tests/test_new_loaders.py``.
+each kind of fault is reported; the trajectory format, profile versions 1-3
+and swath versions 1-2 also in ``tests/test_new_loaders.py``.
 
 Status
 ------
@@ -83,6 +87,7 @@ Change log
 2026/11/25 [Claude] profile format: data variables may be float64
 2026/11/26 [Claude] time_height format; checks of uncertainty variables
 2026/11/27 [Claude] profile format version 2 (HLOS wind product); trajectory format
+2026/11/27 [Claude] profile version 3, swath version 2: T, P and winds always listed
 
 """
 
@@ -118,13 +123,15 @@ _PROFILE_DATA_TYPES = ("float32", "float64")
 # files hold float64); winds defined now for radars (no reader yet)
 _TH = ("time", "level")
 _WINDS = ("eastward_wind", "northward_wind", "upward_wind")
+WIND_NAMES = _WINDS  # (for the loaders' availability)
 
 # trajectory: (flight, sample)
 _TRAJ = ("flight", "sample")
 
 FORMATS = {
     "swath": {
-        "version": 1,
+        "version": 2,
+        "accepted_versions": (1, 2),  # (2 tracks pressure, winds; temperature in 2-D)
         "dims": ("along_track", "cross_track", "level", "channel", "native_along",
                  "native_cross"),
         "attrs": COMMON_ATTRS + ("spatial_dims", "grid_spacing_km", "grid"),
@@ -137,9 +144,12 @@ FORMATS = {
             "altitude": dict(kind="coord", dims=[("level",), _POINT + ("level",)],
                              units="km", required="3d"),
             "temperature": dict(kind="data", dims=_POINT + ("level",), units="K",
-                                required="3d"),
+                                required="3d", tracked=True, tracked_since=2),
             "pressure": dict(kind="data", dims=_POINT + ("level",), units="hPa",
-                             required=False),
+                             required=False, tracked=True, tracked_since=2),
+            **{name: dict(kind="data", dims=_POINT + ("level",), units="m s-1",
+                          tracked=True, tracked_since=2)
+               for name in _WINDS},
             "brightness_temperature": dict(
                 kind="data", dims=[_POINT, _POINT + ("channel",)], units="K",
                 required="2d"),
@@ -179,8 +189,10 @@ FORMATS = {
         },
     },
     "profile": {
-        "version": 2,
-        "accepted_versions": (1, 2),  # (2 adds the hlos_wind product only)
+        "version": 3,
+        # (2 adds the hlos_wind product; 3 tracks the winds, and temperature
+        # where not required)
+        "accepted_versions": (1, 2, 3),
         "dims": ("profile", "level", "mode", "file"),
         "attrs": COMMON_ATTRS,
         "variables": {
@@ -193,7 +205,11 @@ FORMATS = {
             "altitude": dict(kind="coord", dims=("profile", "level"), units="km",
                              required=True),
             "temperature": dict(kind="data", dims=("profile", "level"), units="K",
-                                required="raw", dtypes=_PROFILE_DATA_TYPES),
+                                required="raw", dtypes=_PROFILE_DATA_TYPES,
+                                tracked=True, tracked_since=3),
+            **{name: dict(kind="data", dims=("profile", "level"), units="m s-1",
+                          dtypes=_PROFILE_DATA_TYPES, tracked=True, tracked_since=3)
+               for name in _WINDS},
             # (version 2: Aeolus winds; the uncertainty is checked as any
             # <name>_uncertainty)
             "hlos_wind": dict(kind="data", dims=("profile", "level"), units="m s-1",
@@ -367,7 +383,8 @@ def problems(ds, format_name):
         if name not in ds.variables:
             if required:
                 out.append(f"missing required variable {name!r}")
-            elif var.get("tracked") and name not in listed:
+            elif (var.get("tracked") and name not in listed
+                  and _version(ds) >= var.get("tracked_since", 0)):
                 out.append(f"optional variable {name!r} is absent but not "
                            "listed in 'availability'")
             continue
@@ -386,6 +403,14 @@ def _spec(format_name):
     except KeyError:
         raise ValueError(f"Unknown format {format_name!r}; known: "
                          f"{', '.join(FORMATS)}") from None
+
+
+def _version(ds):
+    """The Dataset's format_version as an integer (0 if unreadable)."""
+    try:
+        return int(ds.attrs.get("format_version"))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _conditions(ds, format_name):

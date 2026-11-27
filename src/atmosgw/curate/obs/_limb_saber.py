@@ -3,8 +3,9 @@ Limb-sounder reader for SABER (GATS monthly Temp_O3_H2O netCDF files, v2.0).
 Port of ``module_load_SABER.m`` (uobGravWaves/MultiInstrumentFunctions,
 commit 78eef78).
 
-Files: one per month, the first below the SABER folder whose path contains
-``<Month><yyyy>`` (e.g. ``January2007``, any case). Variables are read as
+Files: one per month, the file below the SABER folder whose path contains
+``<Month><yyyy>`` (e.g. ``January2007``, any case; of several, the newest
+version in the name, e.g. ``_v2.0.nc``, else the first: Q19). Variables are read as
 ``rCDF`` reads them (see ``readers.read_netcdf``): float64, with
 ``missing_value`` (-999) as NaN. Each event (profile) has a date ``date``
 (yyyyddd) and, at each level, ``time`` in ms since midnight of that date
@@ -33,7 +34,7 @@ from atmosgw.curate.obs._common import (
     note_version,
     record,
 )
-from atmosgw.curate.obs._limb_tools import conform_vars
+from atmosgw.curate.obs._limb_tools import VERSION_IN_NAME, conform_vars, newest_version
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import read_attrs, read_netcdf
 
@@ -64,8 +65,10 @@ def load(settings, inst_info, var_names):
         found = find_in(inst_info, f"{month}{year}")
         first_look = f"{month}{year}" not in months_seen
         months_seen.add(f"{month}{year}")
-        if first_look:  # (the file of the month, recording duplicates)
-            chosen = choose_file(found, inst_info, f"{month}{year}")
+        if first_look:  # (the file of the month, recording duplicates;
+            # several versions: the newest, Q19; MATLAB takes the first)
+            chosen = choose_file(found, inst_info, f"{month}{year}",
+                                 newest_version(VERSION_IN_NAME["SABER"]))
         if chosen is None:
             # (the day before the request is only looked at: not reported;
             # a month first seen on that day is reported for the days asked for)

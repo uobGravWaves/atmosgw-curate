@@ -10,7 +10,7 @@ against other data (`docs/validation.md`). Wave analysis (a general
 detrender, Stockwell wrappers) is planned but not yet here.
 
 Status: pre-alpha (0.x). The data formats are proposals (profile version
-2; swath, time_height and trajectory version 1).
+3, swath 2, time_height and trajectory 1).
 
 ## Quick start
 
@@ -65,7 +65,8 @@ geometry, file readers) are described in their own docstrings:
 releases fix problems found in review that the MATLAB loaders share (ACE and
 GNSS pressure units, GNSS times and repeated occultations, box selection,
 bad points blended by interpolation, nadir positions and spacing, MLS
-screening, HIRDLS and SOFIE quality marks, pchip/spline/makima: Q9-Q18 in
+screening, HIRDLS and SOFIE quality marks, pchip/spline/makima, newest
+file version: Q9-Q19 in
 [`docs/quirks.md`](docs/quirks.md)); to reproduce a MATLAB-era result,
 install 0.5.1.
 
@@ -104,7 +105,7 @@ with versions, dates and what was not covered.
 | `docs/data_supply.md` | the input files each loader reads, and their provenance |
 | `docs/design/data_formats.md` | the profile, swath, time_height and trajectory formats; data states |
 | `docs/validation.md` | every check against MATLAB and real data, and what was not covered |
-| `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q18), with sizes |
+| `docs/quirks.md` | MATLAB behaviour found wrong and fixed (Q1-Q19), with sizes |
 | `docs/theory/relations.md` | physical relations [R1]-[R3], their sources and checks |
 | `CHANGELOG.md` | changes by version |
 | `CONTRIBUTING.md` | package layout, style, porting, documentation and tests |
@@ -125,7 +126,7 @@ read (with units and fill values) and where the files come from.
 | ACE-FTS | v5.2 daily MAT-files | `yyyy/ace_v52_yyyydddd.mat` |
 | GNSS RO | merged daily MAT-files (several centres; JPL, UCAR, ROM SAF) | `yyyy/merged_ro_yyyy_ddd.mat` |
 | HIRDLS | NASA L2 v7 (HDF-EOS5) | any path containing `_yyyydddd` |
-| MLS | NASA L2GP Temperature v5/v6 (HDF-EOS5); newest of several | any path containing `_yyyydddd` |
+| MLS | NASA L2GP Temperature v5/v6 (HDF-EOS5) | any path containing `_yyyydddd` |
 | MIPAS | Oxford retrieval v1.40 (netCDF, CEDA) | any path containing `_yyyymmdd_nom` |
 | SABER | GATS custom Level 2A monthly Temp_O3_H2O files (v2.07, v2.08) | any path containing `<Month><yyyy>` |
 | SOFIE | GATS Level 2 v1.3 (netCDF) | any path containing `Level2_yyyyddd` |
@@ -140,6 +141,9 @@ read (with units and fill values) and where the files come from.
 | IAGOS | L2 time series, one netCDF per flight (in a zip, or unzipped) | `IAGOS_timeseries_<yyyymmddHHMMSS><nn>....nc[4]` |
 | FAAM | core data, one netCDF per flight (v005) | `core_faam_yyyymmdd_v005_r<rev>_<flight>.nc` |
 | SWANS (model) | sampler netCDF output; AIRS granule layout | `<INST>-dyamond_<model>-yyyydddd.nc`; as AIRS 3-D |
+
+Of several files for a day, most loaders take the newest version in the
+names (`docs/data_supply.md`, "Where the loaders look").
 
 Loaders find instrument data under a data root folder, set once per machine
 by either:

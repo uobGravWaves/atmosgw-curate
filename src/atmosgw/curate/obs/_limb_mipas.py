@@ -2,8 +2,9 @@
 Limb-sounder reader for MIPAS (Oxford retrieval, netCDF from CEDA). Port of
 ``module_load_MIPAS.m`` (uobGravWaves/MultiInstrumentFunctions, commit 78eef78).
 
-Files: one per day, the first below the MIPAS folder whose path contains
-``_<yyyy><mm><dd>_nom``. Variables are read as ``rCDF`` reads them (see
+Files: one per day, the file below the MIPAS folder whose path contains
+``_<yyyy><mm><dd>_nom`` (of several, the newest version in the name, e.g.
+``_v1.40.nc``, else the first: Q19). Variables are read as ``rCDF`` reads them (see
 ``readers.read_netcdf``): float64, with ``_FillValue`` (-999) as NaN.
 Temperature ``TEM``, pressure ``PRE`` and height ``hgt`` are [profiles x
 levels]; ``latitude``, ``longitude`` and ``time`` (hours since the start of
@@ -24,7 +25,12 @@ from atmosgw.curate.obs._common import (
     note_sources,
     note_version,
 )
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import (
+    VERSION_IN_NAME,
+    conform_vars,
+    loop_days,
+    newest_version,
+)
 from atmosgw.curate.readers import read_attrs, read_netcdf
 
 # output names -> MIPAS variable names
@@ -40,7 +46,9 @@ def load(settings, inst_info, var_names):
     def find_file(day):
         date = str(datenum_to_datetime(day))[:10].replace("-", "")
         found = find_in(inst_info, f"_{date}_nom")
-        return choose_file(found, inst_info, day_label(day))
+        # several versions of a day: the newest (Q19; MATLAB takes the first)
+        return choose_file(found, inst_info, day_label(day),
+                           newest_version(VERSION_IN_NAME["MIPAS"]))
 
     def read_file(path, file_count, day):
         names = [FILE_NAMES.get(n, n) for n in var_names

@@ -66,6 +66,7 @@ Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] exact duplicate observations read once; 12 s margin at day edges
 2026/11/27 [Claude] HLOS sign convention stated, from comparison with ERA5
+2026/11/27 [Claude] files_without_data recorded; valid-flag rule in the comments
 """
 
 import math
@@ -83,7 +84,11 @@ from atmosgw.curate.obs._common import (
     note_version,
     record,
 )
-from atmosgw.curate.obs._limb_tools import conform_vars, note_estimated_pres
+from atmosgw.curate.obs._limb_tools import (
+    conform_vars,
+    note_estimated_pres,
+    record_if_empty,
+)
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import read_attrs, read_netcdf
 
@@ -115,6 +120,9 @@ def load(settings, inst_info, var_names):
     note(inst_info, "Alt", "middle of the range bin")
     note(inst_info, "Time", "each observation's own time (s since 2000-01-01)")
     note_estimated_pres(inst_info)
+    if settings.get("instrument_qc", True):
+        for key in ("HLOS", "Pres"):
+            note(inst_info, f"{key}Bad", f"observations with {prefix}_valid 0")
 
     first = math.floor(min(settings["time_range"]))
     last = math.floor(max(settings["time_range"]))
@@ -143,6 +151,7 @@ def load(settings, inst_info, var_names):
         file_list.append(path.rsplit("/", 1)[-1])
         note_version(inst_info, path, source_version(path))
         parts.append(part)
+        record_if_empty(inst_info, path, part.get("HLOS"))
     return concat_profiles(parts, var_names, consume=True), file_list
 
 

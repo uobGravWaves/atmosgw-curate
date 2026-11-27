@@ -193,7 +193,8 @@ flags and their counts in the attributes).
 
 ### Output
 
-A Dataset in the **swath** format of `data_formats.md`, version 1:
+A Dataset in the **swath** format of `data_formats.md`, version 1 (version
+2 since 2026-11-27: pressure and winds listed in `availability`):
 
 - dimensions `(along_track, cross_track, level)`; 2-D products
   `(along_track, cross_track)` or `(along_track, cross_track, channel)`;

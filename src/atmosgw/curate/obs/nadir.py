@@ -76,14 +76,16 @@ Options (type, default; MATLAB name):
   ``load_limb_sounders`` (including the warning when no granule's mean time
   lies in the requested times although nothing was missing).
 
-**Output**: a Dataset in the swath format, version 1 (see
+**Output**: a Dataset in the swath format, version 2 (see
 ``data.formats``): dimensions ``(along_track, cross_track, level)``;
 ``latitude``, ``longitude``, ``time``, ``altitude`` (level), ``temperature``
 (float32) and ``temperature_flag`` (data states); ``granule``,
 ``granule_day``, ``segment`` along track; ``distance_along`` (km from the
 start of each segment) and ``distance_cross`` on a regular grid; optional
 variables as requested. Variables that do not exist are listed in the
-``availability`` attribute (e.g. the satellite position: ``not_in_files``).
+``availability`` attribute (e.g. the satellite position and, for 3-D,
+pressure: ``not_in_files``; the winds, and for 2-D temperature and
+pressure: ``not_measured``).
 Attributes recording the load, as ``load_limb_sounders`` (``files_read``,
 ``source_versions``: AIRS and IASI files state none; ``files_not_found`` and
 ``files_without_data``, warned; ``multiple_matches``, ``options`` ...), plus
@@ -204,6 +206,7 @@ Change log
 2026/11/26 [Claude] scan widths against a nominal width, not the median loaded (Q14);
   warning when no granule lies in the requested times; docstring: cross-track axis
 2026/11/27 [Claude] sampled_from: model data sampled as the instrument labelled (SWANS)
+2026/11/27 [Claude] swath format v2: pressure and winds listed in availability
 
 """
 
@@ -216,7 +219,7 @@ import xarray as xr
 
 from atmosgw.curate import swath
 from atmosgw.curate.data import states
-from atmosgw.curate.data.formats import FORMATS
+from atmosgw.curate.data.formats import FORMATS, WIND_NAMES
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
 from atmosgw.curate.obs import _nadir_airs, _nadir_airs2d, _nadir_iasi, _screen
 from atmosgw.curate.obs._common import (
@@ -1010,6 +1013,13 @@ def _to_dataset(data, settings, call=None):
     tracked = [n for n, s in FORMATS["swath"]["variables"].items() if s.get("tracked")]
     availability = {n: ("not_in_files" if n in info["not_in_files"]
                         else "not_requested") for n in tracked if n not in ds}
+    # the measured quantities (format version 2): no winds from these
+    # instruments; the retrievals' files have no pressure; brightness
+    # temperatures (2-D) are not temperature
+    for name in ("temperature", "pressure") + WIND_NAMES:
+        if name in availability:
+            availability[name] = ("not_in_files" if name == "pressure" and three_d
+                                  else "not_measured")
     availability[f"{main}_uncertainty"] = "not_provided"
     for out in derived_outputs:
         availability[f"{out}_uncertainty"] = "not_provided"

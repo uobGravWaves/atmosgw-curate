@@ -5,12 +5,13 @@ flight, 1994-2024.
 
 Files: ``IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<version>].nc[4]``
 (departure time and a two-digit number), in ``TimeSeries/iagos_<yyyy>/``.
-Unzipped files anywhere below the folder are preferred; zip archives (on
-eepc-0184 ``IAGOS/iagos.zip``, the version used in Wright et al. (2024,
-ACP; UNVERIFIED: reference not checked here)) are the backup for flights
-not unzipped, read in memory. Copies are matched by flight (departure time
-and number), so any unzipped copy (e.g. a newer version) replaces the
-archive's.
+Files anywhere below the folder are read, unzipped or from zip archives (in
+memory; on eepc-0184 ``IAGOS/iagos.zip``, the version used in Wright et al.
+(2024, ACP; UNVERIFIED: reference not checked here)). Copies of a flight
+(same departure time and number) are ranked: newest L2 version (file name),
+then newest date in the file (``date_modified``, else ``date_created``),
+then unzipped before zip, then search order. An unzipped copy chosen over
+zip copies is silent; other choices are in ``multiple_matches``.
 
 Two generations (checked on four flights, 1998, 2010, 2019, 2023):
 
@@ -59,6 +60,7 @@ Change log:
   flights asked for; -9999.9 fill
 2026/11/27 [Claude] unzipped files preferred, the zip as backup, silently;
   copies matched by flight, not file name; newest version among copies
+2026/11/27 [Claude] copies ranked by version, then file date, then unzipped first
 """
 
 import math
@@ -102,47 +104,52 @@ def load(settings, inst_info):
     start, end = settings["time_range"]
     sources = _sources(inst_info["path"])
     # the files whose name time is within a day of the request; one copy of
-    # each flight (same departure time and number, whatever the version):
-    # unzipped files are preferred and the zip is the backup for flights not
-    # unzipped (silently: that is how the archive is meant to be used); among
-    # unzipped copies, or among zip copies (29 flights of January 2023 are in
-    # two year folders), the newest version, else the first in search order,
-    # recorded (only for the flights looked at)
+    # each flight (same departure time and number, whatever the version),
+    # ranked (decided by C. Wright, 2026-11-27): the newest L2 version (from
+    # the name); then the newest date stored in the file (date_modified, else
+    # date_created; read only for copies tied on version); then unzipped
+    # before zip; then search order. An unzipped copy chosen over zip copies
+    # is silent; other choices are recorded (only for the flights looked at)
     copies = {}
     for order, (source, member, stamp, flight, version) in enumerate(sources):
         when = datenum(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]),
                        int(stamp[8:10]), int(stamp[10:12]), int(stamp[12:14]))
         if math.floor(start) - 1 <= when <= end + 1:
             copies.setdefault(flight, []).append(
-                (source.endswith(".zip"), tuple(-v for v in version), order,
-                 when, source, member))
-    candidates = []
-    for flight, entries in copies.items():
-        entries.sort()
-        candidates.append(entries[0][3:])
-        same_kind = [e for e in entries if e[0] == entries[0][0]]
-        if len(same_kind) > 1:
-            record(inst_info)["multiple_matches"].append(
-                f"flight {flight}: {len(same_kind)} copies -> used "
-                + "/".join(entries[0][5].replace(os.sep, "/").split("/")[-2:]))
-    candidates.sort()
-    if not sources:
-        record(inst_info)["files_not_found"].append(
-            "IAGOS_timeseries files (or a zip of them)")
+                dict(version=version, zip=source.endswith(".zip"), order=order,
+                     when=when, source=source, member=member))
     flights, file_list = [], []
     archives = {}
     try:
+        candidates = []
+        for flight, entries in copies.items():
+            newest = max(e["version"] for e in entries)
+            if sum(e["version"] == newest for e in entries) > 1:
+                for e in entries:
+                    if e["version"] == newest:
+                        e["date"] = _file_date(e["source"], e["member"], archives)
+            # (versions newest first, "3.1.2" before "3.1"; none last)
+            entries.sort(key=lambda e: (tuple(-v for v in e["version"]) + (1,),
+                                        _negated(e.get("date", "")), e["zip"],
+                                        e["order"]))
+            chosen = entries[0]
+            candidates.append((chosen["when"], chosen["source"], chosen["member"]))
+            # (silent: one unzipped copy chosen over the archive's; that is how
+            # the archive is meant to be used)
+            backup_only = not chosen["zip"] and all(e["zip"] for e in entries[1:])
+            if len(entries) > 1 and not backup_only:
+                record(inst_info)["multiple_matches"].append(
+                    f"flight {flight}: {len(entries)} copies -> used "
+                    + "/".join(chosen["member"].replace(os.sep, "/").split("/")[-2:]))
+        candidates.sort()
+        if not sources:
+            record(inst_info)["files_not_found"].append(
+                "IAGOS_timeseries files (or a zip of them)")
         for k, (_, source, member) in enumerate(candidates, start=1):
             if settings["verbose"]:
                 print(f"----> Loading IAGOS flight {k} of {len(candidates)}")
             name = os.path.basename(member)
-            if source.endswith(".zip"):
-                if source not in archives:
-                    archives[source] = zipfile.ZipFile(source)
-                handle = netCDF4.Dataset(name, memory=archives[source].read(member))
-            else:
-                handle = netCDF4.Dataset(member)
-            with handle:
+            with _open(source, member, archives) as handle:
                 flight = read_flight(handle, settings)
             if flight is None or not start <= flight["start_time"] <= end:
                 continue
@@ -235,6 +242,33 @@ def read_flight(handle, settings):
                  else f"MOZAIC L2 revision {attrs.get('file_revision', '')}".strip()),
     )
     return out
+
+
+def _open(source, member, archives):
+    """An open netCDF4.Dataset of a file, or of a zip member read in memory
+    (archives: {zip path: open ZipFile}, kept open by the caller)."""
+    if source.endswith(".zip"):
+        if source not in archives:
+            archives[source] = zipfile.ZipFile(source)
+        return netCDF4.Dataset(os.path.basename(member),
+                               memory=archives[source].read(member))
+    return netCDF4.Dataset(member)
+
+
+def _file_date(source, member, archives):
+    """The date the file states (``date_modified``, else ``date_created``;
+    ISO text, "" if neither, e.g. MOZAIC-era files)."""
+    with _open(source, member, archives) as handle:
+        names = handle.ncattrs()
+        for name in ("date_modified", "date_created"):
+            if name in names:
+                return str(handle.getncattr(name))
+    return ""
+
+
+def _negated(text):
+    """Sort key putting later ISO dates first (and "" last)."""
+    return tuple(-ord(c) for c in text) + (0,) if text else (1,)
 
 
 def _sources(folder):

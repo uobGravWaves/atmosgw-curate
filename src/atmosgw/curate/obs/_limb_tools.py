@@ -5,7 +5,9 @@ Internal helpers for the limb-sounder loader (``load_limb_sounders``).
   levels] grid (port of ``module_conform_vars.m``).
 - ``loop_days``: the day loop shared by readers with one file per day.
 - ``newest_mls_version``: of several MLS files for a day, the newest version
-  (new, not in the MATLAB).
+  (new, not in the MATLAB); ``newest_version`` and ``VERSION_IN_NAME``: the
+  same for HIRDLS, SABER, SOFIE and MIPAS (Q19).
+- ``record_if_empty``: record a file with no finite main variable.
 - ``ESTIMATED_PRES``, ``note_estimated_pres``: the note recorded for pressure
   computed from height.
 
@@ -21,6 +23,7 @@ Change log:
 2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
 2026/11/25 [Claude] note_estimated_pres: files with estimated pressure recorded
 2026/11/25 [Claude] note_estimated_pres: which points is now the readers' PresEstimated
+2026/11/27 [Claude] newest_version (Q19); record_if_empty; loop_days empty_info
 """
 
 import math
@@ -96,13 +99,16 @@ def conform_vars(store, settings):
     return store
 
 
-def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
+def loop_days(settings, var_names, find_file, read_file, label, inst_info=None,
+              empty_info=None):
     """
     Day loop for readers with one file per day.
 
     For each day (an integer datenum) from floor(start) to floor(end):
     find_file(day) gives the file's path or None (skipped, and the date added
-    to ``record(inst_info)["files_not_found"]`` if inst_info is given);
+    to ``record(inst_info)["files_not_found"]`` if inst_info is given; a file
+    with no finite temperature is added to ``files_without_data`` if
+    inst_info or empty_info is given: empty_info alone records only that);
     read_file(path, file_count, day) gives that day's variables, already
     conformed. Returns (data, file_list): the days
     stacked with ``concat_profiles``, and the file names (without folders) in
@@ -124,12 +130,21 @@ def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
         for main in ("Temp", "Temp_Residual"):
             if main in day_data and np.size(day_data[main]) and not np.any(
                     np.isfinite(np.asarray(day_data[main], dtype=float))):
-                if inst_info is not None:
-                    record(inst_info).setdefault("files_without_data", []).append(
-                        os.path.basename(path))
+                if (inst_info or empty_info) is not None:
+                    record(inst_info or empty_info).setdefault(
+                        "files_without_data", []).append(os.path.basename(path))
                 break
         days.append(day_data)
     return concat_profiles(days, var_names, consume=True), file_list
+
+
+def record_if_empty(inst_info, path, main):
+    """Add path to ``files_without_data`` if main (the file's main variable,
+    as read for the request) has values but none finite."""
+    if main is not None and np.size(main) and not np.any(
+            np.isfinite(np.asarray(main, dtype=float))):
+        record(inst_info).setdefault("files_without_data", []).append(
+            os.path.basename(path))
 
 
 _MLS_VERSION = re.compile(r"_v(\d+)-(\d+)-c(\d+)_", re.IGNORECASE)
@@ -147,6 +162,30 @@ def newest_mls_version(files):
         return tuple(int(g) for g in found.groups()) if found else (-1, -1, -1)
 
     return max(files, key=version)  # (max returns the first of equal keys)
+
+
+# data versions in file names (Q19), for newest_version
+VERSION_IN_NAME = {
+    "HIRDLS": re.compile(r"_v(\d+)-(\d+)-(\d+)-c(\d+)_"),  # _v07-00-20-c01_
+    "SABER": re.compile(r"_v(\d+)\.(\d+)\.nc$"),  # _v2.0.nc
+    "MIPAS": re.compile(r"_v(\d+)\.(\d+)\.nc$"),  # _v1.40.nc
+    "SOFIE": re.compile(r"_(\d+)\.(\d+)\.nc$"),  # _01.3.nc
+}
+
+
+def newest_version(pattern):
+    """
+    A ``choose_file`` ``prefer``: of several files for a day, the one whose
+    name has the newest data version (pattern: a compiled regex whose groups
+    are the version's numbers, compared as integers, most significant first).
+    Names without a version count as oldest; of equal versions, the first in
+    search order (as MATLAB, which always takes the first: Q19).
+    """
+    def version(path):
+        found = pattern.search(os.path.basename(path))
+        return tuple(int(g) for g in found.groups()) if found else (-1,)
+
+    return lambda files: max(files, key=version)  # (first of equal keys)
 
 
 # note for pressure computed from height

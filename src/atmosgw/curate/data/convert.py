@@ -8,7 +8,8 @@ and ground-based data too.
 
 Inputs and outputs
 ------------------
-``to_profiles(ds)`` -> ``xarray.Dataset`` in the profile format, version 1.
+``to_profiles(ds)`` -> ``xarray.Dataset`` in the profile format (its current
+version; absent winds keep the input's ``availability`` reason).
 
 - Each (along_track, cross_track) point becomes a profile, in along-track
   order then cross-track (profile p = along * n_cross + cross, 0-based);
@@ -53,9 +54,10 @@ From "time_height" (``load_time_height``):
 - ``availability`` and the attributes as for swaths, with ``converted_from``
   = "time_height". A Dataset without temperature (e.g. radar winds only)
   raises ``ValueError``: the profile format requires temperature.
-- Not carried: other variables (``additional_vars`` such as ``T2_lidar``,
-  and winds), which the profile format does not define; ``session`` is an
-  extra per-profile variable.
+- Not carried: ``additional_vars`` (e.g. ``T2_lidar``), which the profile
+  format does not define, and winds (not converted yet; their
+  ``availability`` reason is kept); ``session`` is an extra per-profile
+  variable.
 
 Science
 -------

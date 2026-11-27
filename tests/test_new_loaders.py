@@ -18,7 +18,7 @@ import netCDF4
 import numpy as np
 import pytest
 
-from atmosgw.curate.data import problems, states, validate
+from atmosgw.curate.data import availability, problems, states, validate
 from atmosgw.curate.obs import (
     load_limb_sounders,
     load_nadir_sounders,
@@ -186,7 +186,7 @@ def test_aeolus_profiles_units_and_states(tmp_path):
     ds = load_limb_sounders("2019-01-10", "Aeolus", file_path=tmp_path, original_z=True,
                             additional_vars=["z_bot"])
     validate(ds, "profile")
-    assert ds.attrs["product"] == "hlos_wind" and ds.attrs["format_version"] == 2
+    assert ds.attrs["product"] == "hlos_wind" and ds.attrs["format_version"] == 3
     assert ds.attrs["aeolus_channel"] == "rayleigh"
     assert ds.sizes["profile"] == 2 and ds.sizes["level"] == 3
     assert "temperature" not in ds
@@ -449,11 +449,23 @@ def test_sonde_launch_before_midnight_belongs_to_that_day(tmp_path):
 def test_profile_format_versions_and_products(tmp_path):
     write_romex(tmp_path)
     ds = load_limb_sounders("2022-10-15", "ROMEX", file_path=tmp_path, original_z=True)
+    # version 3 tracks the winds: listed, as not measured
+    assert availability(ds, "eastward_wind") == "not_measured"
     old = ds.copy()
     old.attrs["format_version"] = 1
     validate(old, "profile")  # (version 1 Datasets are still accepted)
+    # an older Dataset without the version 3 entries is still valid as itself
+    listed = states.parse_availability(ds.attrs["availability"])
+    for name in ("eastward_wind", "northward_wind", "upward_wind"):
+        listed.pop(name)
+    older = ds.copy()
+    older.attrs.update(format_version=2,
+                       availability=states.format_availability(listed))
+    validate(older, "profile")
+    older.attrs["format_version"] = 3
+    assert any("eastward_wind" in p for p in problems(older, "profile"))
     bad = ds.copy()
-    bad.attrs["format_version"] = 3
+    bad.attrs["format_version"] = 4
     assert any("format_version" in p for p in problems(bad, "profile"))
     wind = ds.copy()
     wind.attrs["product"] = "hlos_wind"
@@ -607,7 +619,7 @@ def test_iagos_from_zip_and_folder(tmp_path):
     assert none.sizes["flight"] == 0
 
 
-def test_iagos_unzipped_preferred_zip_backup(tmp_path):
+def test_iagos_copies_zip_backup_and_versions(tmp_path):
     import zipfile
     work = tmp_path / "work"
     work.mkdir()
@@ -776,3 +788,150 @@ def test_faam_review_fixes(tmp_path):
                                file_source=True)
     assert ds.sizes["flight"] == 1
     assert ds.original_files.values[0] == "core_faam_20250709_v005_r1_c999.nc"
+
+
+# ------------------------------- versions, availability, records (2026-11-27b)
+
+
+def _iagos_copy(path, temp, version=None, modified=None):
+    """An IAGOS flight file with temperature temp (and its stated dates)."""
+    iagos_file(path)
+    with netCDF4.Dataset(path, "a") as f:
+        f["air_temp_P1"][:] = temp
+        if version is not None:
+            f.file_version = version
+        if modified is not None:
+            f.date_modified = modified
+
+
+def test_iagos_newest_version_then_date_then_unzipped(tmp_path):
+    import zipfile
+    work = tmp_path / "work"
+    work.mkdir()
+    data = tmp_path / "IAGOS"
+    unzipped = data / "TimeSeries" / "iagos_2019"
+    unzipped.mkdir(parents=True)
+    stem = "IAGOS_timeseries_2019031816400001_L2_"
+    member = f"TimeSeries/iagos_2019/{stem}3.2.0.nc4"
+    # (1) a newer version in the zip beats an older unzipped copy (recorded)
+    _iagos_copy(work / f"{stem}3.2.0.nc4", 232.0, "3.2.0")
+    with zipfile.ZipFile(data / "iagos.zip", "w") as archive:
+        archive.write(work / f"{stem}3.2.0.nc4", member)
+    _iagos_copy(unzipped / f"{stem}3.1.2.nc4", 231.0)
+    with pytest.warns(UserWarning, match="more than one"):
+        ds = load_trajectories("2019-03-18", "IAGOS", file_path=data)
+    assert ds.temperature.values[0, 0] == 232.0
+    assert "3.2.0" in ds.attrs["multiple_matches"]
+    # (2) the same version: the later date stated in the file wins, even zipped
+    (unzipped / f"{stem}3.1.2.nc4").unlink()
+    _iagos_copy(unzipped / f"{stem}3.2.0.nc4", 233.0, "3.2.0", "2023-03-03T14:37:51Z")
+    with zipfile.ZipFile(data / "iagos.zip", "w") as archive:
+        _iagos_copy(work / f"{stem}3.2.0.nc4", 234.0, "3.2.0", "2024-01-01T00:00:00Z")
+        archive.write(work / f"{stem}3.2.0.nc4", member)
+    with pytest.warns(UserWarning, match="more than one"):
+        ds = load_trajectories("2019-03-18", "IAGOS", file_path=data)
+    assert ds.temperature.values[0, 0] == 234.0
+    # (3) the same version and date: unzipped first, silently (the archive's
+    # backup)
+    with zipfile.ZipFile(data / "iagos.zip", "w") as archive:
+        _iagos_copy(work / f"{stem}3.2.0.nc4", 235.0, "3.2.0", "2023-03-03T14:37:51Z")
+        archive.write(work / f"{stem}3.2.0.nc4", member)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ds = load_trajectories("2019-03-18", "IAGOS", file_path=data)
+    assert ds.temperature.values[0, 0] == 233.0 and ds.attrs["multiple_matches"] == ""
+
+
+def test_newest_version_in_file_names(tmp_path):
+    from atmosgw.curate.obs._common import choose_file
+    from atmosgw.curate.obs._limb_tools import VERSION_IN_NAME, newest_version
+    cases = {
+        "HIRDLS": ["HIRDLS-Aura_L2_v06-00-00-c01_2007d001.he5",
+                   "HIRDLS-Aura_L2_v07-00-20-c01_2007d001.he5"],
+        "SABER": ["SABER_Temp_O3_H2O_January2007_v2.0.nc",
+                  "SABER_Temp_O3_H2O_January2007_v2.07.nc"],
+        "MIPAS": ["mipas_envisat_20070102_nom_oxf_v1.40.nc",
+                  "mipas_envisat_20070102_nom_oxf_v1.5.nc"],
+        "SOFIE": ["SOFIE_Level2_2007135_01.2.nc", "SOFIE_Level2_2007135_01.3.nc"],
+    }
+    for instrument, names in cases.items():
+        folder = tmp_path / instrument
+        (folder / "a").mkdir(parents=True)
+        (folder / "b").mkdir()
+        # the newer version is second in search order, so MATLAB would take
+        # the older one
+        paths = [str(folder / "a" / names[0]), str(folder / "b" / names[1])]
+        for path in paths:
+            open(path, "w").close()
+        info = {"path": str(folder), "record": {"multiple_matches": []}}
+        chosen = choose_file(paths, info, "day",
+                             newest_version(VERSION_IN_NAME[instrument]))
+        newest = paths[0] if instrument == "MIPAS" else paths[1]  # (1.40 > 1.5)
+        assert chosen == newest, instrument
+        assert len(info["record"]["multiple_matches"]) == 1
+        # equal (or no) versions: the first, as MATLAB
+        assert choose_file([paths[0], paths[0]], info, "day",
+                           newest_version(VERSION_IN_NAME[instrument])) == paths[0]
+
+
+def test_measured_quantities_always_listed(tmp_path):
+    from test_nadir_known import D, seconds, write_granule
+    write_granule(tmp_path / "airs", 53, seconds(53))
+    swath = load_nadir_sounders(None, "AIRS", granules=[(D, 53)],
+                                file_path=tmp_path / "airs")
+    assert swath.attrs["format_version"] == 2
+    assert availability(swath, "pressure") == "not_in_files"
+    for name in ("eastward_wind", "northward_wind", "upward_wind"):
+        assert availability(swath, name) == "not_measured"
+    write_romex(tmp_path / "romex")
+    limb = load_limb_sounders("2022-10-15", "ROMEX", file_path=tmp_path / "romex",
+                              original_z=True)
+    assert availability(limb, "upward_wind") == "not_measured"
+    write_aeolus(tmp_path / "aeolus")
+    wind = load_limb_sounders("2019-01-10", "Aeolus", file_path=tmp_path / "aeolus",
+                              original_z=True)
+    validate(wind, "profile")
+    assert wind.sizes["profile"] > 0
+    assert "instrument_flag: observations with ray_valid 0" in \
+        wind.hlos_wind.attrs["comment"]
+    assert availability(wind, "temperature") == "not_measured"
+    write_sondes(tmp_path / "sondes", n_days=2)
+    sondes = load_trajectories("2020-01-02", "DWDsondes", file_path=tmp_path / "sondes")
+    assert availability(sondes, "upward_wind") == "not_measured"
+    # an older swath (version 1, no such entries) is still valid
+    listed = states.parse_availability(swath.attrs["availability"])
+    for name in ("pressure", "eastward_wind", "northward_wind", "upward_wind"):
+        listed.pop(name)
+    old = swath.copy()
+    old.attrs.update(format_version=1, availability=states.format_availability(listed))
+    validate(old, "swath")
+
+
+def test_screening_rules_in_comments_and_empty_files_recorded(tmp_path):
+    write_romex(tmp_path / "romex")
+    ds = load_limb_sounders("2022-10-15", "ROMEX", file_path=tmp_path / "romex",
+                            original_z=True)
+    assert "instrument_flag: profiles the file marks is_bad" in \
+        ds.temperature.attrs["comment"]
+    assert "is_bad" in ds.pressure.attrs["comment"]
+    (tmp_path / "iagos").mkdir()
+    iagos_file(tmp_path / "iagos" / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4")
+    flights = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "iagos")
+    for name in ("temperature", "pressure", "eastward_wind", "northward_wind"):
+        assert "instrument_flag: validity flag 3" in flights[name].attrs["comment"]
+    # a ROMEX file whose temperatures for the day are all missing
+    with netCDF4.Dataset(tmp_path / "romex" / "romex_testrmx_100m_v1a.nc", "a") as f:
+        f["temp"][:] = np.nan
+    with pytest.warns(UserWarning):
+        empty = load_limb_sounders("2022-10-15", "ROMEX", file_path=tmp_path / "romex",
+                                   original_z=True)
+    assert "romex_testrmx_100m_v1a.nc" in empty.attrs["files_without_data"]
+    # an Aeolus month file whose winds that day are all fill values
+    folder = tmp_path / "aeolus"
+    write_aeolus(folder)
+    with netCDF4.Dataset(folder / "Aeolus_L2B_monthly_2019_01.nc", "a") as f:
+        f["ray_hlos"][:] = 32767
+    with pytest.warns(UserWarning):
+        empty = load_limb_sounders("2019-01-10", "Aeolus", file_path=folder,
+                                   original_z=True)
+    assert "Aeolus_L2B_monthly_2019_01.nc" in empty.attrs["files_without_data"]

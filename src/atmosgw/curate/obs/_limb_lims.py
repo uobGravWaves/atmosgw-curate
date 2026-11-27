@@ -43,6 +43,7 @@ Origin: new code (no MATLAB equivalent).
 Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] next day's file also read (two files start before their day)
+2026/11/27 [Claude] files_without_data recorded
 """
 
 import math
@@ -138,7 +139,8 @@ def load(settings, inst_info, var_names):
     # recorded by find_file, for requested days only
     shifted = dict(settings, time_range=(min(settings["time_range"]) - 1,
                                          max(settings["time_range"]) + 1))
-    return loop_days(shifted, var_names, find_file, read_file, "LIMS")
+    return loop_days(shifted, var_names, find_file, read_file, "LIMS",
+                     empty_info=inst_info)
 
 
 def read_lims_file(path):

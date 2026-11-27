@@ -33,9 +33,10 @@ from the files (2026-11-27, stations 01757 in 2004 and 2020 and 01303 in
   = ``AE_Start`` + ``MESSZEITPUNKT``. Where AE_Start is not a valid time
   (43 of 383,195 metadata rows) or missing, the reference time is used
   (recorded). Times are UTC (not stated in the files; against ERA5 on four
-  days of 2020, the wind differences are smallest with no time shift, or
-  within 0.01 m/s of it (2020-04-15: -30 min), and grow for shifts of 60 and
-  120 min either way). Launches are 13-76 min
+  days of 2020, the wind differences are smallest, or within 0.01 m/s of
+  the smallest, with no time shift, and grow for whole-hour shifts either
+  way; an offset of less than an hour would be implausible: C. Wright,
+  2026-11-27). Launches are 13-76 min
   before the reference time.
 - ``AE_GPM`` is geopotential height: height increments equal the
   hypsometric thickness to 0.06% at 10-40 km (2020-01-07).

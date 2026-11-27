@@ -81,8 +81,8 @@ or > 400 K below 100 km), ``instrument_flag`` (IAGOS validity flags 3 and 7
 on pressure, temperature and winds; FAAM non-zero flags; no switch to turn
 these off, but ``keep_outliers`` keeps the values) and ``bad_geolocation``
 (position out of range); removal per variable (6.3). ``origin``
-"measured". ``availability``: ``upward_wind``
-not_in_files (DWD, IAGOS), the uncertainties not_provided. Attributes: as
+"measured". ``availability``: ``upward_wind`` not_measured (DWD, IAGOS),
+the uncertainties not_provided. Attributes: as
 the other loaders (``format`` "trajectory", ``format_version``,
 ``instrument``, ``product`` "sounding" (DWD) or "flight" (IAGOS, FAAM),
 ``characterisation``, ``data`` "raw", ``preprocessing``, ``time_range``,
@@ -129,6 +129,7 @@ Change log
 ----------
 2026/11/27 [Claude] initial version (DWD radiosondes)
 2026/11/27 [Claude] IAGOS and FAAM; per-variable instrument flags; upward_wind
+2026/11/27 [Claude] upward_wind not_measured (DWD, IAGOS); flag rules in comments
 
 """
 
@@ -186,7 +187,7 @@ INSTRUMENTS = {
     "DWDsondes": {"time_range": (datenum(1990, 1, 1), _FAR),
                   "reader": _traj_dwd_sondes, "product": "sounding",
                   "variables": ("Pres", "Temp", "U", "V"),
-                  "not_in_files": ("upward_wind",),
+                  "not_in_files": (), "not_measured": ("upward_wind",),
                   "per_flight": _SONDE_TEXT,
                   "flight_times": {"reference_time": "nominal (synoptic) reference "
                                                      "time of the ascent"},
@@ -194,7 +195,7 @@ INSTRUMENTS = {
     "IAGOS": {"time_range": (datenum(1994, 8, 1), _FAR),
               "reader": _traj_iagos, "product": "flight",
               "variables": ("Pres", "Temp", "U", "V"),
-              "not_in_files": ("upward_wind",),
+              "not_in_files": (), "not_measured": ("upward_wind",),
               "per_flight": {**_AIRCRAFT_TEXT,
                              "departure_airport": "departure airport",
                              "arrival_airport": "arrival airport",
@@ -390,6 +391,7 @@ def _to_dataset(flights, file_list, settings, call):
 
     spec = FORMATS["trajectory"]["variables"]
     availability = {n: ("not_in_files" if n in info["not_in_files"]
+                        else "not_measured" if n in info.get("not_measured", ())
                         else "not_requested")
                     for n, s in spec.items() if s.get("tracked")
                     and n not in variables and n not in coords}

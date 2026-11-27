@@ -116,7 +116,7 @@ same occultations for those months. Profiles the files mark `is_bad` are
 
 **Aeolus** gives winds, not temperature: `hlos_wind` (horizontal
 line-of-sight wind, m s-1), `hlos_wind_uncertainty` and
-`line_of_sight_azimuth`, product "hlos_wind" (profile format version 2).
+`line_of_sight_azimuth`, product "hlos_wind" (profile format version 2 on).
 Most Aeolus winds lie below 18 km, the bottom of the default height scale,
 so pass your own (a warning says so):
 
@@ -247,7 +247,9 @@ ds.upward_wind                     # FAAM only
   `latitude` comment). Altitude is geopotential height. `reference_time` is
   the nominal synoptic time. `stations` takes ids or names. The files have
   no field description: meanings are inferred (`docs/data_supply.md`).
-- **IAGOS**: unzipped flight files, else the zip archive. Temperature is
+- **IAGOS**: unzipped or zipped flight files (of several copies, the
+  newest version: `docs/data_supply.md`). Winds are the files'
+  `zon_wind_AC`, `mer_wind_AC`. Temperature is
   the IAGOS package's where the flight has usable values (not all flagged
   erroneous or missing), else the aircraft's; altitude likewise GPS (none in
   MOZAIC-era files), else barometric. Pressure, temperature and wind flagged
@@ -328,12 +330,15 @@ sampled as an instrument (Sampler, or `sampled_from`).
 
 **Variables that do not exist.** Optional variables of the format that are
 not in the Dataset are listed in the `availability` attribute, with the
-reason:
+reason; absent temperature, pressure and winds are `not_measured` (e.g.
+winds from SABER or AIRS) or `not_in_files` (each loader's docstring says
+which):
 
 ```python
 availability(ds, "source_file")             # "present", or e.g. "not_requested"
 airs = load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS")
 availability(airs, "satellite_latitude")    # "not_in_files"
+availability(airs, "eastward_wind")         # "not_measured"
 ```
 
 **The record of the load**, in the attributes: `instrument`, `time_range` (as

@@ -149,7 +149,7 @@ passed through by ``ignore_non_modal`` have their own dimensions
 (``<name>_dim0`` ...), or none if they hold a single value. Missing values
 are NaN (NaT for times). With no profiles, ``profile`` has length 0.
 
-The output is in the common "profile" format, version 2
+The output is in the common "profile" format, version 3
 (``docs/design/data_formats.md``; check with ``data.validate(ds, "profile")``);
 the values are as before the format was applied. Each data variable
 (``temperature``, ``pressure``, ``temperature_residual``, ``temperature_pw``,
@@ -182,12 +182,14 @@ type (float64 from most readers; the profile format allows float32 or
 float64).
 
 Attributes of the Dataset, recording the load: ``format`` ("profile"),
-``format_version`` (2), ``product`` ("temperature"; "hlos_wind" for Aeolus),
+``format_version`` (3), ``product`` ("temperature"; "hlos_wind" for Aeolus),
 ``characterisation``
 (``<instrument>-<PRODUCT>-placeholder/0``, e.g.
 ``SABER-TEMPERATURE-placeholder/0``, ``Aeolus-HLOS_WIND-placeholder/0``,
 until the characterisation packages exist), ``availability`` (optional
-variables of the format not in the Dataset, and why), ``state_counts``
+variables of the format not in the Dataset, and why: the three winds
+``not_measured``, ALOMAR's ``not_in_files``; temperature ``not_measured``
+for Aeolus and ``not_in_files`` for PW data), ``state_counts``
 (points in each state, per variable), ``instrument``, ``data`` ("raw",
 "preprocessed" (GNSS), "planetary-wave-filtered" or "sampled"),
 ``preprocessing`` (how the files were altered before loading, or ""),
@@ -203,8 +205,8 @@ the file name, GNSS each centre's retrieval version, PW files their code
 version; a warning if the files state different versions, except GNSS),
 ``files_not_found`` (dates, SABER months, ALOMAR years or Aeolus months
 (yyyy-mm) that had no file; a warning is given, unless ``date_warning`` is
-False), ``files_without_data`` (files read that hold no temperature at all;
-warned; not recorded for LIMS, ROMEX or Aeolus)
+False), ``files_without_data`` (files read that hold no temperature, or
+Aeolus wind, at all; warned; not recorded for SABER, ALOMAR or PW files)
 and ``multiple_matches`` (each day for which more than one file matched,
 with the one used; a warning is also given). All are text, so they survive
 ``to_netcdf``.
@@ -214,13 +216,14 @@ Attributes of the variables: ``units`` and ``standard_name`` or
 ``comment`` where the values are more than read from the file (e.g.
 "estimated from height with atmosphere.height_to_pressure ..." for pressure
 from files without one, the HIRDLS geolocation correction, SOFIE's time
-units). With interpolation, ``altitude`` is the height scale, and its
-comment names the file heights the data were interpolated from.
+units, MLS and SOFIE screening; for ROMEX and Aeolus the screening rule
+after "instrument_flag:"). With interpolation, ``altitude`` is the height
+scale, and its comment names the file heights the data were interpolated
+from.
 
-Files: where more than one file matches a day, the first in search order
-is used (``readers.find_files``: sub-folders before the files beside them,
-each in name order), as in MATLAB, except for MLS, where the newest data
-version is used, as now also in MATLAB (Q8 in ``docs/quirks.md``).
+Files: of several matching a day, the newest version in the names (MLS,
+Q8; HIRDLS, SABER, SOFIE, MIPAS, Q19), else the first in search order, as
+MATLAB (``docs/data_supply.md``).
 
 MATLAB -> Python names: ``Lat`` latitude, ``Lon`` longitude, ``Time`` time,
 ``Temp`` temperature, ``Pres`` pressure, ``Alt`` altitude, ``Temp_Residual``
@@ -293,7 +296,7 @@ repository.
 Status
 ------
 Matched the MATLAB reference outputs up to 0.5.1; the later deliberate
-changes are listed in ``docs/quirks.md`` (Q9-Q18), and how the MATLAB
+changes are listed in ``docs/quirks.md`` (Q9-Q19), and how the MATLAB
 comparison allows for them in Validation. First released in 0.1.0.
 AI-ported (Claude) from the MATLAB. LIMS, ROMEX, Aeolus and the netCDF
 sampler output are new code, checked as in ``docs/validation.md``. Checked
@@ -338,6 +341,7 @@ Change log
 2026/11/26 [Claude] pchip/spline/makima: no extrapolation or bridging of gaps (Q18);
   warning when no data lie in the requested times
 2026/11/27 [Claude] LIMS, ROMEX, Aeolus (HLOS winds, profile format v2); sampled_from
+2026/11/27 [Claude] profile format v3 (winds listed); newest file version (Q19)
 
 """
 
@@ -349,7 +353,7 @@ import pandas as pd
 import xarray as xr
 
 from atmosgw.curate.data import states
-from atmosgw.curate.data.formats import FORMATS
+from atmosgw.curate.data.formats import FORMATS, WIND_NAMES
 from atmosgw.curate.geodesy import haversine
 from atmosgw.curate.matlab_compat import unwrap_rows, wrap_to_pi
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
@@ -1105,6 +1109,16 @@ def _to_dataset(data, settings, call=None):
                if s.get("tracked")]
     availability = {n: "not_requested" for n in tracked
                     if n not in variables and n not in coords}
+    # the measured quantities (format version 3): winds are measured by no
+    # limb instrument here (Aeolus gives only their line-of-sight component)
+    # except the ALOMAR lidar, whose files hold none (as load_time_height);
+    # temperature not by Aeolus; the PW files hold no temperature itself
+    for name in ("temperature",) + WIND_NAMES:
+        if name in availability:
+            in_files = ((name == "temperature" and settings["hindley_pws"])
+                        or (name in WIND_NAMES
+                            and settings["instrument_name"] == "ALOMAR"))
+            availability[name] = "not_in_files" if in_files else "not_measured"
     availability.update({f"{out}_uncertainty": "not_provided"
                          for out in _DATA_VARIABLES if out in variables
                          and f"{out}_uncertainty" not in variables})

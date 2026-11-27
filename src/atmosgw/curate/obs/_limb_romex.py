@@ -42,6 +42,7 @@ Origin: new code (no MATLAB equivalent).
 Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] altitude found to be geometric (hypsometric and ERA5 checks)
+2026/11/27 [Claude] files_without_data recorded; is_bad rule in the comments
 """
 
 import math
@@ -52,7 +53,7 @@ import numpy as np
 
 from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs._common import find_in, note, note_sources, note_version, record
-from atmosgw.curate.obs._limb_tools import conform_vars
+from atmosgw.curate.obs._limb_tools import conform_vars, record_if_empty
 from atmosgw.curate.profiles import concat_profiles
 from atmosgw.curate.readers import read_netcdf
 
@@ -68,6 +69,9 @@ def load(settings, inst_info, var_names):
     note(inst_info, "Temp", "file temp (degrees C) + 273.15")
     note(inst_info, "Lat", "lat_full, else the profile's lat")
     note(inst_info, "Lon", "lon_full, else the profile's lon")
+    if settings.get("instrument_qc", True):
+        for key in ("Temp", "Pres"):
+            note(inst_info, f"{key}Bad", "profiles the file marks is_bad")
     first = math.floor(min(settings["time_range"]))
     last = math.floor(max(settings["time_range"]))
     epoch = datenum(1970, 1, 1)
@@ -91,6 +95,7 @@ def load(settings, inst_info, var_names):
         note_version(inst_info, path, f"ROMEX {found.group(1)}" if found else "")
         parts.append(read_rows(path, rows, seconds, var_names, len(file_list),
                                settings))
+        record_if_empty(inst_info, path, parts[-1].get("Temp"))
     if no_time:
         note(inst_info, "Time", f"file t (s since 1970-01-01); profiles with t = 0 "
                                 f"are not returned ({no_time} in the files read)")
