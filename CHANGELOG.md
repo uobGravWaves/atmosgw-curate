@@ -20,7 +20,7 @@ reference outputs.
   `format_version` 2. [Claude]
 - New `obs.load_trajectories` and the "trajectory" format (flight, sample):
   in-situ measurements along a path, first the DWD high-resolution
-  radiosondes (`"DWD-sondes"`, option `stations`), each sample at its own
+  radiosondes (`"DWDsondes"`, option `stations`), each sample at its own
   drifting position. [Claude]
 - Sampler output in netCDF (as in the SWANS DYAMOND runs) is read by
   `"Sampler"` where a day has no `sampled_<datenum>.mat`. New option

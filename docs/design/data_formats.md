@@ -206,7 +206,7 @@ flight. `flight` may have length 0.
 Data variables may be float32 or float64. Required attributes: §5. A
 flight is selected by its `start_time`.
 
-DWD radiosondes (`load_trajectories(..., "DWD-sondes")`, product
+DWD radiosondes (`load_trajectories(..., "DWDsondes")`, product
 "sounding"): altitude is geopotential height; `reference_time` (flight, the
 nominal synoptic time) is added; `upward_wind` is `not_in_files`; origin
 "measured". States: `no_observation` (padding and before a variable's

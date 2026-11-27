@@ -381,7 +381,7 @@ def test_sonde_bisection_equals_full_read(tmp_path):
 
 def test_sondes_load(tmp_path):
     write_sondes(tmp_path)
-    ds = load_trajectories("2020-01-02", "DWD-sondes", file_path=tmp_path,
+    ds = load_trajectories("2020-01-02", "DWDsondes", file_path=tmp_path,
                            additional_vars=["AE_RF"], file_source=True)
     validate(ds, "trajectory")
     assert ds.sizes["flight"] == 2 and ds.sizes["sample"] == 60
@@ -408,16 +408,16 @@ def test_sondes_load(tmp_path):
 
 def test_sondes_station_position_and_filters(tmp_path):
     write_sondes(tmp_path)
-    ds = load_trajectories("2020-01-03", "DWD-sondes", file_path=tmp_path,
+    ds = load_trajectories("2020-01-03", "DWDsondes", file_path=tmp_path,
                            stations="teststadt")
     assert ds.sizes["flight"] == 2
     assert np.all(ds.latitude.values[0] == 50.0)
     assert np.all(ds.longitude.values[0] == 10.0)
     assert "(1 of 2 flights)" in ds.latitude.attrs["comment"]
-    assert load_trajectories("2020-01-03", "DWD-sondes", file_path=tmp_path,
+    assert load_trajectories("2020-01-03", "DWDsondes", file_path=tmp_path,
                              stations=1234).sizes["flight"] == 2
     with pytest.warns(UserWarning):
-        none = load_trajectories("2020-01-03", "DWD-sondes", file_path=tmp_path,
+        none = load_trajectories("2020-01-03", "DWDsondes", file_path=tmp_path,
                                  stations=["99999"])
     assert none.sizes["flight"] == 0
     assert "station 99999" in none.attrs["files_not_found"]
@@ -436,7 +436,7 @@ def test_sonde_launch_before_midnight_belongs_to_that_day(tmp_path):
     with open(meta, "a", encoding="latin-1") as f:
         f.write("  1234;2020010300;202001022245;202001030045;  10; 30000; 1000.0;  1.0;"
                 "  80.0;Radiosonde TEST;MSGRT;eor;\n")
-    ds = load_trajectories("2020-01-02", "DWD-sondes", file_path=tmp_path)
+    ds = load_trajectories("2020-01-02", "DWDsondes", file_path=tmp_path)
     assert ds.sizes["flight"] == 3
     assert str(ds.start_time.values[-1]) == "2020-01-02T22:45:00.000000"
     assert str(ds.reference_time.values[-1]) == "2020-01-03T00:00:00.000000"
@@ -462,7 +462,7 @@ def test_profile_format_versions_and_products(tmp_path):
 
 def test_trajectory_needs_a_measured_variable(tmp_path):
     write_sondes(tmp_path, n_days=2)
-    ds = load_trajectories("2020-01-02", "DWD-sondes", file_path=tmp_path)
+    ds = load_trajectories("2020-01-02", "DWDsondes", file_path=tmp_path)
     stripped = ds.drop_vars([v for v in ds.data_vars if v.split("_flag")[0] in
                              ("temperature", "pressure", "eastward_wind",
                               "northward_wind")])
@@ -501,7 +501,7 @@ def test_sondes_copies_of_a_file_read_once(tmp_path):
     for name in os.listdir(path.parent):
         (copy / name).write_bytes((path.parent / name).read_bytes()[:-2000])
     with pytest.warns(UserWarning, match="more than one"):
-        ds = load_trajectories("2020-01-02", "DWD-sondes", file_path=tmp_path,
+        ds = load_trajectories("2020-01-02", "DWDsondes", file_path=tmp_path,
                                file_source=True)
     assert ds.sizes["flight"] == 2 and ds.original_files.size == 1
     assert "used 2020" in ds.attrs["multiple_matches"]

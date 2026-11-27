@@ -7,7 +7,7 @@ its samples in path order with their own position, time and height, so
 that drift is kept. This is the "trajectory" format
 (``docs/design/data_formats.md``), version 1: it uses the variable names,
 state flags and attributes of the other formats, without a level grid.
-First instrument: the DWD high-resolution radiosondes ("DWD-sondes").
+First instrument: the DWD high-resolution radiosondes ("DWDsondes").
 
 Inputs and outputs
 ------------------
@@ -18,7 +18,9 @@ Inputs and outputs
 ``load_limb_sounders`` (numbers are refused). A flight is selected by its
 start (launch) time.
 
-``instrument``: ``"DWD-sondes"`` (any case).
+``instrument``: ``"DWDsondes"`` (any case, e.g. ``"dwdsondes"``): the DWD
+high-resolution radiosondes. Each sonde dataset gets its own name (e.g. a
+later ``"IGRAsondes"``), as the files and their meanings differ.
 
 Options (type, default):
 
@@ -94,7 +96,7 @@ reviewed by C. Wright.
 Usage
 -----
 >>> from atmosgw.curate.obs import load_trajectories  # doctest: +SKIP
->>> ds = load_trajectories("2020-01-07", "DWD-sondes",  # doctest: +SKIP
+>>> ds = load_trajectories("2020-01-07", "DWDsondes",  # doctest: +SKIP
 ...                        stations="Greifswald")
 
 Change log
@@ -137,7 +139,7 @@ from atmosgw.curate.paths import dataset_dir
 _FAR = datenum(9999, 999, 999)  # "still running"
 
 INSTRUMENTS = {
-    "DWD-sondes": {"time_range": (datenum(1990, 1, 1), _FAR),
+    "DWDsondes": {"time_range": (datenum(1990, 1, 1), _FAR),
                    "reader": _traj_dwd_sondes, "product": "sounding",
                    "not_in_files": ("upward_wind",)},
 }

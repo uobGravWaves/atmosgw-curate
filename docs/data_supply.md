@@ -273,7 +273,7 @@ output, as in the SWANS DYAMOND runs (e.g.
 
 ### Trajectories (`load_trajectories`)
 
-**DWD high-resolution radiosondes** (`DWD-sondes`, folder `sondes`)
+**DWD high-resolution radiosondes** (`DWDsondes`, folder `sondes`)
 
 - Files: as unzipped from the DWD CDC (`.../radiosondes/high_resolution/
   historical/<yyyy>/`): `produkt_sec_aero_yyyymmdd_yyyymmdd_<station>.txt`
