@@ -55,10 +55,10 @@ ds = load_limb_sounders(["2007-01-01", "2007-01-03"], "SABER")                # 
 ds = load_limb_sounders(["2007-01-01T06:00", "2007-01-01T12:00"], "SABER")    # six hours
 ```
 
-Profiles (limb) and granules (nadir) are selected by their mean time, so
-they are never split; time-height rows are selected by their own time;
-trajectories (flights) by their start time, so a flight is never split
-either (a radiosonde launched at 23:45 belongs to that day).
+Nothing is ever split across a request. Profiles (limb) and granules
+(nadir) are selected by their mean time, time-height rows by their own
+time, and flights by their start time (a radiosonde launched at 23:45
+belongs to that day).
 MATLAB datenums are refused: convert them with
 `atmosgw.curate.matlab_time.datenum_to_datetime`. Dates must exist:
 "2022-01-34" is an error (MATLAB would carry it over to 3 February).
@@ -104,37 +104,38 @@ Output dimensions are `profile` and `level` (and `mode` for
 was read or estimated from height. `additional_vars=["name", ...]` adds
 other file variables.
 
-**LIMS** is the one instrument accepting dates before 1979 (from
-1978-10-25). It reads the previous and next day's files too (a file holds complete
-orbits, so it runs into the next day; two start before their own day).
-Each profile has the position of its 30 km tangent point at every level.
-Geopotential height is `additional_vars=["geo_heights"]`.
+**LIMS** is the one instrument that accepts dates before 1979 (from
+1978-10-25). A file holds complete orbits, so it runs into the next day
+(and two start before their own), and the neighbouring days' files are
+read too. Each profile takes the position of its 30 km tangent point at
+every level. Geopotential height is `additional_vars=["geo_heights"]`.
 
-**ROMEX** is a separate instrument from `"GNSS"`, which holds many of the
-same occultations for those months. Profiles the files mark `is_bad` are
+**ROMEX** is kept apart from `"GNSS"`, which holds many of the same
+occultations for those months. Profiles the files mark `is_bad` are
 `instrument_flag` (kept with `instrument_qc=False`). A day takes about 20 s.
 
 **Aeolus** gives winds, not temperature: `hlos_wind` (horizontal
 line-of-sight wind, m s-1), `hlos_wind_uncertainty` and
-`line_of_sight_azimuth`, product "hlos_wind" (profile format version 2 on).
-Most Aeolus winds lie below 18 km, the bottom of the default height scale,
-so pass your own (a warning says so):
+`line_of_sight_azimuth`, as the product "hlos_wind". Most Aeolus winds lie
+below 18 km, the bottom of the default height scale (a warning says so),
+so pass your own:
 
 ```python
 ds = load_limb_sounders("2019-01-07", "Aeolus", height_scale=np.arange(0, 25.5, 0.5))
 ds = load_limb_sounders("2019-01-07", "Aeolus", aeolus_channel="mie", original_z=True)
 ```
 
-`aeolus_channel` is "rayleigh" (Rayleigh-clear, default) or "mie"
+`aeolus_channel` is "rayleigh" (Rayleigh-clear, the default) or "mie"
 (Mie-cloudy; which type is which is inferred from the files, UNVERIFIED).
-Profiles are rebuilt from the files' observations, approximately (a
-heuristic: `help(atmosgw.curate.obs._limb_aeolus)`); each level keeps its own time
-and position. The HLOS sign is in `hlos_wind`'s `sign_convention`.
+The files hold single observations, so profiles are rebuilt from them by a
+heuristic (`help(atmosgw.curate.obs._limb_aeolus)`) and are approximate;
+each level keeps its own time and position. The sign of HLOS is stated in
+`hlos_wind`'s `sign_convention` attribute.
 
 **Model data sampled as an instrument** (e.g. the SWANS DYAMOND runs):
-`sample_path` points at the sampler output; `sampled_from` names the model
-(else "a model (not named)"). Such output has `data` "sampled", the
-attribute `sampled_from`, and `derived` values:
+`sample_path` points at the sampler output and `sampled_from` names the
+model (if omitted, "a model (not named)"). The output has `data` "sampled",
+the attribute `sampled_from`, and `derived` values:
 
 ```python
 ds = load_limb_sounders("2020-01-20", "Sampler", sampled_from="DYAMOND GEOS 3 km",
@@ -224,9 +225,9 @@ height). A whole archive is about 1.7 GB per variable.
 Instruments (any case): `"DWDsondes"` (the DWD high-resolution
 radiosondes, 1990-2024; other sonde datasets will get names of their own),
 `"IAGOS"` (in-service aircraft, IAGOS and MOZAIC, 1994-2024) and `"FAAM"`
-(the FAAM research aircraft, core data). Each flight (an ascent, a flight)
-is a row; its samples are in path order, each with its own position, time
-and height, padded with NaN to the longest flight.
+(the FAAM research aircraft, core data). Each flight, or ascent, is a row.
+Its samples are in path order, each with its own position, time and
+height, and rows are padded with NaN to the longest flight.
 
 ```python
 ds = load_trajectories("2020-01-07", "DWDsondes")                # every station
@@ -242,28 +243,31 @@ ds = load_trajectories("2025-07-09", "FAAM", sample_rate="full") # 32 Hz
 ds.upward_wind                     # FAAM only
 ```
 
-- **DWDsondes**: positions drift with the balloon; the early years' files
-  give none, so the station's position is used (recorded in the
-  `latitude` comment). Altitude is geopotential height. `reference_time` is
-  the nominal synoptic time. `stations` takes ids or names. The files have
-  no field description: meanings are inferred (`docs/data_supply.md`).
-- **IAGOS**: unzipped or zipped flight files (of several copies, the
-  newest version: `docs/data_supply.md`). Winds are the files'
-  `zon_wind_AC`, `mer_wind_AC`. Temperature is
-  the IAGOS package's where the flight has usable values (not all flagged
-  erroneous or missing), else the aircraft's; altitude likewise GPS (none in
-  MOZAIC-era files), else barometric. Pressure, temperature and wind flagged
-  erroneous (3) or missing (7) are `instrument_flag`; "limited" and "not
-  validated" are kept; position and altitude flags are not applied.
-- **FAAM**: `sample_rate="1hz"` (default): each second's mean of its
-  unflagged 32 Hz samples (`instrument_flag` if none); `"full"`: every
-  sample, flagged ones `instrument_flag` (extras at 20 or 64 Hz need
-  `"1hz"`). A flagged position has no value. The newest copy of a flight
-  (core version, then revision) is read. Altitude is GPS-inertial; temperature the deiced sensor
-  (`TAT_DI_R`).
+- **DWDsondes**: positions drift with the balloon. The early years' files
+  give none, so the station's position is used (recorded in the `latitude`
+  comment). Altitude is geopotential height, and `reference_time` is the
+  nominal synoptic time. `stations` takes ids or names. The files come with
+  no field description, so the meanings are inferred
+  (`docs/data_supply.md`).
+- **IAGOS**: flight files, unzipped or in the zip archive; of several
+  copies of a flight, the newest version (`docs/data_supply.md`).
+  Temperature is the IAGOS package's where the flight has usable values
+  (not all flagged erroneous or missing), else the aircraft's. Altitude is
+  GPS on the same terms (MOZAIC-era files have none), else barometric.
+  Winds are the files' `zon_wind_AC` and `mer_wind_AC`. Pressure,
+  temperature and winds flagged erroneous (3) or missing (7) are
+  `instrument_flag`; "limited" and "not validated" values are kept, and
+  position and altitude flags are not applied.
+- **FAAM**: with `sample_rate="1hz"` (the default) each second is the mean
+  of its unflagged 32 Hz samples (`instrument_flag` if it has none); with
+  `"full"` every sample is returned, flagged ones as `instrument_flag`
+  (extras at 20 or 64 Hz need `"1hz"`). A flagged position has no value.
+  Of several copies of a flight, the newest is read (core version, then
+  revision). Altitude is GPS-inertial, and temperature is from the deiced
+  sensor (`TAT_DI_R`).
 
-Every data variable is as measured (`origin` "measured").
-`help(atmosgw.curate.obs._traj_dwd_sondes)` (and `_traj_iagos`,
+Every data variable is as measured (`origin` "measured"). The readers'
+docstrings (`help(atmosgw.curate.obs._traj_dwd_sondes)`, `_traj_iagos`,
 `_traj_faam`) say how each file field is used and what was checked.
 
 ## What comes back: formats, states and attributes
@@ -303,24 +307,24 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `instrument_flag` | NaN | failed the provider's own screening (below) |
 | `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
 
-Of the providers' own quality screening, these are applied as
-`instrument_flag`: MLS's (its data quality documents' temperature rules),
-SOFIE's endorsed heights (15-88 km), ROMEX's `is_bad`, Aeolus's `valid`
-flag, IAGOS's validity flags 3 and 7, and FAAM's flags. HIRDLS values
-dominated by the a priori are marked `a_priori_dominated` but kept. In
-`load_limb_sounders`, `instrument_qc=False` switches all of this off;
-`load_trajectories` has no such switch (IAGOS and FAAM flags are always
-applied). For the other instruments, request their quality fields with
+Some of the providers' own quality screening is applied, as
+`instrument_flag`: MLS's temperature rules (from its data quality
+documents), SOFIE's endorsed heights (15-88 km), ROMEX's `is_bad`, Aeolus's
+`valid` flag, IAGOS's validity flags 3 and 7, and FAAM's flags. HIRDLS
+values dominated by the a priori are marked `a_priori_dominated` but kept.
+In `load_limb_sounders`, `instrument_qc=False` switches all of this off;
+`load_trajectories` has no such switch, so IAGOS and FAAM flags are always
+applied. For the other instruments, request their quality fields with
 `additional_vars` and screen as the product's documentation says.
 
 The same rules hold in every format (`docs/design/data_formats.md` section
 6.3). A point removed as bad is removed in every data variable at that
-point (trajectories: only in the failed sensor's variable, unless the
-position is bad). The value states (`derived`, `extrapolated`) are only on
-values that exist. To judge coverage, use `missing` and `no_observation`
-together, not `no_observation` alone. With `keep_outliers=True` (every
-loader) the values removed as bad are kept and their states still set.
-The full list is `states.STATES`.
+point; in trajectories, only in the failed sensor's variable, unless the
+position itself is bad. The value states (`derived`, `extrapolated`) are
+set only on values that exist. To judge coverage, use `missing` and
+`no_observation` together, not `no_observation` alone. With
+`keep_outliers=True` (every loader) the values removed as bad are kept,
+with their states still set. The full list is `states.STATES`.
 
 **Not raw data.** `ds.attrs["data"]` is "preprocessed" when the files were
 altered before loading, and `ds.attrs["preprocessing"]` says how. This
@@ -330,9 +334,9 @@ sampled as an instrument (Sampler, or `sampled_from`).
 
 **Variables that do not exist.** Optional variables of the format that are
 not in the Dataset are listed in the `availability` attribute, with the
-reason; absent temperature, pressure and winds are `not_measured` (e.g.
-winds from SABER or AIRS) or `not_in_files` (each loader's docstring says
-which):
+reason. Temperature, pressure and the winds are always accounted for:
+where absent they are `not_measured` (e.g. winds from SABER or AIRS) or
+`not_in_files`, as each loader's docstring says:
 
 ```python
 availability(ds, "source_file")             # "present", or e.g. "not_requested"
@@ -344,10 +348,12 @@ availability(airs, "eastward_wind")         # "not_measured"
 **The record of the load**, in the attributes: `instrument`, `time_range` (as
 expanded), `options` (the call's arguments, JSON), `files_read`,
 `files_not_found` (warned), `files_without_data` (files that hold no
-values of the main variable; warned), `multiple_matches` (each day, file,
-flight or revision with more than one candidate, and the one used), `source_versions` (the data versions the files
-state, with counts; with `file_source`, `original_file_version` per file),
-`atmosgw_curate_version`, and per variable `source_variable` and `comment`. All are text, so they survive saving.
+values of the main variable; warned), `multiple_matches` (each day, file
+or flight with more than one candidate, and the one used),
+`source_versions` (the data versions the files state, with counts; with
+`file_source`, `original_file_version` per file), `atmosgw_curate_version`,
+and per variable `source_variable` and `comment`. All are text, so they
+survive saving.
 
 ## Swaths and time-height series as profiles
 
@@ -417,5 +423,6 @@ folder).
   for all). JPL profiles have no per-level positions (their profile
   position is used at every level) and hour-rounded times (the occultation
   id's time is used). See Q9-Q11 in `docs/quirks.md`.
-- The newer readers' data oddities and gaps (left as distributed) are in
-  `docs/data_supply.md`; their open questions in their docstrings.
+- The newer readers leave the data as distributed: known oddities and gaps
+  are listed in `docs/data_supply.md`, and open questions in the readers'
+  docstrings.

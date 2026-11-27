@@ -110,71 +110,83 @@ session.
 
 ## New readers: LIMS, ROMEX, Aeolus, sampled data, trajectories
 
-New code (2026-11-27), no MATLAB counterpart. Checked on eepc-0184 with the
-package's interpreter (scripts not in the repository). ERA5 here is 1.5
-degrees, 3-hourly, so its differences test units, signs, time bases and
-gross errors, not accuracy.
+These readers are new code (2026-11-27) with no MATLAB counterpart, so they
+were checked against their own files and against other data, on eepc-0184
+with the package's interpreter (the scripts are not in the repository).
+The ERA5 used here is 1.5 degrees and 3-hourly, so its comparisons test
+units, signs, time bases and gross errors, not accuracy.
 
-- **Tests:** `tests/test_new_loaders.py` (synthetic files with known
-  answers; the LIMS User's Guide example where present).
-- **Existing instruments unchanged:** ten limb cases (SABER, HIRDLS, MLS,
-  GNSS, ACE, MIPAS 2007-01-01; SOFIE 2007-06-01; ALOMAR 2017-01-10; SABER
-  `original_z` with file sources; HIRDLS planetary waves; MIPAS returned no
-  profiles) and a SWANS AIRS day: bit-identical except `format_version`
-  (profile) and the new `options` keys.
-- **Two days equal the two single days** (nothing lost or doubled at
-  midnight or a file start): LIMS 1978-11-08/09, 1979-03-26/27; ROMEX
-  2022-10-14/15; Aeolus 2019-01-04/05, 01-07/08 (Mie); DWDsondes
-  2020-01-07/08, 2004-12-31/2005-01-01; IAGOS 2019-03-18/19; FAAM
-  2025-07-10/11.
-- **Censuses:** LIMS, all 201 files (214 days): each of the 630,053 scans
-  once. ROMEX, every day 2022-09 to 11: 3,126,854 profiles returned, every
-  file profile with a time. Aeolus, the 15th of each month 2020-02 to
-  2023-04: every load passes `validate` (2022-10 and 11 empty: data gap,
-  warned). DWD:
-  all 409 product files in reference-time order, as the bisection assumes.
-- **Saving:** `to_netcdf`/`load_netcdf` round trips: identical unpacked,
-  within the packing resolution packed.
-- **Heights (hypsometric):** LIMS `zt_std` and ROMEX `altitude` geometric,
-  LIMS `geo_heights` (0.04%) and DWD heights (0.06%) geopotential.
-- **ROMEX against merged GNSS** (2022-10-15, matched within 1 min, ~1
-  degree; 8 missions with over 100 matches): median difference at 18-40 km
-  -0.26 to +0.08 K, median |difference| 0.3-0.9 K.
+- **Tests:** `tests/test_new_loaders.py`: synthetic files with known
+  answers, and the LIMS User's Guide example where the file is present.
+- **Existing instruments are unchanged.** Ten limb cases (SABER, HIRDLS,
+  MLS, GNSS, ACE and MIPAS on 2007-01-01; SOFIE 2007-06-01; ALOMAR
+  2017-01-10; SABER with `original_z` and file sources; HIRDLS planetary
+  waves) and a SWANS AIRS day are bit-identical apart from `format_version`
+  (profile) and the new `options` keys. (MIPAS returned no profiles.)
+- **Two days together equal the two single days**, with nothing lost or
+  doubled at midnight or at the start of a file: LIMS 1978-11-08/09 and
+  1979-03-26/27; ROMEX 2022-10-14/15; Aeolus 2019-01-04/05 and, for Mie,
+  01-07/08; DWDsondes 2020-01-07/08 and 2004-12-31/2005-01-01; IAGOS
+  2019-03-18/19; FAAM 2025-07-10/11.
+- **Censuses:**
+  - LIMS, all 201 files (214 days): each of the 630,053 scans is returned
+    once.
+  - ROMEX, every day of 2022-09 to 11: 3,126,854 profiles, every file
+    profile that has a time.
+  - Aeolus, the 15th of each month 2020-02 to 2023-04: every load passes
+    `validate` (2022-10 and 11 are empty, a gap in the data, with a
+    warning).
+  - DWD: all 409 product files are in reference-time order, as the
+    reader's bisection assumes.
+- **Saving:** `to_netcdf`/`load_netcdf` round trips are identical unpacked,
+  and within the packing resolution packed.
+- **Heights**, by the hypsometric equation: LIMS `zt_std` and ROMEX
+  `altitude` are geometric; LIMS `geo_heights` (to 0.04%) and DWD heights
+  (to 0.06%) are geopotential.
+- **ROMEX against the merged GNSS files** (2022-10-15; occultations matched
+  within 1 min and about 1 degree; the 8 missions with over 100 matches):
+  median difference at 18-40 km -0.26 to +0.08 K, median |difference|
+  0.3-0.9 K.
 - **SWANS:** the 5,552 sampled HIRDLS profiles of 2020-01-20 have the times
-  of day of the real 2007-01-20 profiles, positions within 0.06 degrees
-  latitude, 0.14 longitude (95%).
-- **Against ERA5** (linear in time, bilinear in position, linear in log p,
-  or in height for Aeolus):
-  - Aeolus HLOS, 2019-01-07, 2020-07-01, 2022-06-01, both channels, 2-20
-    km: with -u sin(az) - v cos(az), correlation 0.81-0.98, slope
-    0.99-1.02; with the other sign, -0.81 to -0.98.
-  - DWD sondes, 2020-01-07, 01-08, 04-15, 07-15, 2004-01-01: temperature
-    within 0.2 K (mean), wind slope 1.00-1.05. Time shifts of ±30-120 min
-    (2020 days): wind RMS smallest, or within 0.01 m/s of it, unshifted,
-    and larger for whole-hour shifts: times are UTC (a sub-hour offset
-    would be implausible).
-  - ROMEX, 2022-10-15, each mission 10-50 km: mean -1.0 to +0.5 K, slope
-    0.97-1.07; COSMIC-2 heights as geometric match ERA5's within 30-70 m.
-  - IAGOS, 1998-02-27, 2010-12-04, 2019-03-18, 2023-11-15, above 400 hPa:
-    0.4-0.7 K warmer (2023: -0.1 K), wind slope 1.01-1.03.
-  - FAAM, 2025-07-09, 07-15, 07-20: 0.2-0.65 K warmer; u slope 1.04-1.4,
-    v correlation 0.45-0.93 (weak winds against a 1.5-degree grid).
-- **Not covered:** Aeolus profile rebuilding against L2B profiles (not
-  held; the Aeolus `.mat` files don't match observation by observation);
-  LIMS against independent data; other dates.
-- **Two independent code reviews** found sonde flights doubled by older
-  copies in `sondes/1995/`, LIMS profiles lost where a file starts before
-  its day, duplicate Aeolus observations, IAGOS flights losing temperature
-  when the package values are all flagged, misplaced FAAM 20/64 Hz extras at
-  full rate, and spurious IAGOS duplicate warnings: all fixed, with tests.
-- **Found in the data** (ROMEX above 330 K, IAGOS 173.16 K): see
-  `docs/data_supply.md`; not screened.
-- **Later the same day** (profile format 3, swath 2, Q19, IAGOS copy
-  ranking, screening comments, `files_without_data`): 23 real-data outputs
-  (every loader, `to_profiles`, the new readers) old against new: every
-  variable bit-identical; only `format_version`, `availability` (incl.
-  DWD/IAGOS `upward_wind` now `not_measured`) and the new comments differ.
-  ERA5 comparison rerun: unchanged.
+  of day of the real 2007-01-20 profiles, and positions within 0.06
+  degrees of latitude and 0.14 of longitude (95%).
+- **Against ERA5**, sampled linearly in time, bilinearly in position and
+  linearly in log pressure (in height for Aeolus):
+  - Aeolus HLOS (2019-01-07, 2020-07-01, 2022-06-01; both channels; 2-20
+    km): with -u sin(az) - v cos(az), correlation 0.81-0.98 and slope
+    0.99-1.02; with the other sign, correlation -0.81 to -0.98.
+  - DWD sondes (2020-01-07, 01-08, 04-15, 07-15 and 2004-01-01):
+    temperature within 0.2 K in the mean, wind slope 1.00-1.05. With the
+    times shifted by 30 to 120 min either way (2020 days), the wind RMS is
+    smallest, or within 0.01 m/s of the smallest, with no shift, and larger
+    for every whole-hour shift. The times are therefore UTC, an offset of
+    less than an hour being implausible.
+  - ROMEX (2022-10-15; each mission, 10-50 km): mean difference -1.0 to
+    +0.5 K, slope 0.97-1.07. COSMIC-2 heights, taken as geometric, match
+    ERA5's within 30-70 m.
+  - IAGOS (1998-02-27, 2010-12-04, 2019-03-18, 2023-11-15; above 400 hPa):
+    0.4-0.7 K warmer than ERA5 (2023: -0.1 K), wind slope 1.01-1.03.
+  - FAAM (2025-07-09, 07-15, 07-20): 0.2-0.65 K warmer; u slope 1.04-1.4
+    and v correlation 0.45-0.93 (weak winds against a 1.5-degree grid).
+- **Not covered:** the Aeolus profile rebuilding against the L2B product's
+  own profiles (not held; the Aeolus `.mat` files do not match observation
+  by observation); LIMS against independent data; other dates.
+- **Code reviews.** Two independent reviews found sonde flights doubled by
+  older copies in `sondes/1995/`, LIMS profiles lost where a file starts
+  before its day, duplicate Aeolus observations, IAGOS flights losing their
+  temperature when every package value is flagged, FAAM extras at 20 or 64
+  Hz misplaced at full rate, and spurious IAGOS duplicate warnings. All
+  were fixed, with tests.
+- **Found in the data, and not screened:** ROMEX profiles above 330 K and
+  IAGOS samples of exactly 173.16 K (`docs/data_supply.md`).
+- **Later the same day** the formats (profile 3, swath 2), the choice
+  between copies of a file (Q19, IAGOS, FAAM), the screening comments and
+  `files_without_data` changed. Twenty-three real-data outputs (every
+  loader, `to_profiles` and the new readers) were compared old against new:
+  every variable is bit-identical, and only `format_version`,
+  `availability` (including DWD and IAGOS `upward_wind`, now
+  `not_measured`) and the new comments differ. The ERA5 comparison, rerun,
+  is unchanged.
 
 ## Changes since the MATLAB comparisons
 

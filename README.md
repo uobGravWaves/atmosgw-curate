@@ -2,15 +2,15 @@
 
 Python tools that load observations of atmospheric gravity waves, from
 satellites, ground-based instruments, radiosondes and aircraft, into common
-documented formats.
-Each value records why it is missing or how it was obtained, and each
-Dataset records how it was loaded. Much of the loading code is ported from
-the group's MATLAB code and checked against it; the rest is new code, checked
-against other data (`docs/validation.md`). Wave analysis (a general
-detrender, Stockwell wrappers) is planned but not yet here.
+documented formats. Each value records why it is missing or how it was
+obtained, and each Dataset records how it was loaded. Much of the loading
+code is ported from the group's MATLAB code and checked against it; the
+rest is new code, checked against other data (`docs/validation.md`). Wave
+analysis (a general detrender, Stockwell wrappers) is planned but not yet
+here.
 
-Status: pre-alpha (0.x). The data formats are proposals (profile version
-3, swath 2, time_height and trajectory 1).
+Status: pre-alpha (0.x). The data formats are proposals: profile version
+3, swath version 2, time_height and trajectory version 1.
 
 ## Quick start
 
@@ -65,10 +65,9 @@ geometry, file readers) are described in their own docstrings:
 releases fix problems found in review that the MATLAB loaders share (ACE and
 GNSS pressure units, GNSS times and repeated occultations, box selection,
 bad points blended by interpolation, nadir positions and spacing, MLS
-screening, HIRDLS and SOFIE quality marks, pchip/spline/makima, newest
-file version: Q9-Q19 in
-[`docs/quirks.md`](docs/quirks.md)); to reproduce a MATLAB-era result,
-install 0.5.1.
+screening, HIRDLS and SOFIE quality marks, pchip/spline/makima, the choice
+between file versions: Q9-Q19 in [`docs/quirks.md`](docs/quirks.md)); to
+reproduce a MATLAB-era result, install 0.5.1.
 
 In brief; [`docs/validation.md`](docs/validation.md) has the full record,
 with versions, dates and what was not covered.
@@ -87,9 +86,10 @@ with versions, dates and what was not covered.
   times), not the public Dataset.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
-- The newer readers (LIMS, ROMEX, Aeolus, `load_trajectories`; not yet
-  released): synthetic known-answer tests, whole-archive censuses, and
-  comparisons with ERA5 and the merged GNSS files.
+- The newer readers (LIMS, ROMEX, Aeolus and `load_trajectories`; not yet
+  released) have no MATLAB counterpart. They are checked by known-answer
+  tests on synthetic files, censuses of whole archives, and comparisons
+  with ERA5 and the merged GNSS files.
 - Data states and the other metadata have no MATLAB counterpart. They are
   checked against shared rules by tests, and are still being reviewed.
 - Deliberate scientific changes from MATLAB (Q1-Q8) are listed with their
@@ -142,8 +142,8 @@ read (with units and fill values) and where the files come from.
 | FAAM | core data, one netCDF per flight (v005) | `core_faam_yyyymmdd_v005_r<rev>_<flight>.nc` |
 | SWANS (model) | sampler netCDF output; AIRS granule layout | `<INST>-dyamond_<model>-yyyydddd.nc`; as AIRS 3-D |
 
-Of several files for a day, most loaders take the newest version in the
-names (`docs/data_supply.md`, "Where the loaders look").
+Where several files match a day, most loaders take the newest version in
+the file names (`docs/data_supply.md`, "Where the loaders look").
 
 Loaders find instrument data under a data root folder, set once per machine
 by either:

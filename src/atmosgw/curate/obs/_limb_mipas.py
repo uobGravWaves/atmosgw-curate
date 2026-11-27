@@ -4,8 +4,9 @@ Limb-sounder reader for MIPAS (Oxford retrieval, netCDF from CEDA). Port of
 
 Files: one per day, the file below the MIPAS folder whose path contains
 ``_<yyyy><mm><dd>_nom`` (of several, the newest version in the name, e.g.
-``_v1.40.nc``, else the first: Q19). Variables are read as ``rCDF`` reads them (see
-``readers.read_netcdf``): float64, with ``_FillValue`` (-999) as NaN.
+``_v1.40.nc``, else the first: Q19). Variables are read as ``rCDF`` reads
+them (see ``readers.read_netcdf``): float64, with ``_FillValue`` (-999) as
+NaN.
 Temperature ``TEM``, pressure ``PRE`` and height ``hgt`` are [profiles x
 levels]; ``latitude``, ``longitude`` and ``time`` (hours since the start of
 the file's day) are per profile.

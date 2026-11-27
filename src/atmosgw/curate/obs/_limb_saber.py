@@ -5,8 +5,8 @@ commit 78eef78).
 
 Files: one per month, the file below the SABER folder whose path contains
 ``<Month><yyyy>`` (e.g. ``January2007``, any case; of several, the newest
-version in the name, e.g. ``_v2.0.nc``, else the first: Q19). Variables are read as
-``rCDF`` reads them (see ``readers.read_netcdf``): float64, with
+version in the name, e.g. ``_v2.0.nc``, else the first: Q19). Variables
+are read as ``rCDF`` reads them (see ``readers.read_netcdf``): float64, with
 ``missing_value`` (-999) as NaN. Each event (profile) has a date ``date``
 (yyyyddd) and, at each level, ``time`` in ms since midnight of that date
 (it can exceed a day for orbits crossing midnight).

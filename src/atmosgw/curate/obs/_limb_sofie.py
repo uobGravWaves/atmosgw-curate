@@ -4,8 +4,9 @@ Limb-sounder reader for SOFIE (GATS Level 2 netCDF files). Port of
 
 Files: one per day, the file below the SOFIE folder whose path contains
 ``Level2_<yyyy><ddd>`` (of several, the newest version in the name, e.g.
-``_01.3.nc``, else the first: Q19). Variables are read as ``rCDF`` reads them (see
-``readers.read_netcdf``): float64, with ``missing_value`` (-1e24) as NaN.
+``_01.3.nc``, else the first: Q19). Variables are read as ``rCDF`` reads
+them (see ``readers.read_netcdf``): float64, with ``missing_value``
+(-1e24) as NaN.
 ``Temperature`` and ``Pressure`` are [events x altitudes]; ``Altitude`` is one
 set of levels for all events; positions are those at 83 km
 (``Latitude_83km``, ``Longitude_83km``). ``Time_UT`` is in hours since the
