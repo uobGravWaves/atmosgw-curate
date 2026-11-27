@@ -67,9 +67,11 @@ Change log:
 2026/11/27 [Claude] exact duplicate observations read once; 12 s margin at day edges
 2026/11/27 [Claude] HLOS sign convention stated, from comparison with ERA5
 2026/11/27 [Claude] files_without_data recorded; valid-flag rule in the comments
+2026/11/27 [Claude] file names taken with os.path.basename (Windows paths)
 """
 
 import math
+import os
 import re
 
 import numpy as np
@@ -148,7 +150,7 @@ def load(settings, inst_info, var_names):
                           len(file_list) + 1, settings)
         if np.shape(part["Lat"])[0] == 0 and (year, mon) not in requested:
             continue  # (the previous month's file holds none of these days)
-        file_list.append(path.rsplit("/", 1)[-1])
+        file_list.append(os.path.basename(path))
         note_version(inst_info, path, source_version(path))
         parts.append(part)
         record_if_empty(inst_info, path, part.get("HLOS"))
