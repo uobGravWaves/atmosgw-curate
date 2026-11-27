@@ -16,8 +16,8 @@ Port the MATLAB `prep_airs_3d` (corwin365/MatlabFunctions,
 as `atmosgw.curate.obs.load_nadir_sounders`: load nadir-sounder swaths and
 return them in a common format, on a regular grid by default.
 
-- **Instruments now:** AIRS and IASI.
-- **Instruments later**, without changing the core: CrIS, IASI-NG and similar
+- **Instruments now:** AIRS and IASI; CrIS (2-D, since 2026-11-27).
+- **Instruments later**, without changing the core: IASI-NG and similar
   cross-track scanners.
 - **Products:** 3-D (retrieved temperature on levels) and 2-D (a single layer,
   e.g. brightness temperature in one or more channels). The core handles both
@@ -72,7 +72,7 @@ What this asks of a loader, and how this design answers it:
 |---|---|---|
 | Public loader | `obs.load_limb_sounders` | `obs.load_nadir_sounders` |
 | Step-by-step core (MATLAB names, compared with MATLAB) | `obs/limb.py: _load_limb_arrays` | `obs/nadir.py: _load_nadir_arrays` |
-| Instrument readers | `obs/_limb_<inst>.py` | `obs/_nadir_airs.py`, `obs/_nadir_iasi.py`; later `_nadir_cris.py`, `_nadir_iasing.py` |
+| Instrument readers | `obs/_limb_<inst>.py` | `obs/_nadir_airs.py`, `obs/_nadir_airs2d.py`, `obs/_nadir_iasi.py`, `obs/_nadir_cris.py`; later `_nadir_iasing.py` |
 | Load-time helpers | `obs/_limb_tools.py` | `obs/_common.py`, shared by both |
 | Array maths | `profiles.py` | `profiles.py` (vertical interpolation, unchanged) + new `swath.py` |
 | Formats and flags | (implicit) | `data/formats.py`, `data/flags.py`, `data.validate` |
@@ -141,8 +141,12 @@ As `INSTRUMENTS` in `limb.py`, one entry per instrument:
 
 Adding an instrument means one registry entry, one reader and one
 `datasets.toml` entry. The only constraint on a reader is that it delivers a
-rectangular cross x along grid (CrIS's 3 x 3 fields of view per field of
-regard must be laid out as rows and columns by its reader).
+rectangular cross x along grid. CrIS's reader lays each field of regard's 3
+x 3 fields of view out as rows and columns (the index layout); as that
+pattern rotates towards the swath edges, CrIS is regridded from the
+footprints' own positions (`swath.regrid_footprints`, chosen by the
+registry entry's `"regrid": "footprints"`) instead of along scan lines
+(C. Wright, 2026-11-27).
 
 ## 6. Public interface
 

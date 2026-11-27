@@ -301,6 +301,35 @@ read instead: the first file below `sample_path` whose name ends
   added); placeholder, to be updated later: who made these files, from which
   data, and how to obtain them.
 
+**CrIS 2-D brightness temperatures** (SNPP, NOAA-20; folder `CrIS`)
+
+- Files: one per day and satellite, `pert_cris_<sat>_yyyy_ddd.nc` (`<sat>`
+  `snpp` or `j1`, NOAA-20), anywhere below the folder (on eepc-0184
+  `CRIS/hoffmanns/2016/`, `2019/SNPP/`, `2019/J1/`); netCDF. Chosen with the
+  option `satellite` ("SNPP", the default, or "NOAA-20").
+- Variables: [NTRACK x NXTRACK x NFOV] (10,800 scans a day, every 8 s from
+  00:00:12; 30 fields of regard, FOR; 9 fields of view, FOV) `time` (s since
+  2000-01-01T00:00Z, one per FOR), `lat`, `lon`, and for each channel group
+  (`4mu`, `8mu`, `10mu`, `15mu_low`, `15mu_high`) `bt_<group>` (K), with
+  `bt_<group>_pt` (K) and `bt_<group>_var` (K^2) for `4mu` and both `15mu`.
+  Missing values are NaN; no fill values.
+- FORs 1 and 30, the outermost, are NaN in every channel in the files
+  checked; the regridded swath spans FORs 2-29.
+- Geometry: at nadir a FOR's 9 FOVs form a 3 x 3 grid about 16 km apart;
+  towards the edges the pattern rotates (about 45-55 degrees in the files)
+  and spreads, so the loader regrids from each footprint's own position
+  (`swath.regrid_footprints`). The native grid (`original_grid=True`) is
+  the index layout: across, 3 x FOR + column; along, 3 x scan + row.
+- Granules: pseudo-granules of 45 scans (6 minutes; 90 x 135 points, as
+  AIRS), 240 a day.
+- Checked: 2019-01-01 (both satellites) and 2016-01-01 (SNPP): layout,
+  times and NaNs; against each other where the swaths coincide
+  (`docs/validation.md`). 90 files: SNPP 2016-01-01 to 30, SNPP and NOAA-20
+  2019-01-01 to 30.
+- Provenance: L. Hoffmann's perturbation files; placeholder, to be updated
+  later: which CrIS data and processing version they were made from, and
+  how to obtain them.
+
 **SWANS model output sampled as AIRS**: AIRS 3-D granule files
 (`SWANS/AIRS/dyamond_*/yyyy/ddd/airs_yyyy_ddd_ggg.nc`) load with
 `file_path` and `sampled_from` (checked: GEOS 3 km, 2020-01-20).

@@ -1,5 +1,5 @@
 """
-Load nadir-sounder swaths (AIRS, IASI; later CrIS, IASI-NG) in a common format.
+Load nadir-sounder swaths (AIRS, IASI, CrIS; later IASI-NG) in a common format.
 
 Load swaths from cross-track scanning nadir sounders (retrieved temperature,
 or brightness temperature for 2-D products) and return them in the common
@@ -7,8 +7,8 @@ or brightness temperature for 2-D products) and return them in the common
 distance by default. Port of the MATLAB ``prep_airs_3d`` (corwin365/
 MatlabFunctions, commit f1a78c0), without its detrending and smoothing,
 which are analysis steps (``docs/design/nadir_loader.md``). Implemented:
-AIRS 3-D, AIRS 2-D (brightness temperature; not compared with MATLAB) and
-IASI 3-D.
+AIRS 3-D, AIRS 2-D (brightness temperature; not compared with MATLAB),
+IASI 3-D and CrIS 2-D (new code, no MATLAB equivalent).
 
 Inputs and outputs
 ------------------
@@ -19,12 +19,13 @@ strings or datetimes), with the same ``time_handling`` rules. Whole granules
 whose mean time lies in the range are loaded. May be None if ``granules`` is
 given.
 
-``instrument``: ``"AIRS"`` or ``"IASI"`` (any case).
+``instrument``: ``"AIRS"``, ``"IASI"`` or ``"CrIS"`` (any case).
 
 Options (type, default; MATLAB name):
 
 - ``product`` (str, "3d"): "3d" retrieval; "2d" brightness temperature (AIRS:
-  L. Hoffmann's granule files, ``obs._nadir_airs2d``).
+  L. Hoffmann's granule files, ``obs._nadir_airs2d``; CrIS, the only CrIS
+  product: his daily files, ``obs._nadir_cris``).
 - ``time_handling`` (str, "fuzzy"): as ``load_limb_sounders``.
 - ``granules`` (list of (date, number), None): load exactly these granules
   (``DateNum``, ``GranuleId``); dates as for ``time_range``.
@@ -51,8 +52,10 @@ Options (type, default; MATLAB name):
 - ``keep_outliers`` (bool, False): keep values whose state marks them bad
   (the states are recorded either way).
 - ``channels`` (list of str, None): 2-D products: which channels or channel
-  groups, in that order (AIRS: "4mu", "8mu", "15mu_low", "15mu_high"; default
-  all).
+  groups, in that order (AIRS: "4mu", "8mu", "15mu_low", "15mu_high"; CrIS
+  also "10mu"; default all).
+- ``satellite`` (str, None): CrIS only: "SNPP" (the default) or "NOAA-20"
+  ("J1" also accepted); recorded in the attribute ``satellite``.
 - ``screen`` (None): the statistical outlier screen; None uses the
   instrument's default (IASI ``"rolling"``, AIRS ``"none"``). A name, a
   ``(name, settings)`` pair, a function ``screen(temp, time, lat, lon,
@@ -106,6 +109,20 @@ cross-track points up to half a grid step beyond a segment's own edge take
 its edge value (``extrapolated``). A segment with part of a granule gets rows
 in proportion to its scans, so its spacing is that of whole granules;
 ``grid_spacing_km`` gives the median over segments.
+
+CrIS is regridded differently (``_regrid_footprints``,
+``swath.regrid_footprints``; new code): its fields of view do not lie on
+straight scan lines (each field of regard's 3 x 3 pattern rotates towards
+the swath edges), so the values are interpolated from the footprints' own
+positions in (along, cross) distance from the track, barycentrically in
+their Delaunay triangles, instead of along scan lines. The cross-track axis
+spans the footprints holding values (fields of regard 2-29 in the files
+held); a missing footprint makes the grid points around it NaN (no
+bridging); grid points outside the footprints but within half a
+cross-track step of one take its value (``extrapolated``). Interpolation
+lowers the variance of footprint-to-footprint noise (the 15 micron high
+perturbation of 2019-01-01: standard deviation 0.245 K native, 0.19 K
+regridded), as any regridding does; spatially coherent signal is kept.
 
 Segments: the swath is split where successive rows are more than 180 s apart
 (missing granules, or separate time ranges; not 1.5 scans, because the AIRS
@@ -174,9 +191,10 @@ Not compared with MATLAB: the AIRS granule-file reader, the default IASI
 screen, AIRS 2-D, several options, and the fill handling added after the
 sweep. Full record: ``docs/validation.md`` in the repository.
 ``tests/test_nadir_known.py``, ``tests/test_nadir_iasi.py``,
-``tests/test_nadir_airs2d.py``, ``tests/test_nadir_2d.py`` and
-``tests/test_nadir_fill.py``: known answers and format checks on synthetic
-files.
+``tests/test_nadir_airs2d.py``, ``tests/test_nadir_2d.py``,
+``tests/test_nadir_fill.py`` and ``tests/test_nadir_cris.py``: known answers
+and format checks on synthetic files (CrIS: a field linear in position
+reproduced by the footprint regridding to 1e-3 K).
 
 Status
 ------
@@ -207,6 +225,7 @@ Change log
   warning when no granule lies in the requested times; docstring: cross-track axis
 2026/11/27 [Claude] sampled_from: model data sampled as the instrument labelled (SWANS)
 2026/11/27 [Claude] swath format v2: pressure and winds listed in availability
+2026/11/27 [Claude] CrIS 2-D (SNPP, NOAA-20): satellite option; footprint regridding
 
 """
 
@@ -221,7 +240,13 @@ from atmosgw.curate import swath
 from atmosgw.curate.data import states
 from atmosgw.curate.data.formats import FORMATS, WIND_NAMES
 from atmosgw.curate.matlab_time import datenum, datenum_to_datetime
-from atmosgw.curate.obs import _nadir_airs, _nadir_airs2d, _nadir_iasi, _screen
+from atmosgw.curate.obs import (
+    _nadir_airs,
+    _nadir_airs2d,
+    _nadir_cris,
+    _nadir_iasi,
+    _screen,
+)
 from atmosgw.curate.obs._common import (
     COORD_ATTRS,
     check_additional_vars,
@@ -292,6 +317,25 @@ INSTRUMENTS["IASI"] = {
     "not_in_files": INSTRUMENTS["AIRS"]["not_in_files"],
 }
 
+# CrIS: L. Hoffmann's daily 2-D files, in the index layout (90 across, 3 rows
+# per 8 s scan: the AIRS grid sizes) and pseudo-granules of 45 scans; regridded
+# from the footprints' own positions (swath.regrid_footprints), as the fields
+# of view of a field of regard rotate towards the swath edges
+INSTRUMENTS["CrIS"] = {
+    "time_range": (datenum(2012, 1, 20), _FAR),  # (UNVERIFIED: SNPP data start)
+    "reader": {"2d": _nadir_cris}, "dataset_kind": {"2d": "raw"},
+    "dataset": "CrIS", "n_cross": 90, "rows_per_granule": 135,
+    "row_seconds": 8.0 / 3, "max_row_gap_seconds": 180.0,
+    # first to last pixel of an index-layout row: 2041-2276 km on 2016-01-01
+    # and 2019-01-01 (rows differ: the edge fields of regard are rotated)
+    "scan_width_km": 2145.0,
+    "products": ("2d",),
+    "characterisation": {"2d": "CrIS-2D-placeholder/0"},
+    "screen": ("none", {}),
+    "regrid": "footprints",
+    "not_in_files": INSTRUMENTS["AIRS"]["not_in_files"],
+}
+
 
 def load_nadir_sounders(
     time_range,
@@ -315,6 +359,7 @@ def load_nadir_sounders(
     keep_outliers=False,
     screen=None,
     channels=None,
+    satellite=None,
     day_night=False,
     keep_native_geolocation=False,
     additional_vars=(),
@@ -457,7 +502,9 @@ def _load_nadir_arrays(time_range, instrument, **options):
                       "returned.", stacklevel=3)
     if regrid:
         say("--> Regridding")
-        data, flags, spacing[:2] = _regrid(data, flags, settings, info)
+        regridder = (_regrid_footprints if info.get("regrid") == "footprints"
+                     else _regrid)
+        data, flags, spacing[:2] = regridder(data, flags, settings, info)
     elif not settings["original_grid"] and n_rows == 0:
         # nothing loaded: an empty regular grid, of the shape a regridded
         # swath has, so empty and full results concatenate
@@ -541,6 +588,10 @@ def _prepare(time_range, instrument, options):
     if channels is not None and (isinstance(channels, str)
                                  or not all(isinstance(c, str) for c in channels)):
         raise TypeError("channels must be a list of channel names.")
+    if name == "CrIS":
+        _nadir_cris.satellite_code(options["satellite"])  # (checks the name)
+    elif options["satellite"] is not None:
+        raise TypeError(f"satellite applies to CrIS only, not {name}.")
     reserved = ({"Lat", "Lon", "Time", "Temp", "Alt", "Granule", "Day", "SourceFile",
                  "SourceRow", "Segment", "DayNight", "Flags", "DistAlong", "DistCross",
                  "Spacing", "ScanPosition", "Channel", "ChannelName", "DerivedVars",
@@ -731,6 +782,115 @@ def _regrid(data, flags, settings, info):
     new["DistCross"] = cross_axis
     # along-track spacing: the median over segments (within about 5 % of each
     # other with the proportional rule above; distance_along has each exactly)
+    finite_steps = [s for s in steps if np.isfinite(s)]
+    if finite_steps:
+        spacing = (spacing[0], float(np.median(finite_steps)))
+    for name in ("NativeLat", "NativeLon", "NativeTime", "ScanPosition"):
+        if name in data:
+            new[name] = data[name]
+    flags = (parts[0]["Flags"] if len(parts) == 1
+             else np.concatenate([p["Flags"] for p in parts], axis=1))
+    return new, flags, spacing
+
+
+def _regrid_footprints(data, flags, settings, info):
+    """
+    Regrid every segment from the footprints' own positions
+    (``swath.regrid_footprints``; CrIS); returns (data, flags, (cross km,
+    along km)), as ``_regrid``. One cross-track axis for all segments: over
+    the median, over the rows that can be placed, of each row's nearest and
+    farthest footprint across track holding a value (``n_cross`` points or
+    ``dx_cross`` km);
+    grid points outside the footprints but within half a cross-track step of
+    one take its value (``extrapolated``), as ``_regrid``'s edge rule.
+    """
+    lat, lon = data["Lat"], data["Lon"]
+    segment = data["Segment"]
+    placeable = _placeable(data, info["scan_width_km"])
+    # (over the footprints that hold a value: CrIS fields of regard 1 and 30
+    # are always NaN in L. Hoffmann's files, so the grid spans 2-29)
+    _, cross_all = swath.footprint_coordinates(lat[:, placeable], lon[:, placeable])
+    has_value = np.any(np.isfinite(np.asarray(data["Temp"], float)[:, placeable]),
+                       axis=tuple(range(2, np.ndim(data["Temp"]))))
+    if has_value.any():
+        cross_all = np.where(has_value, cross_all, np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # (rows without values)
+        low = float(np.nanmedian(np.nanmin(cross_all, axis=0)))
+        high = float(np.nanmedian(np.nanmax(cross_all, axis=0)))
+    cross_axis = swath.regular_axis(np.array([low, high]),
+                                    settings["n_cross"] or info["n_cross"],
+                                    settings["dx_cross"])
+    edge = 0.5 * abs(cross_axis[1] - cross_axis[0]) if cross_axis.size > 1 else 0.0
+    native_rows = 360 / info["row_seconds"]
+    extra = [n for n in settings["additional_vars"] + list(data.get("DerivedVars", {}))
+             if np.ndim(data[n]) >= 2 and np.shape(data[n])[:2] == lat.shape]
+    parts, steps, spacing = [], [], (np.nan, np.nan)
+    for seg in np.unique(segment):
+        rows = np.flatnonzero(segment == seg)
+        if rows.size < 2 or not placeable[rows[0]]:
+            continue  # a single row, or rows without positions: not regridded
+        take = (slice(int(rows[0]), int(rows[-1]) + 1)
+                if rows[-1] - rows[0] + 1 == rows.size else rows)
+        n_gran = len({(d, g) for d, g in zip(data["Day"][rows], data["Granule"][rows],
+                                             strict=True)})
+        per_granule = settings["n_along"] or info["rows_per_granule"]
+        n_along = None if settings["dx_along"] is not None else per_granule * n_gran
+        if n_along is not None and rows.size < 0.95 * native_rows * n_gran:
+            n_along = max(2, int(round(per_granule * rows.size / native_rows)))
+        xyz = _unit_vectors(lat[:, take], lon[:, take])
+        fields = {"Temp": data["Temp"][:, take], "Time": data["Time"][:, take],
+                  **{n: data[n][:, take] for n in extra},
+                  "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}
+        out = swath.regrid_footprints(lat[:, take], lon[:, take], fields,
+                                      cross_axis, n_along=n_along,
+                                      dx_along=settings["dx_along"],
+                                      method=settings["interp_type"],
+                                      extrapolate=settings["extrapolate"],
+                                      flags=flags[:, take], edge=edge)
+        new_flags = out["flags"]
+        unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
+        states.set_state(new_flags, unexplained, "no_observation")
+        if out["extrapolated"].any():
+            mark = np.broadcast_to(out["extrapolated"].reshape(
+                out["extrapolated"].shape + (1,) * (new_flags.ndim - 2)),
+                new_flags.shape)
+            states.set_state(new_flags, mark & np.isfinite(out["fields"]["Temp"]),
+                             "extrapolated")
+        # per-row information: from the nearest native row along track
+        d_in = out["track"]["along"]
+        right = np.clip(np.searchsorted(d_in, out["along"]), 0, rows.size - 1)
+        left = np.clip(right - 1, 0, rows.size - 1)
+        closer_left = np.abs(out["along"] - d_in[left]) <= np.abs(d_in[right]
+                                                                 - out["along"])
+        nearest = rows[np.where(closer_left, left, right)]
+        # positions: those of the footprints, with the interpolation's weights
+        # (as _regrid, Q14); where there is no value, the grid's own position
+        new_lat, new_lon = _from_unit_vectors(out["fields"].pop("_X"),
+                                              out["fields"].pop("_Y"),
+                                              out["fields"].pop("_Z"))
+        no_source = ~np.isfinite(new_lat)
+        new_lat[no_source], new_lon[no_source] = out["lat"][no_source], out["lon"][
+            no_source]
+        part = {"Lat": new_lat, "Lon": new_lon,
+                "TrackLat": out["lat"], "TrackLon": out["lon"],
+                "Time": out["fields"]["Time"], "Temp": out["fields"]["Temp"],
+                **{n: out["fields"][n] for n in extra},
+                "Flags": new_flags, "DistAlong": out["along"],
+                "Segment": np.full(out["along"].size, float(seg))}
+        for name in ("Granule", "Day", "SourceFile", "SourceRow"):
+            part[name] = np.asarray(data[name])[nearest]
+        parts.append(part)
+        steps.append(out["spacing"][1])
+        spacing = (out["spacing"][0], spacing[1])
+    new = dict(data)
+    for name in parts[0]:
+        if name == "Flags":
+            continue
+        new[name] = (parts[0][name] if len(parts) == 1 else
+                     np.concatenate([p[name] for p in parts],
+                                    axis=1 if parts[0][name].ndim > 1 else 0))
+    new["DistCross"] = cross_axis
     finite_steps = [s for s in steps if np.isfinite(s)]
     if finite_steps:
         spacing = (spacing[0], float(np.median(finite_steps)))
@@ -1058,6 +1218,9 @@ def _to_dataset(data, settings, call=None):
     }
     if sampled:
         ds.attrs["sampled_from"] = str(sampled)
+    if settings["instrument"] == "CrIS":
+        code = _nadir_cris.satellite_code(settings.get("satellite"))
+        ds.attrs["satellite"] = "NOAA-20" if code == "j1" else "SNPP"
     return ds
 
 

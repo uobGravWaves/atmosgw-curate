@@ -90,6 +90,39 @@ AIRS 2-D: tests on synthetic files in the files' layout
 test copy of L. Hoffmann's files; the originals are not on eepc-0184) gave
 valid swaths.
 
+CrIS 2-D (new code, 2026-11-27; L. Hoffmann's daily files):
+
+- **Tests:** `tests/test_nadir_cris.py`, on synthetic files laid out as the
+  real ones, with each field of regard's 3 x 3 pattern rotated (up to 50
+  degrees) and spread towards the edges. Footprint distances from the track
+  are exact to 1e-6 km; a brightness temperature linear in position is
+  reproduced by the regridding to 1e-3 K; a missing footprint leaves at
+  most 6 grid points NaN (`missing`), with every other value unchanged; the
+  native grid is the index layout, footprint by footprint.
+- **The layout's effect, on real data** (SNPP, 2019-01-01, granules
+  100-109): each regridded value lies within a median 1.2 km of its grid
+  point at the centre of the swath and 14.7 km in the outer 8 columns (95%:
+  9.8 and 56 km), and 99.8% of points have values. The index layout through
+  the scan-line regridding used for AIRS would give 7.8 and 48.7 km (95%:
+  32 and 111 km), with 86.7% of points.
+- **Against the footprints** (SNPP, 2019-01-01, the whole day): regridded
+  values within 4 km and 1 min of a footprint differ from it by 0.11-0.38 K
+  at the 95th percentile (15 micron high; neighbouring footprints differ by
+  up to 0.94 K); 28 of 366,081 by more than 2 K. The day's mean brightness
+  temperature is unchanged (250.90 against 250.94 K). The perturbation's
+  standard deviation falls from 0.245 to 0.19 K, centre and edges alike:
+  interpolation averages footprint-to-footprint noise.
+- **SNPP against NOAA-20** (2019-01-01; regridded values within 25 km and
+  50 min of each other, 572,508 pairs): median difference +0.08 to +0.16 K
+  (8.1 to 15 micron high), correlation 0.947 (8.1 and 10.4 micron, which
+  see clouds) to 0.995 (15 micron high).
+- **Existing instruments unchanged:** 23 real-data outputs (every loader,
+  `to_profiles`) bit-identical before and after, apart from the new
+  `satellite` key in `options`.
+- **Not covered:** comparison with AIRS on the same days (no AIRS 2-D files
+  for 2016 or 2019 on eepc-0184); the 2022 MATLAB granules (not read); days
+  other than those named.
+
 The default IASI screen (rolling, 5 x IQR) was chosen from measurements on
 four dates (`help(atmosgw.curate.obs._screen)`). A study at 0.3.6 found it
 flags bad profiles (98-99 % whole profiles; T < 150 K; about 38 % exactly

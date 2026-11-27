@@ -27,6 +27,9 @@ raw = "Aeolus/netCDF/Aeolus_L2B_monthly_flat_nc"
 [datasets.ALOMAR]
 raw = "lidar/ALOMAR"
 
+[datasets.CrIS]
+raw = "CRIS/hoffmanns"
+
 [datasets.DWDsondes]
 raw = "sondes"
 
