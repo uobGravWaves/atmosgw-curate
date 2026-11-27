@@ -788,6 +788,40 @@ def test_faam_review_fixes(tmp_path):
                                file_source=True)
     assert ds.sizes["flight"] == 1
     assert ds.original_files.values[0] == "core_faam_20250709_v005_r1_c999.nc"
+    # a newer core version beats a higher revision of an older one
+    faam_file(tmp_path / "core_faam_20250709_v006_r0_c999.nc")
+    with pytest.warns(UserWarning, match="more than one"):
+        ds = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path,
+                               file_source=True)
+    assert ds.original_files.values[0] == "core_faam_20250709_v006_r0_c999.nc"
+
+
+def test_aircraft_scale_factor_applied(tmp_path):
+    # (the readers switch automatic scaling off; real files have scale 1)
+    (tmp_path / "iagos").mkdir()
+    path = tmp_path / "iagos" / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4"
+    iagos_file(path)
+    plain = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "iagos")
+    with netCDF4.Dataset(path, "a") as f:
+        f["air_temp_P1"].setncattr("scale_factor", 1.0)
+        f["zon_wind_AC"].setncattr("scale_factor", 0.5)
+        f["zon_wind_AC"].setncattr("add_offset", 2.0)
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "iagos")
+    np.testing.assert_array_equal(ds.temperature.values, plain.temperature.values)
+    good = np.isfinite(plain.eastward_wind.values)
+    np.testing.assert_array_equal(ds.eastward_wind.values[good],
+                                  plain.eastward_wind.values[good] * 0.5 + 2.0)
+    (tmp_path / "faam").mkdir()
+    path = tmp_path / "faam" / "core_faam_20250709_v005_r0_c999.nc"
+    faam_file(path)
+    plain = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path / "faam")
+    with netCDF4.Dataset(path, "a") as f:
+        f["U_C"].setncattr("scale_factor", 0.5)
+    ds = load_trajectories("2025-07-09", "FAAM", file_path=tmp_path / "faam")
+    good = np.isfinite(plain.eastward_wind.values)
+    np.testing.assert_allclose(ds.eastward_wind.values[good],
+                               plain.eastward_wind.values[good] * 0.5, rtol=1e-12)
+    np.testing.assert_array_equal(ds.temperature.values, plain.temperature.values)
 
 
 # ------------------------------- versions, availability, records (2026-11-27b)

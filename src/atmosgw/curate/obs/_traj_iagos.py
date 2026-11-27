@@ -61,6 +61,7 @@ Change log:
 2026/11/27 [Claude] unzipped files preferred, the zip as backup, silently;
   copies matched by flight, not file name; newest version among copies
 2026/11/27 [Claude] copies ranked by version, then file date, then unzipped first
+2026/11/27 [Claude] review: scale_factor/add_offset applied if not 1 and 0
 """
 
 import math
@@ -176,6 +177,13 @@ def read_flight(handle, settings):
         fill = getattr(handle[name], "_FillValue", FILL)
         # (-9999.9 also appears, e.g. in baro_alt_AC: anything <= -9999 is fill)
         value[(value == float(fill)) | (value <= FILL)] = np.nan
+        # (automatic scaling is off, so that the fill values are seen as
+        # stored; the files give scale_factor 1 and no offset: 372 flights
+        # of 1994-2024 checked, 2026-11-27; applied in case that changes)
+        scale = float(getattr(handle[name], "scale_factor", 1.0))
+        offset = float(getattr(handle[name], "add_offset", 0.0))
+        if scale != 1.0 or offset != 0.0:
+            value = value * scale + offset
         return value
 
     def bad(name):

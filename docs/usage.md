@@ -258,8 +258,8 @@ ds.upward_wind                     # FAAM only
 - **FAAM**: `sample_rate="1hz"` (default): each second's mean of its
   unflagged 32 Hz samples (`instrument_flag` if none); `"full"`: every
   sample, flagged ones `instrument_flag` (extras at 20 or 64 Hz need
-  `"1hz"`). A flagged position has no value. The highest revision of a
-  flight is read. Altitude is GPS-inertial; temperature the deiced sensor
+  `"1hz"`). A flagged position has no value. The newest copy of a flight
+  (core version, then revision) is read. Altitude is GPS-inertial; temperature the deiced sensor
   (`TAT_DI_R`).
 
 Every data variable is as measured (`origin` "measured").

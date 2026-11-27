@@ -31,7 +31,8 @@ second's samples (Time + 15.5/32 s for 32 Hz); "full": every sample, at
 Time + k/N s. Extras at other rates are averaged the same way ("1hz") or
 repeated to 32 Hz ("full"; rates that do not divide 32, e.g. 20 or 64 Hz,
 are refused there). Flagged positions (``LAT_GIN_FLAG`` ...) have no value.
-Of several revisions of a flight in the folder, the highest is read.
+Of several copies of a flight in the folder, the highest core version
+(``_v<nnn>_``), then the highest revision, is read.
 
 Flights are selected by their start (``time_coverage_start``, else the
 first time).
@@ -43,6 +44,7 @@ Change log:
 2026/11/27 [Claude] review fixes: highest revision per flight; flagged positions NaN;
   extras of rates other than divisors of 32 refused at sample_rate='full'
 2026/11/27 [Claude] flag rule in the variables' comments
+2026/11/27 [Claude] review: highest core version before revision; scale/offset applied
 """
 
 import math
@@ -88,16 +90,19 @@ def load(settings, inst_info):
         day = found.group(1)
         when = datenum(int(day[:4]), int(day[4:6]), int(day[6:8]))
         if math.floor(start) - 1 <= when <= end:
-            files.append((found.group(4), int(found.group(3)), path))
-    # one revision of each flight: the highest (recorded if there are several)
+            files.append((found.group(4), int(found.group(2)),
+                          int(found.group(3)), path))
+    # one copy of each flight: the highest core version, then the highest
+    # revision (recorded if there are several)
     newest = {}
-    for flight, revision, path in sorted(files):
+    for flight, version, revision, path in sorted(files):
         if flight in newest:
             record(inst_info)["multiple_matches"].append(
-                f"flight {flight}: revisions {newest[flight][0]} and {revision} -> "
-                f"used {revision}")
-        newest[flight] = (revision, path)
-    files = [path for _, path in newest.values()]
+                f"flight {flight}: v{newest[flight][0]:03d} revision "
+                f"{newest[flight][1]} and v{version:03d} revision {revision} -> "
+                f"used v{version:03d} revision {revision}")
+        newest[flight] = (version, revision, path)
+    files = [path for _, _, path in newest.values()]
     if not find_in(inst_info, "core_faam_*.nc"):
         record(inst_info)["files_not_found"].append("core_faam files")
     flights, file_list = [], []
@@ -111,6 +116,15 @@ def load(settings, inst_info):
         flight["source_file"] = len(file_list)
         flights.append(flight)
     return flights, file_list
+
+
+def _unpacked(var, value):
+    """value with the variable's scale_factor and add_offset applied, if it
+    has any (automatic scaling is off, so that fill values are seen as
+    stored; none of the 2025 core variables is packed)."""
+    scale = float(getattr(var, "scale_factor", 1.0))
+    offset = float(getattr(var, "add_offset", 0.0))
+    return value if (scale == 1.0 and offset == 0.0) else value * scale + offset
 
 
 def read_flight(handle, settings):
@@ -130,6 +144,7 @@ def read_flight(handle, settings):
         var = handle[name]
         value = np.asarray(var[:], dtype=float)
         value[value == float(getattr(var, "_FillValue", -9999.0))] = np.nan
+        value = _unpacked(var, value)
         flag_name = f"{name}_FLAG"
         if flag_name in handle.variables:
             flagged = np.asarray(handle[flag_name][:]) != 0

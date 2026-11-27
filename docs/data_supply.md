@@ -355,8 +355,9 @@ model (not named)").
   sps<N>) at N per second with `<name>_FLAG` (bit masks, 0 good) and fill
   -9999: `LAT_GIN`, `LON_GIN`, `ALT_GIN` (m), `PS_RVSM` (hPa), `TAT_DI_R`,
   `TAT_ND_R` (K), `U_C`, `V_C`, `W_C` (m s-1), `PALT_RVS` (m) and about 150
-  more (some at 2, 4, 20 or 64 per second). Of several revisions
-  (`_r<rev>_`) of a flight, the highest is read.
+  more (some at 2, 4, 20 or 64 per second). Of several copies of a flight,
+  the highest core version (`_v<nnn>_`), then the highest revision
+  (`_r<rev>_`), is read.
 - Checked: the 27 flights of 2025-07-09 to 2025-08-01 on eepc-0184 (v005,
   revision 0, processing software 25.0.0); three days against ERA5.
 - Provenance: FAAM core data (the files state the UK Government Open
