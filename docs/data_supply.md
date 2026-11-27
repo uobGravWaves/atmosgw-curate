@@ -277,15 +277,25 @@ read instead: the first file below `sample_path` whose name ends
 
 **AIRS 2-D brightness temperatures** (Aqua)
 
-- Files: one per granule, `airs_yyyy_ddd_ggg.nc`; usual layout `yyyy/ddd/`
-  or `ddd/`; netCDF.
-- Variables: [NTRACK x NXTRACK] (135 x 90) `time` (s since
-  2000-01-01T00:00Z), `lat`, `lon`, and for each channel group (`4mu`,
-  `8mu`, `15mu_low`, `15mu_high`) `bt_<group>` (K), `bt_<group>_pt` (K) and
-  `bt_<group>_var` (K^2) (no perturbation or variance for `8mu`).
-- Checked: test copies only.
-- Provenance: L. Hoffmann's AIRS brightness-temperature files; placeholder,
-  to be updated later: where the originals are published and which version.
+- Files: one per granule, `airs_yyyy_ddd_ggg.nc` (usual layout `yyyy/ddd/`
+  or `ddd/`); else, for a granule without its own file, its rows of the
+  day's file as published, `pert_airs_l1_yyyy_ddd.nc` (usual layout
+  `yyyy/`; 240 granules of 135 rows in order, each used only if its mean
+  time is within 3 minutes of the granule's nominal middle); netCDF.
+- Variables: [NTRACK x NXTRACK] (135 x 90 a granule; 32,400 x 90 a daily
+  file) `time` (s since 2000-01-01T00:00Z), `lat`, `lon`, and for each
+  channel group (`4mu`, `8mu`, `15mu_low`, `15mu_high`) `bt_<group>` (K),
+  `bt_<group>_pt` (K) and `bt_<group>_var` (K^2) (no perturbation or
+  variance for `8mu`). The perturbation is the brightness temperature minus
+  a 4th-order polynomial fitted across track to each row (to 1e-4 K in the
+  daily files checked).
+- Checked: test copies (granule files, 2020-01-20) and the daily files of
+  2016-01-01 and 2019-01-01 (not kept on eepc-0184; `docs/validation.md`).
+- Provenance: L. Hoffmann's AIRS brightness-temperature perturbation files,
+  published at
+  <https://datapub.fz-juelich.de/slcs/airs/gravity_waves/data/perturbation/>
+  (daily files); placeholder, to be updated later: which version, and
+  where the granule files came from.
 
 **IASI 3-D temperature retrievals** (MetOp)
 
@@ -307,12 +317,16 @@ read instead: the first file below `sample_path` whose name ends
   `snpp` or `j1`, NOAA-20), anywhere below the folder (on eepc-0184
   `CRIS/hoffmanns/2016/`, `2019/SNPP/`, `2019/J1/`); netCDF. Chosen with the
   option `satellite` ("SNPP", the default, or "NOAA-20").
-- Variables: [NTRACK x NXTRACK x NFOV] (10,800 scans a day, every 8 s from
-  00:00:12; 30 fields of regard, FOR; 9 fields of view, FOV) `time` (s since
-  2000-01-01T00:00Z, one per FOR), `lat`, `lon`, and for each channel group
-  (`4mu`, `8mu`, `10mu`, `15mu_low`, `15mu_high`) `bt_<group>` (K), with
-  `bt_<group>_pt` (K) and `bt_<group>_var` (K^2) for `4mu` and both `15mu`.
-  Missing values are NaN; no fill values.
+- Variables: [NTRACK x NXTRACK x NFOV] (usually 10,800 scans a day, every
+  8 s, the first with a mean time of 00:00:12.88; SNPP 2016-01-17 has 8,820,
+  with a 4.6-hour gap; 30 fields of regard, FOR; 9 fields of view, FOV)
+  `time` (s since 2000-01-01T00:00Z, one per FOR), `lat`, `lon`, and for
+  each channel group (`4mu`, `8mu`, `10mu`, `15mu_low`, `15mu_high`)
+  `bt_<group>` (K), with `bt_<group>_pt` (K) and `bt_<group>_var` (K^2) for
+  `4mu` and both `15mu`. Missing values are NaN, or netCDF's default fill
+  9.97e36 (no `_FillValue` attribute; SNPP 2016-01-17, and NOAA-20
+  2019-01-13, where every 15 micron and perturbation value is fill), read
+  as missing.
 - FORs 1 and 30, the outermost, are NaN in every channel in the files
   checked; the regridded swath spans FORs 2-29.
 - Geometry: at nadir a FOR's 9 FOVs form a 3 x 3 grid about 16 km apart;
@@ -320,11 +334,13 @@ read instead: the first file below `sample_path` whose name ends
   and spreads, so the loader regrids from each footprint's own position
   (`swath.regrid_footprints`). The native grid (`original_grid=True`) is
   the index layout: across, 3 x FOR + column; along, 3 x scan + row.
-- Granules: pseudo-granules of 45 scans (6 minutes; 90 x 135 points, as
-  AIRS), 240 a day.
+- Granules: pseudo-granules of 6 minutes (45 scans; 90 x 135 points, as
+  AIRS), 240 a day, by time: granule g holds the scans in the g-th 6-minute
+  slot of the day, so a file with a gap gives partial or missing granules.
 - Checked: 2019-01-01 (both satellites) and 2016-01-01 (SNPP): layout,
-  times and NaNs; against each other where the swaths coincide
-  (`docs/validation.md`). 90 files: SNPP 2016-01-01 to 30, SNPP and NOAA-20
+  times and NaNs; against each other and against AIRS 2-D and 3-D where the
+  swaths coincide (`docs/validation.md`). Scan times and fill values in all
+  90 files: SNPP 2016-01-01 to 30, SNPP and NOAA-20
   2019-01-01 to 30.
 - Provenance: L. Hoffmann's perturbation files; placeholder, to be updated
   later: which CrIS data and processing version they were made from, and

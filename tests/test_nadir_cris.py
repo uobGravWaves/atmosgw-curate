@@ -35,10 +35,15 @@ def field(lat, lon):
     return 250.0 + 0.5 * (lat - LAT0) + 0.3 * (lon - LON0)
 
 
-def geometry(n_scan):
-    """lat, lon [scan x FOR x FOV] of the synthetic swath."""
+def geometry(n_scan, wobble=0.0):
+    """lat, lon, and the true along- and cross-track distances (km) from the
+    meridian, [scan x FOR x FOV], of the synthetic swath; wobble (km) moves
+    each scan's three rows across track by -wobble, 0, +wobble, so the track
+    points zigzag as in the real files."""
     lat = np.empty((n_scan, 30, 9))
     lon = np.empty((n_scan, 30, 9))
+    along_true = np.empty((n_scan, 30, 9))
+    cross_true = np.empty((n_scan, 30, 9))
     for j in range(30):
         u = (j - 14.5) / 14.5
         theta = np.deg2rad(50.0 * u)  # (rotation of the 3 x 3 pattern)
@@ -49,28 +54,44 @@ def geometry(n_scan):
             a, c = (spread * (a * np.cos(theta) - c * np.sin(theta)),
                     spread * (a * np.sin(theta) + c * np.cos(theta)))
             along = 53.0 * np.arange(n_scan) + a
-            cross = 1100.0 * u + c
+            cross = 1100.0 * u + c + wobble * (row - 1)
             t_lat = LAT0 + km2deg(along)
             lat[:, j, k], lon[:, j, k] = reckon(t_lat, np.full(n_scan, LON0),
                                                 km2deg(np.full(n_scan, abs(cross))),
                                                 np.full(n_scan, 90.0 if cross >= 0
                                                         else 270.0))
-    return lat, lon
+            along_true[:, j, k], cross_true[:, j, k] = along, cross
+    return lat, lon, along_true, cross_true
 
 
 def write_cris(folder, day="2019-01-01", sat="snpp", n_scan=90, nan_fors=(0, 29),
-               nan_footprint=None):
-    """A daily file: n_scan scans from 00:00:12, every 8 s."""
+               nan_footprint=None, wobble=0.0, distance_fields=False, scan_slots=None,
+               big_fill=None):
+    """A daily file: n_scan scans from 00:00:12, every 8 s (or in the 8 s
+    slots scan_slots). distance_fields: 8mu and 10mu hold 250 K + the true
+    along and cross distance / 100 km. big_fill: (scans with times and
+    positions 9.97e36, (scan, FOR, FOV) of a 4mu value 9.97e36)."""
     folder.mkdir(parents=True, exist_ok=True)
     d = datenum(int(day[:4]), int(day[5:7]), int(day[8:10]))
     doy = int(d - datenum(int(day[:4]), 1, 1)) + 1
-    lat, lon = geometry(n_scan)
-    seconds = ((d - J2000_DAY) * 86400 + 12.0 + 8.0 * np.arange(n_scan)[:, None, None]
+    lat, lon, along_true, cross_true = geometry(n_scan, wobble)
+    slots = np.arange(n_scan) if scan_slots is None else np.asarray(scan_slots)
+    seconds = ((d - J2000_DAY) * 86400 + 12.0 + 8.0 * slots[:, None, None]
                + 0.2 * np.arange(30)[None, :, None] + np.zeros((1, 1, 9)))
     bt = field(lat, lon)
     bt[:, list(nan_fors), :] = np.nan
     if nan_footprint is not None:
         bt[nan_footprint] = np.nan
+    extra = {}
+    if distance_fields:
+        extra = {"8mu": 250.0 + along_true / 100, "10mu": 250.0 + cross_true / 100}
+        for v in extra.values():
+            v[:, list(nan_fors), :] = np.nan
+    if big_fill is not None:
+        scans, footprint = big_fill
+        for v in (seconds, lat, lon):
+            v[list(scans)] = 9.969209968386869e36
+        bt[footprint] = 9.969209968386869e36
     path = folder / f"pert_cris_{sat}_{day[:4]}_{doy:03d}.nc"
     with netCDF4.Dataset(path, "w") as f:
         f.createDimension("NTRACK", n_scan)
@@ -82,7 +103,8 @@ def write_cris(folder, day="2019-01-01", sat="snpp", n_scan=90, nan_fors=(0, 29)
         f.createVariable("lon", "f8", dims)[:] = lon
         for group, offset in (("4mu", 0.0), ("8mu", 1.0), ("10mu", 2.0),
                               ("15mu_low", 3.0), ("15mu_high", 4.0)):
-            f.createVariable(f"bt_{group}", "f4", dims)[:] = bt + offset
+            f.createVariable(f"bt_{group}", "f4", dims)[:] = extra.get(group,
+                                                                        bt + offset)
             if group in ("4mu", "15mu_low", "15mu_high"):
                 f.createVariable(f"bt_{group}_pt", "f4", dims)[:] = bt - 250.0
                 f.createVariable(f"bt_{group}_var", "f4", dims)[:] = 1.0
@@ -104,6 +126,82 @@ def test_footprint_coordinates_known_answers():
                                                            (2, 5)), atol=1e-6)
     # far across track, the along-track coordinate is that of the row
     np.testing.assert_allclose(along[[0, 3], 2], 40.0, atol=1e-6)
+
+
+def test_track_heading_ignores_the_zigzag_within_a_scan():
+    # track points on a meridian, every third moved 2 km across track (as the
+    # rows of a real scan): a heading from neighbouring rows would zigzag by
+    # about 6 degrees; over one scan either side it stays north
+    n = 30
+    lat_t = LAT0 + km2deg(np.cumsum(np.tile([16.0, 16.0, 21.0], n // 3)))
+    side = np.tile([0.0, 0.0, 2.0], n // 3)
+    lat = np.empty((2, n))
+    lon = np.empty((2, n))
+    lat[0], lon[0] = reckon(lat_t, np.full(n, LON0), km2deg(8.0 - side), 270.0)
+    lat[1], lon[1] = reckon(lat_t, np.full(n, LON0), km2deg(8.0 + side), 90.0)
+    def off_north(h):
+        return np.abs((h + 180) % 360 - 180)
+
+    assert np.max(off_north(swath.footprint_track(lat, lon)["heading"])) < 0.05
+    zigzag = swath.footprint_track(lat, lon, span=1)["heading"]
+    assert np.max(off_north(zigzag[3:-3])) > 3
+
+
+def test_regridded_frame_is_true_distance(tmp_path):
+    # values linear in the true along- and cross-track distance come back
+    # equal to the grid's own distance_along and distance_cross, out to the
+    # swath edges: a wrong (along, cross) frame (a zigzagging heading moved
+    # values up to 90 km at the edges in the real files) would not. Tolerance
+    # 3 km: the track points themselves zigzag by the wobble (1.5 km), and
+    # distance_along starts at the first row's track point (offset removed).
+    write_cris(tmp_path, wobble=1.5, distance_fields=True)
+    ds = load_nadir_sounders(None, "CrIS", product="2d", file_path=tmp_path,
+                             granules=[("2019-01-01", 1), ("2019-01-01", 2)],
+                             channels=["8mu", "10mu"])
+    flags = ds.brightness_temperature_flag.values[..., 0]
+    along = (ds.brightness_temperature.values[..., 0] - 250.0) * 100
+    cross = (ds.brightness_temperature.values[..., 1] - 250.0) * 100
+    good = np.isfinite(along) & ~states.has_state(flags, "extrapolated")
+    assert good.mean() > 0.95
+    d_along = along - ds.distance_along.values[:, None]
+    d_along -= np.median(d_along[good])
+    d_cross = cross - ds.distance_cross.values[None, :]
+    assert np.max(np.abs(d_along[good])) < 3
+    assert np.max(np.abs(d_cross[good])) < 3
+    # every cross-track column is filled (none NaN beside the always-NaN FORs)
+    assert np.isfinite(along).mean(axis=0).min() > 0.95
+
+
+def test_netcdf_default_fill_is_missing(tmp_path):
+    write_cris(tmp_path, big_fill=((50, 51), (60, 10, 4)))
+    ds = load_nadir_sounders(["2019-01-01T00:06", "2019-01-01T00:12"], "CrIS",
+                             product="2d", file_path=tmp_path, original_grid=True)
+    assert set(ds.granule.values.tolist()) == {2}  # (its mean time not spoiled)
+    for name in ("latitude", "longitude", "brightness_temperature"):
+        assert np.nanmax(np.abs(ds[name].values)) < 1e3
+    bt_flags = ds.brightness_temperature_flag.values[..., 0]
+    # the fill value at scan 60, FOR 10, FOV 4 (0-based): the granule's scan
+    # 13 (45-89 less 50 and 51), so along 3 x 13 + 1, cross 3 x 10 + 1
+    assert np.isnan(ds.brightness_temperature.values[40, 31, 0])
+    assert states.has_state(bt_flags[40, 31], "missing")
+    # scans 51 and 52 (no time or position) are not in the granule
+    assert ds.sizes["along_track"] == 3 * 43
+
+
+def test_granules_follow_time_in_a_file_with_a_gap(tmp_path):
+    # scans 1-45 in slots 0-44, then 45 scans after a 12-minute gap: granule
+    # 1, granules 2 and 3 empty, granule 4 (as the real SNPP 2016-01-17)
+    slots = np.r_[np.arange(45), 135 + np.arange(45)]
+    write_cris(tmp_path, scan_slots=slots)
+    with pytest.warns(UserWarning, match="were found|not found"):
+        ds = load_nadir_sounders(["2019-01-01T00:00", "2019-01-01T00:30"], "CrIS",
+                                 product="2d", file_path=tmp_path)
+    assert set(ds.granule.values.tolist()) == {1, 4}
+    missing = ds.attrs["files_not_found"]
+    assert "2019-01-01 granule 2 (no scans" in missing
+    assert "2019-01-01 granule 3 (no scans" in missing
+    assert "2019-01-01 granule 5 (no scans" in missing  # (its middle, 00:27)
+    assert "granule 4" not in missing and "granule 6" not in missing
 
 
 def test_native_grid_is_the_index_layout(tmp_path):

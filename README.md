@@ -87,10 +87,11 @@ with versions, dates and what was not covered.
   times), not the public Dataset.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
-- The newer readers (LIMS, ROMEX, Aeolus and `load_trajectories`; not yet
-  released) have no MATLAB counterpart. They are checked by known-answer
-  tests on synthetic files, censuses of whole archives, and comparisons
-  with ERA5 and the merged GNSS files.
+- The newer readers (LIMS, ROMEX, Aeolus, CrIS and `load_trajectories`;
+  not yet released) have no MATLAB counterpart. They are checked by
+  known-answer tests on synthetic files, censuses of whole archives, and
+  comparisons with ERA5 and the merged GNSS files (CrIS: with AIRS 2-D and
+  3-D, and between its two satellites).
 - Data states and the other metadata have no MATLAB counterpart. They are
   checked against shared rules by tests, and are still being reviewed.
 - Deliberate scientific changes from MATLAB (Q1-Q8) are listed with their
@@ -133,7 +134,7 @@ read (with units and fill values) and where the files come from.
 | SOFIE | GATS Level 2 v1.3 (netCDF) | any path containing `Level2_yyyyddd` |
 | ALOMAR lidar | yearly HDF5, V2026-07-27 | `yyyy_V2026-07-27_file4juli.h5` |
 | AIRS 3-D | L. Hoffmann's retrieval: daily files, else granule files | `yyyy/airs_yyyydddd.nc`, `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
-| AIRS 2-D | L. Hoffmann's brightness-temperature granule files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc` |
+| AIRS 2-D | L. Hoffmann's brightness-temperature granule files, else his published daily files | `yyyy/ddd/airs_yyyy_ddd_ggg.nc`, `yyyy/pert_airs_l1_yyyy_ddd.nc` |
 | IASI 3-D | L. Hoffmann's retrieval, orbit files | `yyyy/ddd/iasi_yyyymmddhhmmss.nc` |
 | CrIS 2-D | L. Hoffmann's daily brightness-temperature perturbation files (SNPP, NOAA-20) | `pert_cris_<snpp\|j1>_yyyy_ddd.nc` |
 | LIMS | V6 revised Level 2 ASCII | `LIMS_2_yyyymmdd_V6.ASCII` |

@@ -24,7 +24,7 @@ given.
 Options (type, default; MATLAB name):
 
 - ``product`` (str, "3d"): "3d" retrieval; "2d" brightness temperature (AIRS:
-  L. Hoffmann's granule files, ``obs._nadir_airs2d``; CrIS, the only CrIS
+  L. Hoffmann's granule or daily files, ``obs._nadir_airs2d``; CrIS, the only CrIS
   product: his daily files, ``obs._nadir_cris``).
 - ``time_handling`` (str, "fuzzy"): as ``load_limb_sounders``.
 - ``granules`` (list of (date, number), None): load exactly these granules
@@ -115,14 +115,16 @@ CrIS is regridded differently (``_regrid_footprints``,
 straight scan lines (each field of regard's 3 x 3 pattern rotates towards
 the swath edges), so the values are interpolated from the footprints' own
 positions in (along, cross) distance from the track, barycentrically in
-their Delaunay triangles, instead of along scan lines. The cross-track axis
-spans the footprints holding values (fields of regard 2-29 in the files
-held); a missing footprint makes the grid points around it NaN (no
-bridging); grid points outside the footprints but within half a
-cross-track step of one take its value (``extrapolated``). Interpolation
-lowers the variance of footprint-to-footprint noise (the 15 micron high
-perturbation of 2019-01-01: standard deviation 0.245 K native, 0.19 K
-regridded), as any regridding does; spatially coherent signal is kept.
+their Delaunay triangles, instead of along scan lines. The track is
+smoothed over one scan (3 rows). The cross-track axis spans the footprints
+holding values (fields of regard 2-29 in the files held; columns with no
+value anywhere in a segment are left out of its triangles); a missing
+footprint makes the grid points around it NaN (no bridging); grid points
+outside the footprints but within half a cross-track step of one take its
+value (``extrapolated``). Interpolation lowers the variance of
+footprint-to-footprint noise (the 15 micron high perturbation of
+2019-01-01: standard deviation 0.240 K native, 0.190 K regridded), as any
+regridding does; spatially coherent signal is kept.
 
 Segments: the swath is split where successive rows are more than 180 s apart
 (missing granules, or separate time ranges; not 1.5 scans, because the AIRS
@@ -194,7 +196,9 @@ sweep. Full record: ``docs/validation.md`` in the repository.
 ``tests/test_nadir_airs2d.py``, ``tests/test_nadir_2d.py``,
 ``tests/test_nadir_fill.py`` and ``tests/test_nadir_cris.py``: known answers
 and format checks on synthetic files (CrIS: a field linear in position
-reproduced by the footprint regridding to 1e-3 K).
+reproduced by the footprint regridding to 1e-3 K, and fields linear in the
+true along- and cross-track distance returned as the grid's distances to
+3 km).
 
 Status
 ------
@@ -226,6 +230,7 @@ Change log
 2026/11/27 [Claude] sampled_from: model data sampled as the instrument labelled (SWANS)
 2026/11/27 [Claude] swath format v2: pressure and winds listed in availability
 2026/11/27 [Claude] CrIS 2-D (SNPP, NOAA-20): satellite option; footprint regridding
+2026/11/27 [Claude] AIRS 2-D also from L. Hoffmann's published daily files
 
 """
 
@@ -803,17 +808,26 @@ def _regrid_footprints(data, flags, settings, info):
     ``dx_cross`` km);
     grid points outside the footprints but within half a cross-track step of
     one take its value (``extrapolated``), as ``_regrid``'s edge rule.
+    Cross-track columns with no value anywhere in a segment are left out of
+    its triangulation (else the grid points beside them meet a NaN vertex).
     """
     lat, lon = data["Lat"], data["Lon"]
     segment = data["Segment"]
     placeable = _placeable(data, info["scan_width_km"])
     # (over the footprints that hold a value: CrIS fields of regard 1 and 30
-    # are always NaN in L. Hoffmann's files, so the grid spans 2-29)
-    _, cross_all = swath.footprint_coordinates(lat[:, placeable], lon[:, placeable])
-    has_value = np.any(np.isfinite(np.asarray(data["Temp"], float)[:, placeable]),
+    # are always NaN in L. Hoffmann's files, so the grid spans 2-29; each
+    # segment measured from its own track)
+    has_value = np.any(np.isfinite(np.asarray(data["Temp"], float)),
                        axis=tuple(range(2, np.ndim(data["Temp"]))))
-    if has_value.any():
+    cross_all = np.full(lat.shape, np.nan)
+    for seg in np.unique(segment):
+        rows = np.flatnonzero((segment == seg) & placeable)
+        if rows.size >= 2:
+            _, cross_all[:, rows] = swath.footprint_coordinates(lat[:, rows],
+                                                                lon[:, rows])
+    if has_value[:, placeable].any():
         cross_all = np.where(has_value, cross_all, np.nan)
+    cross_all = cross_all[:, placeable]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)  # (rows without values)
         low = float(np.nanmedian(np.nanmin(cross_all, axis=0)))
@@ -839,6 +853,10 @@ def _regrid_footprints(data, flags, settings, info):
         if n_along is not None and rows.size < 0.95 * native_rows * n_gran:
             n_along = max(2, int(round(per_granule * rows.size / native_rows)))
         xyz = _unit_vectors(lat[:, take], lon[:, take])
+        # (columns with no value anywhere in the segment are not vertices)
+        column_used = has_value[:, take].any(axis=1)
+        vertices = (np.broadcast_to(column_used[:, None], has_value[:, take].shape)
+                    if column_used.any() else None)
         fields = {"Temp": data["Temp"][:, take], "Time": data["Time"][:, take],
                   **{n: data[n][:, take] for n in extra},
                   "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}
@@ -847,7 +865,8 @@ def _regrid_footprints(data, flags, settings, info):
                                       dx_along=settings["dx_along"],
                                       method=settings["interp_type"],
                                       extrapolate=settings["extrapolate"],
-                                      flags=flags[:, take], edge=edge)
+                                      flags=flags[:, take], edge=edge,
+                                      vertices=vertices)
         new_flags = out["flags"]
         unexplained = np.isnan(out["fields"]["Temp"]) & ~states.no_value_mask(new_flags)
         states.set_state(new_flags, unexplained, "no_observation")

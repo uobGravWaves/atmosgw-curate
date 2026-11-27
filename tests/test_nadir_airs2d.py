@@ -91,6 +91,50 @@ def test_bad_value_removed_everywhere_it_matters(tmp_path):
     assert np.isnan(ds.brightness_temperature_perturbation.values[60, 45, 0])
 
 
+def write_daily(root, granules, shift_minutes=None):
+    """The day's file as published (pert_airs_l1_2020_031.nc in 2020/): the
+    granules' rows in order, granules 1 to max(granules); shift_minutes
+    {granule: minutes} moves a granule's times (rows not where expected)."""
+    parts = {}
+    for g in range(1, max(granules) + 1):
+        path = write(root / "parts", g)
+        with netCDF4.Dataset(path) as f:
+            parts[g] = {name: np.asarray(v[:]) for name, v in f.variables.items()}
+        path.unlink()
+    for g, minutes in (shift_minutes or {}).items():
+        parts[g]["time"] = parts[g]["time"] + 60 * minutes
+    (root / "2020").mkdir(parents=True, exist_ok=True)
+    with netCDF4.Dataset(root / "2020" / "pert_airs_l1_2020_031.nc", "w") as f:
+        f.createDimension("NTRACK", None)
+        f.createDimension("NXTRACK", 90)
+        for name in parts[1]:
+            dtype = parts[1][name].dtype
+            f.createVariable(name, dtype, ("NTRACK", "NXTRACK"))[:] = np.concatenate(
+                [parts[g][name] for g in sorted(parts)])
+    return parts
+
+
+def test_daily_file_for_granules_without_their_own(tmp_path):
+    # granules 1-3 in the day's file, granule 3's rows 10 minutes off; granule
+    # 2 also has its own file, which is preferred
+    parts = write_daily(tmp_path, [1, 2, 3], shift_minutes={3: 10})
+    write(tmp_path, 2, year_folder=True)
+    ds = load_nadir_sounders(None, "AIRS", product="2d", file_path=tmp_path,
+                             granules=[(DAY, 1), (DAY, 2), (DAY, 3)],
+                             original_grid=True, file_source=True)
+    validate(ds, "swath")
+    assert set(ds.granule.values.tolist()) == {1, 2}
+    assert ("granule 3 (not where expected in pert_airs_l1_2020_031.nc)"
+            in ds.attrs["files_not_found"])
+    assert list(ds.original_files.values) == ["pert_airs_l1_2020_031.nc",
+                                              "airs_2020_031_002.nc"]
+    first = ds.granule.values == 1
+    np.testing.assert_array_equal(ds.latitude.values[first], parts[1]["lat"])
+    assert set(ds.source_file.values[first].tolist()) == {1}
+    assert set(ds.source_file.values[~first].tolist()) == {2}
+    assert ds.source_row.values[first].tolist() == list(range(1, 136))
+
+
 def test_missing_granule_recorded(tmp_path):
     write(tmp_path, 121)
     ds = load_nadir_sounders(None, "AIRS", product="2d", file_path=tmp_path,

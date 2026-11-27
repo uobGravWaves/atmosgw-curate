@@ -5,18 +5,22 @@ daily perturbation files), for SNPP and NOAA-20.
 Files, below the CrIS folder (``datasets.toml``, ``CrIS``):
 ``pert_cris_<sat>_<yyyy>_<ddd>.nc`` anywhere below it (on eepc-0184
 ``2016/`` for SNPP, ``2019/SNPP/`` and ``2019/J1/``), ``<sat>`` "snpp" or
-"j1" (NOAA-20), one per day: dimensions ``NTRACK`` (scans: 10,800 a day,
-every 8 s, from 00:00:12), ``NXTRACK`` (30 fields of regard, FOR, across
+"j1" (NOAA-20), one per day: dimensions ``NTRACK`` (scans: usually 10,800
+a day, every 8 s, the first with a mean time of 00:00:12.88 in all 90 files
+on eepc-0184; SNPP 2016-01-17 has 8,820, with a 4.6-hour gap),
+``NXTRACK`` (30 fields of regard, FOR, across
 the scan) and ``NFOV`` (the 9 fields of view, FOV, of each FOR); per
 footprint ``time`` (seconds since 2000-01-01T00:00Z; the same for the 9 FOVs
 of a FOR), ``lat``, ``lon`` and, for each channel group, ``bt_<group>``
 (K) and, for 4.3 and 15 micron, the producer's perturbation
 ``bt_<group>_pt`` (K) and variance ``bt_<group>_var`` (K^2). Missing values
-are NaN (checked on 2016-01-01 and 2019-01-01: no fill values, positions and
-times complete). FORs 1 and 30, the outermost, are NaN in every channel in
-the files checked (2016-01-01; 2019-01-01 and 15 of both satellites): they
-are kept on the native grid as ``missing``, and the regridded swath spans
-FORs 2-29.
+are NaN, or netCDF's default fill 9.97e36 (no ``_FillValue`` attribute;
+SNPP 2016-01-17 and NOAA-20 2019-01-13, where every 15 micron and
+perturbation value is fill): any value above 1e30 in size is treated as
+-9999 (missing, counted with the fill values). FORs 1 and 30, the
+outermost, are NaN in every channel in the files checked (2016-01-01;
+2019-01-01 and 15 of both satellites): they are kept on the native grid as
+``missing``, and the regridded swath spans FORs 2-29.
 
 Channel groups (``channels`` option; default all, in this order):
 
@@ -47,11 +51,14 @@ instrument's design: UNVERIFIED). Each footprint keeps its own position, so
 the regridded swath is made from the true positions instead
 (``swath.regrid_footprints``).
 
-Granules: pseudo-granules of 45 scans (6 minutes, 135 rows of the index
-layout, as AIRS), 240 a day: granule g holds scans 45 (g - 1) + 1 to 45 g of
-the day's file. Chosen by the mean of their times, or given explicitly
-(``granules``). ``satellite`` chooses the files ("SNPP", the default, or
-"NOAA-20"; "J1" also accepted).
+Granules: pseudo-granules of 6 minutes (45 scans, 135 rows of the index
+layout, as AIRS), 240 a day: granule g holds the scans whose mean time is in
+the g-th 6-minute slot from the day's nominal first scan (``granule_slots``),
+so a granule number means the same time of day in every file, and a file
+with a gap gives partial or missing granules (recorded in
+``files_not_found`` where the request covers them). Chosen by the mean of
+their times, or given explicitly (``granules``). ``satellite`` chooses the
+files ("SNPP", the default, or "NOAA-20"; "J1" also accepted).
 
 Variables (reader contract, ``docs/design/nadir_loader.md`` section 5):
 ``Lat``, ``Lon``, ``Time`` (datenums), ``Temp`` (brightness temperature)
@@ -65,10 +72,12 @@ Origin: new code (no MATLAB equivalent).
 
 Change log:
 2026/11/27 [Claude] initial version
+2026/11/27 [Claude] review: netCDF default fill, granules by time slot, no previous day
 """
 
 import math
 import os
+import warnings
 
 import netCDF4
 import numpy as np
@@ -91,7 +100,9 @@ from atmosgw.curate.readers import read_netcdf
 SCANS_PER_GRANULE = 45
 GRANULES_PER_DAY = 240
 SCAN_S = 8.0  # seconds between scans
-FIRST_SCAN_S = 12.0  # first scan of a day's file, seconds after midnight
+FIRST_SCAN_S = 12.88  # mean time of a day's first scan, seconds after midnight
+BIG_FILL = 1e30  # |value| above: netCDF's default fill (9.97e36), missing
+GRANULE_S = SCANS_PER_GRANULE * SCAN_S  # 360 s
 N_FOR, N_FOV = 30, 9
 SATELLITES = {"SNPP": "snpp", "NOAA-20": "j1", "J1": "j1"}
 
@@ -147,6 +158,17 @@ def index_layout(values):
     return out
 
 
+def granule_slots(scan_time, day):
+    """Granule number (1-240) of each scan from its mean time (datenums):
+    the 6-minute slot it falls in, counted from the day's nominal first scan
+    (0 for a scan without a time)."""
+    with np.errstate(invalid="ignore"):
+        slot = np.floor(((scan_time - day) * 86400 - FIRST_SCAN_S + SCAN_S / 2)
+                        / GRANULE_S) + 1
+    slot = np.where(np.isfinite(slot), np.clip(slot, 1, GRANULES_PER_DAY), 0)
+    return slot.astype(int)
+
+
 def load(settings, inst_info, var_names):
     """Read the granules; returns (data, file_list). See the module docstring."""
     channels = list(settings.get("channels") or CHANNELS)
@@ -168,10 +190,12 @@ def load(settings, inst_info, var_names):
         t0, t1 = -np.inf, np.inf
     else:
         t0, t1 = settings["time_range"]
-        # (a day's file starts at 00:00:12: the previous day's last granule
-        # ends at 00:00:04, so the day before is looked at too)
-        days = list(range(int(math.floor(t0)) - 1, int(math.floor(t1)) + 1))
+        # (granule 240 of a day ends at about 00:00:05 the next day, but is
+        # chosen by its mean time, about 23:57: the day before never adds one)
+        days = list(range(int(math.floor(t0)), int(math.floor(t1)) + 1))
         r0, r1 = settings.get("request_range", settings["time_range"])
+    nominal = (FIRST_SCAN_S - SCAN_S / 2
+               + (np.arange(1, GRANULES_PER_DAY + 1) - 0.5) * GRANULE_S) / 86400
 
     granules, file_list, fill_counts = [], [], {}
     for day in days:
@@ -180,41 +204,41 @@ def load(settings, inst_info, var_names):
             if explicit:
                 rec["files_not_found"].extend(f"{day_label(day)} granule {g}"
                                               for g in wanted[day])
-            else:
-                # (a day whose nominal granule times meet the request: the
-                # day before is looked at only for a granule ending after
-                # midnight, so its absence alone is not recorded)
-                nominal = day + (FIRST_SCAN_S + (np.arange(GRANULES_PER_DAY) + 0.5)
-                                 * SCANS_PER_GRANULE * SCAN_S) / 86400
-                if np.any((nominal >= r0) & (nominal <= r1)):
-                    rec["files_not_found"].append(day_label(day))
+            elif np.any((day + nominal >= r0) & (day + nominal <= r1)):
+                rec["files_not_found"].append(day_label(day))
             continue
         rec["files_opened"] = rec.get("files_opened", 0) + 1
         seconds = read_netcdf(path, ["time"])["time"]
-        n_scan = seconds.shape[0]
         with np.errstate(invalid="ignore"):
-            valid = np.where(seconds > 0, seconds, np.nan)
-        scan_time = J2000 + np.nanmean(valid, axis=(1, 2)) / 86400  # (datenums)
+            valid = np.where((seconds > 0) & (np.abs(seconds) < BIG_FILL), seconds,
+                             np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # (scans without times)
+            scan_time = J2000 + np.nanmean(valid, axis=(1, 2)) / 86400  # (datenums)
+        slot = granule_slots(scan_time, day)
         chosen = []
-        for g in range(1, int(math.ceil(n_scan / SCANS_PER_GRANULE)) + 1):
-            scans = slice((g - 1) * SCANS_PER_GRANULE,
-                          min(g * SCANS_PER_GRANULE, n_scan))
-            times = scan_time[scans]
-            mean = float(np.nanmean(times)) if np.any(np.isfinite(times)) else np.nan
+        for g in range(1, GRANULES_PER_DAY + 1):
+            scans = np.flatnonzero(slot == g)
             if explicit:
-                if g in wanted[day]:
+                if g in wanted[day] and scans.size:
+                    chosen.append((g, scans, float(np.mean(scan_time[scans]))))
+                continue
+            if scans.size:
+                mean = float(np.mean(scan_time[scans]))
+                if t0 <= mean <= t1:
                     chosen.append((g, scans, mean))
-            elif t0 <= mean <= t1:
-                chosen.append((g, scans, mean))
+            elif r0 <= day + nominal[g - 1] <= r1:
+                rec["files_not_found"].append(f"{day_label(day)} granule {g} "
+                                              f"(no scans in {os.path.basename(path)})")
         if explicit:
             for g in sorted(set(wanted[day]) - {c[0] for c in chosen}):
                 rec["files_not_found"].append(f"{day_label(day)} granule {g} "
-                                              f"(not in {os.path.basename(path)})")
+                                              f"(no scans in {os.path.basename(path)})")
         if not chosen:
             continue
         file_list.append(os.path.basename(path))
         note_version(inst_info, path, "")
-        first, last = chosen[0][1].start, chosen[-1][1].stop
+        first, last = int(chosen[0][1][0]), int(chosen[-1][1][-1]) + 1
         names = ["time", "lat", "lon"]
         for c in channels:
             base = CHANNELS[c][0]
@@ -223,7 +247,7 @@ def load(settings, inst_info, var_names):
                 names += [base + d["suffix"] for d in DERIVED.values()]
         values = _read_present(path, names, slice(first, last))
         for g, scans, mean in chosen:
-            take = slice(scans.start - first, scans.stop - first)
+            take = scans - first
             part, counts = _granule(values, take, day, g, channels,
                                     len(file_list))
             for key, n in counts.items():
@@ -256,6 +280,9 @@ def load(settings, inst_info, var_names):
 def _granule(values, take, day, g, channels, file_number):
     """One pseudo-granule in the index layout: (part, fill counts)."""
     sub = {name: np.array(v[take], dtype=float) for name, v in values.items()}
+    for v in sub.values():  # (netCDF's default fill: counted as the others)
+        with np.errstate(invalid="ignore"):
+            v[np.abs(v) > BIG_FILL] = FILL_VALUES[-1]
     lat, lon = index_layout(sub["lat"]), index_layout(sub["lon"])
     seconds = index_layout(sub["time"])
     # fill values and bad times, as the other nadir readers (which take
