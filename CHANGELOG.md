@@ -26,7 +26,8 @@ reference outputs.
   in-situ measurements along a path, each sample at its own position, time
   and height. Instruments: `"DWDsondes"` (DWD high-resolution radiosondes,
   1990-2024, option `stations`), `"IAGOS"` (in-service aircraft, read from
-  the zip archive or unzipped files; package temperature and GPS altitude
+  the zip archive or unzipped files, unzipped files preferred and the zip
+  the backup, copies matched by flight; package temperature and GPS altitude
   where present; validity flags 3 and 7 removed) and `"FAAM"` (research
   aircraft core data; option `sample_rate` "1hz" (means of unflagged 32 Hz
   samples, default) or "full"). [Claude]

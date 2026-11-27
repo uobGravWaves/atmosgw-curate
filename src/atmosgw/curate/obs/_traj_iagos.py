@@ -6,9 +6,13 @@ flight, 1994-2024.
 Files: ``IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<version>].nc[4]``
 (departure time and a two-digit number), in ``TimeSeries/iagos_<yyyy>/``.
 On eepc-0184 they are only in a zip archive (``IAGOS/iagos.zip``, 13 GB,
-67,321 entries, about 111 GB unzipped): the reader reads the flights asked
-for from the archive directly (in memory, nothing is unzipped), or from
-unzipped files anywhere below the folder. The archive holds the version used
+67,321 entries, about 111 GB unzipped). Unzipped files anywhere below the
+folder (e.g. the archive's ``TimeSeries/iagos_<yyyy>/`` unzipped beside it,
+or newer downloads in the same layout) are preferred; the archive is the
+backup for flights with no unzipped copy, read directly (in memory, nothing
+is unzipped). Copies are matched by flight (departure time and number), not
+file name, so a newer version unzipped beside the archive replaces the
+archive's older one. The archive holds the version used
 in Wright et al. (2024, ACP; UNVERIFIED: reference not checked here) and has
 not been updated since (readme beside it).
 
@@ -60,6 +64,8 @@ Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] review fixes: sources from usable values; copies only among the
   flights asked for; -9999.9 fill
+2026/11/27 [Claude] unzipped files preferred, the zip as backup, silently;
+  copies matched by flight, not file name; newest version among copies
 """
 
 import math
@@ -100,27 +106,30 @@ def load(settings, inst_info):
         note(inst_info, f"{key}Bad", "validity flag 3 (erroneous) or 7 (missing)")
     start, end = settings["time_range"]
     sources = _sources(inst_info["path"])
-    # one copy of each file (e.g. a zip and some files unzipped from it): an
-    # unzipped file before a zip member, else the first; recorded
     # the files whose name time is within a day of the request; one copy of
-    # each (e.g. a zip and some files unzipped from it, or a flight in two
-    # year folders of the zip): an unzipped file before a zip member, else
-    # the first; recorded (only for the flights looked at)
+    # each flight (same departure time and number, whatever the version):
+    # unzipped files are preferred and the zip is the backup for flights not
+    # unzipped (silently: that is how the archive is meant to be used); among
+    # unzipped copies, or among zip copies (29 flights of January 2023 are in
+    # two year folders), the newest version, else the first in search order,
+    # recorded (only for the flights looked at)
     copies = {}
-    for source, member, stamp in sources:
+    for order, (source, member, stamp, flight, version) in enumerate(sources):
         when = datenum(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]),
                        int(stamp[8:10]), int(stamp[10:12]), int(stamp[12:14]))
         if math.floor(start) - 1 <= when <= end + 1:
-            copies.setdefault(os.path.basename(member), []).append(
-                (when, source, member))
+            copies.setdefault(flight, []).append(
+                (source.endswith(".zip"), tuple(-v for v in version), order,
+                 when, source, member))
     candidates = []
-    for name, entries in copies.items():
-        entries.sort(key=lambda e: e[1].endswith(".zip"))
-        candidates.append(entries[0])
-        if len(entries) > 1:
+    for flight, entries in copies.items():
+        entries.sort()
+        candidates.append(entries[0][3:])
+        same_kind = [e for e in entries if e[0] == entries[0][0]]
+        if len(same_kind) > 1:
             record(inst_info)["multiple_matches"].append(
-                f"{name}: {len(entries)} copies -> used "
-                + "/".join(entries[0][2].replace(os.sep, "/").split("/")[-2:]))
+                f"flight {flight}: {len(same_kind)} copies -> used "
+                + "/".join(entries[0][5].replace(os.sep, "/").split("/")[-2:]))
     candidates.sort()
     if not sources:
         record(inst_info)["files_not_found"].append(
@@ -234,18 +243,25 @@ def read_flight(handle, settings):
 
 
 def _sources(folder):
-    """[(source, member or path, yyyymmddHHMMSS)] of every IAGOS file below
-    folder: members of zip archives, and files."""
+    """[(source, member or path, yyyymmddHHMMSS, flight, version)] of every
+    IAGOS file below folder: members of zip archives, and files. flight is
+    the departure time and number (the file's ``flight_name``); version the
+    L2 version as a tuple of integers (() if the name has none)."""
     out = []
+
+    def add(source, member):
+        found = _NAME.search(member)
+        if found:
+            version = tuple(int(v) for v in found.group(3).split(".") if v.isdigit()) \
+                if found.group(3) else ()
+            out.append((source, member, found.group(1),
+                        found.group(1) + found.group(2), version))
+
     for path in list_tree(folder):
         if path.endswith(".zip") and os.path.isfile(path):
             with zipfile.ZipFile(path) as archive:
                 for member in archive.namelist():
-                    found = _NAME.search(member)
-                    if found:
-                        out.append((path, member, found.group(1)))
-        else:
-            found = _NAME.search(path)
-            if found and os.path.isfile(path):
-                out.append((path, path, found.group(1)))
+                    add(path, member)
+        elif _NAME.search(path) and os.path.isfile(path):
+            add(path, path)
     return out

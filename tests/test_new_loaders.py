@@ -12,6 +12,7 @@ times; everything else exactly.
 """
 
 import os
+import warnings
 
 import netCDF4
 import numpy as np
@@ -579,9 +580,10 @@ def test_iagos_from_zip_and_folder(tmp_path):
     from_zip = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "zip",
                                  additional_vars=["air_temp_AC"])
     from_folder = load_trajectories("2019-03-18", "IAGOS", file_path=work)
-    with pytest.warns(UserWarning, match="more than one"):  # (zip and a copy)
+    with warnings.catch_warnings():  # (zip and an unzipped copy: no warning)
+        warnings.simplefilter("error")
         both = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path)
-    assert both.sizes["flight"] == 1
+    assert both.sizes["flight"] == 1 and both.attrs["multiple_matches"] == ""
     validate(from_zip, "trajectory")
     np.testing.assert_array_equal(from_zip.temperature.values,
                                   from_folder.temperature.values)
@@ -603,6 +605,48 @@ def test_iagos_from_zip_and_folder(tmp_path):
     none = load_trajectories("2019-03-20", "IAGOS", file_path=tmp_path / "zip",
                              date_warning=False)
     assert none.sizes["flight"] == 0
+
+
+def test_iagos_unzipped_preferred_zip_backup(tmp_path):
+    import zipfile
+    work = tmp_path / "work"
+    work.mkdir()
+    a = work / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4"
+    b = work / "IAGOS_timeseries_2019031816400002_L2_3.1.2.nc4"
+    iagos_file(a)
+    iagos_file(b)
+    with netCDF4.Dataset(b, "a") as f:
+        f.flight_name = "2019031816400002"
+    data = tmp_path / "IAGOS"
+    data.mkdir()
+    with zipfile.ZipFile(data / "iagos.zip", "w") as archive:
+        for path in (a, b):
+            archive.write(path, f"TimeSeries/iagos_2019/{path.name}")
+    # flight 01 unzipped beside the archive as a newer version with other
+    # values; flight 02 only in the archive
+    unzipped = data / "TimeSeries" / "iagos_2019"
+    unzipped.mkdir(parents=True)
+    newer = unzipped / "IAGOS_timeseries_2019031816400001_L2_3.2.0.nc4"
+    iagos_file(newer)
+    with netCDF4.Dataset(newer, "a") as f:
+        f["air_temp_P1"][0] = 230.0
+        f.file_version = "3.2.0"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ds = load_trajectories("2019-03-18", "IAGOS", file_path=data)
+    assert ds.sizes["flight"] == 2
+    assert sorted(ds.flight_id.values) == ["2019031816400001", "2019031816400002"]
+    one = int(np.flatnonzero(ds.flight_id.values == "2019031816400001")[0])
+    assert ds.temperature.values[one, 0] == 230.0  # (the unzipped copy)
+    assert ds.attrs["multiple_matches"] == ""
+    # two unzipped versions of a flight: the newest, recorded
+    older = unzipped / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4"
+    iagos_file(older)
+    with pytest.warns(UserWarning, match="more than one"):
+        ds = load_trajectories("2019-03-18", "IAGOS", file_path=data)
+    one = int(np.flatnonzero(ds.flight_id.values == "2019031816400001")[0])
+    assert ds.temperature.values[one, 0] == 230.0
+    assert "3.2.0" in ds.attrs["multiple_matches"]
 
 
 def test_iagos_old_files(tmp_path):

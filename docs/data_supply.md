@@ -320,8 +320,13 @@ output, as in the SWANS DYAMOND runs (e.g.
 - Files: one per flight, `IAGOS_timeseries_<yyyymmddHHMMSS><nn>[_L2_<v>].nc[4]`
   in `TimeSeries/iagos_<yyyy>/`; read from a zip archive of them
   (`iagos.zip`, as kept on eepc-0184: 67,321 flights 1994-2024, 13 GB, about
-  111 GB unzipped) or from unzipped files. A file unzipped beside the
-  archive is used instead of the archive's copy.
+  111 GB unzipped) or from unzipped files. Unzipped files (e.g. unzipped
+  beside the archive in the same `TimeSeries/iagos_<yyyy>/` layout) are
+  preferred, with no warning; the archive is the backup for flights with no
+  unzipped copy. Copies are matched by flight (departure time and number),
+  not file name, so a newer version unzipped beside the archive replaces the
+  archive's copy; among several unzipped copies of a flight the newest L2
+  version is used (recorded in `multiple_matches`).
 - Variables (every 4 s): `UTC_time` (s since the departure day), `lat`,
   `lon`, `gps_alt_AC`, `baro_alt_AC` (m), `air_press_AC` (Pa), `air_temp_AC`
   and the package's `air_temp_P1` (L2 3.1) or `air_temp_PM` (MOZAIC era)
