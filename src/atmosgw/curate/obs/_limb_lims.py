@@ -61,7 +61,7 @@ from atmosgw.curate.obs._common import (
     note_version,
     record,
 )
-from atmosgw.curate.obs._limb_tools import conform_vars, loop_days
+from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, record_if_empty
 
 FILL = 1e24  # missing value in the files (User's Guide, section 5 example)
 N_CHANNELS = 6  # channel lines after each header (CO2N, CO2W, O3, HNO3, H2O, NO2)
@@ -113,6 +113,8 @@ def load(settings, inst_info, var_names):
     def read_file(path, file_count, day):
         scans = read_lims_file(path)
         note_version(inst_info, path, scans["version"])
+        if first <= day <= last:  # (as files_not_found: requested days only)
+            record_if_empty(inst_info, path, scans["tt_std"])
         n_prof, n_lev = scans["n_scans"], scans["n_levels"]
         store = {}
         for name in var_names:
@@ -139,8 +141,7 @@ def load(settings, inst_info, var_names):
     # recorded by find_file, for requested days only
     shifted = dict(settings, time_range=(min(settings["time_range"]) - 1,
                                          max(settings["time_range"]) + 1))
-    return loop_days(shifted, var_names, find_file, read_file, "LIMS",
-                     empty_info=inst_info)
+    return loop_days(shifted, var_names, find_file, read_file, "LIMS")
 
 
 def read_lims_file(path):

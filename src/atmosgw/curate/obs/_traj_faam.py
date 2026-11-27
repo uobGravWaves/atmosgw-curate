@@ -96,11 +96,11 @@ def load(settings, inst_info):
     # revision (recorded if there are several)
     newest = {}
     for flight, version, revision, path in sorted(files):
-        if flight in newest:
+        if flight in newest:  # (files named by their path below the folder)
+            earlier, later = (os.path.relpath(p, inst_info["path"])
+                              for p in (newest[flight][2], path))
             record(inst_info)["multiple_matches"].append(
-                f"flight {flight}: v{newest[flight][0]:03d} revision "
-                f"{newest[flight][1]} and v{version:03d} revision {revision} -> "
-                f"used v{version:03d} revision {revision}")
+                f"flight {flight}: {earlier} and {later} -> used {later}")
         newest[flight] = (version, revision, path)
     files = [path for _, _, path in newest.values()]
     if not find_in(inst_info, "core_faam_*.nc"):
@@ -138,6 +138,7 @@ def read_flight(handle, settings):
         return None
     base = datenum(*(int(g) for g in found.groups()))
     seconds[seconds == -9999] = np.nan
+    seconds = _unpacked(handle["Time"], seconds)
 
     def per_sample(name):
         """(values, flagged) of a variable at the output rate."""

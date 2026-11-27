@@ -317,6 +317,11 @@ def test_nadir_sampled_from(tmp_path):
     assert plain.attrs["data"] == "raw"
     assert ds.temperature.attrs["origin"] == "derived" and ds.attrs["data"] == "sampled"
     assert ds.attrs["sampled_from"] == "a model"
+    # the label is added to the variable's comment, after any it had
+    earlier = plain.temperature.attrs.get("comment")
+    label = "a model sampled as AIRS: a model"
+    assert ds.temperature.attrs["comment"] == (f"{earlier}; {label}" if earlier
+                                               else label)
     finite = np.isfinite(ds.temperature.values)
     assert np.all(states.has_state(ds.temperature_flag.values, "derived") == finite)
     np.testing.assert_array_equal(ds.temperature.values, plain.temperature.values)
@@ -803,14 +808,18 @@ def test_aircraft_scale_factor_applied(tmp_path):
     iagos_file(path)
     plain = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "iagos")
     with netCDF4.Dataset(path, "a") as f:
+        f.set_auto_maskandscale(False)
+        f["zon_wind_AC"][10] = -10000.0  # (a stored value, not fill, once packed)
         f["air_temp_P1"].setncattr("scale_factor", 1.0)
         f["zon_wind_AC"].setncattr("scale_factor", 0.5)
         f["zon_wind_AC"].setncattr("add_offset", 2.0)
     ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path / "iagos")
     np.testing.assert_array_equal(ds.temperature.values, plain.temperature.values)
     good = np.isfinite(plain.eastward_wind.values)
+    good[0, 10] = False
     np.testing.assert_array_equal(ds.eastward_wind.values[good],
                                   plain.eastward_wind.values[good] * 0.5 + 2.0)
+    assert ds.eastward_wind.values[0, 10] == -4998.0
     (tmp_path / "faam").mkdir()
     path = tmp_path / "faam" / "core_faam_20250709_v005_r0_c999.nc"
     faam_file(path)
@@ -822,6 +831,52 @@ def test_aircraft_scale_factor_applied(tmp_path):
     np.testing.assert_allclose(ds.eastward_wind.values[good],
                                plain.eastward_wind.values[good] * 0.5, rtol=1e-12)
     np.testing.assert_array_equal(ds.temperature.values, plain.temperature.values)
+
+
+def test_iagos_file_without_pressure_altitude_or_winds(tmp_path):
+    # no variable but the time is assumed present
+    path = tmp_path / "IAGOS_timeseries_2019031816400001_L2_3.1.2.nc4"
+    with netCDF4.Dataset(path, "w") as f:
+        f.createDimension("UTC_time", 5)
+        t = f.createVariable("UTC_time", "f8", ("UTC_time",), fill_value=0.0)
+        t.units = "seconds since 2019-03-18 00:00:00 UTC"
+        t[:] = 60000 + 4.0 * np.arange(5)
+        for name, value in (("lat", 50.0), ("lon", 8.0), ("air_temp_AC", 220.0)):
+            f.createVariable(name, "f8", ("UTC_time",), fill_value=-9999.0)[:] = value
+        f.flight_name = "2019031816400001"
+        f.departure_UTC_time = "2019-03-18T16:40:00Z"
+        f.file_version = "3.1.2"
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path)
+    validate(ds, "trajectory")
+    assert ds.sizes["flight"] == 1 and np.all(ds.temperature.values == 220.0)
+    for name in ("pressure", "eastward_wind", "northward_wind", "altitude"):
+        assert np.all(np.isnan(ds[name].values))
+    assert ds.altitude_source.values[0] == "none"
+    assert ds.temperature_source.values[0] == "air_temp_AC"
+    # only a package temperature, every value flagged erroneous, and only a
+    # GPS altitude, all flagged: kept as the source (not "none"), flagged
+    with netCDF4.Dataset(path, "w") as f:
+        f.createDimension("UTC_time", 5)
+        t = f.createVariable("UTC_time", "f8", ("UTC_time",), fill_value=0.0)
+        t.units = "seconds since 2019-03-18 00:00:00 UTC"
+        t[:] = 60000 + 4.0 * np.arange(5)
+        for name, value in (("lat", 50.0), ("lon", 8.0), ("air_temp_P1", 221.0),
+                            ("gps_alt_AC", 10100.0)):
+            f.createVariable(name, "f8", ("UTC_time",), fill_value=-9999.0)[:] = value
+        for name in ("air_temp_P1", "gps_alt_AC"):
+            f.createVariable(f"{name}_validity_flag", "i4", ("UTC_time",))[:] = 3
+        f.flight_name = "2019031816400001"
+        f.departure_UTC_time = "2019-03-18T16:40:00Z"
+        f.file_version = "3.1.2"
+    ds = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path)
+    assert ds.temperature_source.values[0] == "air_temp_P1"
+    assert ds.altitude_source.values[0] == "gps_alt_AC"
+    assert np.all(np.isnan(ds.temperature.values))
+    assert np.all(states.has_state(ds.temperature_flag.values, "instrument_flag"))
+    kept = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path,
+                             keep_outliers=True)
+    assert np.all(kept.temperature.values == 221.0)
+    assert np.all(kept.altitude.values == 10.1)
 
 
 # ------------------------------- versions, availability, records (2026-11-27b)
@@ -903,9 +958,18 @@ def test_newest_version_in_file_names(tmp_path):
         newest = paths[0] if instrument == "MIPAS" else paths[1]  # (1.40 > 1.5)
         assert chosen == newest, instrument
         assert len(info["record"]["multiple_matches"]) == 1
-        # equal (or no) versions: the first, as MATLAB
-        assert choose_file([paths[0], paths[0]], info, "day",
-                           newest_version(VERSION_IN_NAME[instrument])) == paths[0]
+        # equal versions (the same name in two folders), or names with no
+        # version: the first in the order given, as MATLAB
+        same = str(folder / "b" / names[0])
+        plain = [str(folder / sub / "x_2007d001.nc") for sub in ("b", "a")]
+        for path in [same, *plain]:
+            open(path, "w").close()
+        prefer = newest_version(VERSION_IN_NAME[instrument])
+        assert choose_file([same, paths[0]], info, "day", prefer) == same
+        assert choose_file([paths[0], same], info, "day", prefer) == paths[0]
+        assert choose_file(plain, info, "day", prefer) == plain[0]
+        # a name with a version beats one without, wherever it comes
+        assert choose_file([plain[0], paths[0]], info, "day", prefer) == paths[0]
 
 
 def test_measured_quantities_always_listed(tmp_path):
@@ -969,3 +1033,19 @@ def test_screening_rules_in_comments_and_empty_files_recorded(tmp_path):
         empty = load_limb_sounders("2019-01-10", "Aeolus", file_path=folder,
                                    original_z=True)
     assert "Aeolus_L2B_monthly_2019_01.nc" in empty.attrs["files_without_data"]
+    # LIMS: a file of the requested day without temperatures is recorded; the
+    # same file read only as the day after a request is not
+    lims = tmp_path / "lims"
+    write_lims(lims, "19790325", 1979, [
+        (lims_header(0.0, 0.0, 1, 84, 1, 0, 0), lims_levels((220.0, 220.0, 220.0)))])
+    write_lims(lims, "19790326", 1979, [
+        (lims_header(0.0, 0.0, 1, 85, 1, 0, 0), lims_levels((1e24, 1e24, 1e24)))])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        on_day = load_limb_sounders("1979-03-26", "LIMS", file_path=lims,
+                                    original_z=True)
+        day_before = load_limb_sounders("1979-03-25", "LIMS", file_path=lims,
+                                        original_z=True)
+    assert "LIMS_2_19790326_V6.ASCII" in on_day.attrs["files_without_data"]
+    assert day_before.attrs.get("files_without_data", "") == ""
+    assert day_before.sizes["profile"] == 1

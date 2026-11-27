@@ -61,7 +61,9 @@ Change log:
 2026/11/27 [Claude] unzipped files preferred, the zip as backup, silently;
   copies matched by flight, not file name; newest version among copies
 2026/11/27 [Claude] copies ranked by version, then file date, then unzipped first
-2026/11/27 [Claude] review: scale_factor/add_offset applied if not 1 and 0
+2026/11/27 [Claude] review: scale_factor/add_offset applied if not 1 and 0;
+  no variable but the time assumed present (absent ones NaN, source "none");
+  an unreadable or undated tied copy ranks last
 """
 
 import math
@@ -173,18 +175,7 @@ def read_flight(handle, settings):
     def get(name):
         if name not in names:
             return None
-        value = np.asarray(handle[name][:], dtype=float)
-        fill = getattr(handle[name], "_FillValue", FILL)
-        # (-9999.9 also appears, e.g. in baro_alt_AC: anything <= -9999 is fill)
-        value[(value == float(fill)) | (value <= FILL)] = np.nan
-        # (automatic scaling is off, so that the fill values are seen as
-        # stored; the files give scale_factor 1 and no offset: 372 flights
-        # of 1994-2024 checked, 2026-11-27; applied in case that changes)
-        scale = float(getattr(handle[name], "scale_factor", 1.0))
-        offset = float(getattr(handle[name], "add_offset", 0.0))
-        if scale != 1.0 or offset != 0.0:
-            value = value * scale + offset
-        return value
+        return _values(handle[name])
 
     def bad(name):
         """True where the variable's validity flag is 3 or 7 (new files)."""
@@ -194,7 +185,7 @@ def read_flight(handle, settings):
             return np.zeros(n, dtype=bool)
         return np.isin(np.asarray(flag), REMOVED_FLAGS)
 
-    seconds = np.asarray(handle["UTC_time"][:], dtype=float)
+    seconds = _values(handle["UTC_time"], fill_to_nan=False)
     found = _UNITS.search(str(getattr(handle["UTC_time"], "units", "")))
     if not found or seconds.size == 0:
         return None
@@ -211,22 +202,39 @@ def read_flight(handle, settings):
 
     # (a package temperature or GPS altitude whose every value is flagged
     # erroneous or missing is not used: about 2% of L2 3.1 flights)
-    temp_source = next((t for t in PACKAGE_TEMPS if usable(t)), "air_temp_AC")
-    alt_source = "gps_alt_AC" if usable("gps_alt_AC") else "baro_alt_AC"
-    out = {
-        "Lat": get("lat"), "Lon": get("lon"), "Time": time,
-        "Alt": get(alt_source) / 1000.0,
+    # A file without the fallback variable keeps the first choice it does
+    # have, flagged values and all (their states say so); "none" only where
+    # the file has no candidate at all.
+    def choose(preferred, fallback):
+        for name in preferred:
+            if usable(name):
+                return name
+        present = [name for name in (fallback, *preferred) if name in names]
+        return present[0] if present else "none"
+
+    temp_source = choose(PACKAGE_TEMPS, "air_temp_AC")
+    alt_source = choose(("gps_alt_AC",), "baro_alt_AC")
+
+    def get_or_nan(name):
+        """get(name), or NaN for a variable the file does not have (no file
+        variable is assumed present but the time)."""
+        value = get(name)
+        return np.full(n, np.nan) if value is None else value
+
+    pressure = get_or_nan("air_press_AC")
+    with np.errstate(invalid="ignore"):
         # (pressure <= 0 is also missing: one 2023 flight has -999900 Pa, the
         # -9999 fill in hPa scaled to Pa)
-        "Pres": np.where(get("air_press_AC") > 0, get("air_press_AC"), np.nan) / 100.0,
-        "Temp": get(temp_source),
-        "U": get("zon_wind_AC"), "V": get("mer_wind_AC"),
+        pressure = np.where(pressure > 0, pressure, np.nan) / 100.0
+    out = {
+        "Lat": get_or_nan("lat"), "Lon": get_or_nan("lon"), "Time": time,
+        "Alt": get_or_nan(alt_source) / 1000.0,
+        "Pres": pressure,
+        "Temp": get_or_nan(temp_source),
+        "U": get_or_nan("zon_wind_AC"), "V": get_or_nan("mer_wind_AC"),
         "PresBad": bad("air_press_AC"), "TempBad": bad(temp_source),
         "UBad": bad("zon_wind_AC"), "VBad": bad("mer_wind_AC"),
     }
-    for key, value in list(out.items()):
-        if value is None:  # (a variable the file does not have)
-            out[key] = np.full(n, np.nan)
     for extra in settings["additional_vars"]:
         value = get(extra)
         out[extra] = np.full(n, np.nan) if value is None else value
@@ -252,6 +260,27 @@ def read_flight(handle, settings):
     return out
 
 
+def _values(var, fill_to_nan=True):
+    """
+    A file variable as float64, read with automatic scaling off so that
+    fill values are seen as stored: the declared ``_FillValue`` (else
+    -9999) as NaN, and, in the files as they are (``scale_factor`` 1, no
+    offset: 372 flights of 1994-2024 checked, 2026-11-27), anything <= -9999
+    too (-9999.9 also appears, e.g. in ``baro_alt_AC``). A non-trivial
+    ``scale_factor``/``add_offset`` is applied after the declared fill value
+    is removed (the <= -9999 rule is then not used: stored values of a
+    packed variable may be any number).
+    """
+    value = np.asarray(var[:], dtype=float)
+    scale = float(getattr(var, "scale_factor", 1.0))
+    offset = float(getattr(var, "add_offset", 0.0))
+    packed = scale != 1.0 or offset != 0.0
+    if fill_to_nan:
+        fill = float(getattr(var, "_FillValue", FILL))
+        value[(value == fill) | ((value <= FILL) & (not packed))] = np.nan
+    return value * scale + offset if packed else value
+
+
 def _open(source, member, archives):
     """An open netCDF4.Dataset of a file, or of a zip member read in memory
     (archives: {zip path: open ZipFile}, kept open by the caller)."""
@@ -265,12 +294,17 @@ def _open(source, member, archives):
 
 def _file_date(source, member, archives):
     """The date the file states (``date_modified``, else ``date_created``;
-    ISO text, "" if neither, e.g. MOZAIC-era files)."""
-    with _open(source, member, archives) as handle:
-        names = handle.ncattrs()
-        for name in ("date_modified", "date_created"):
-            if name in names:
-                return str(handle.getncattr(name))
+    ISO text, "" if neither has one, e.g. MOZAIC-era files, or if the copy
+    cannot be opened: it then ranks last among its version)."""
+    try:
+        with _open(source, member, archives) as handle:
+            names = handle.ncattrs()
+            for name in ("date_modified", "date_created"):
+                text = str(handle.getncattr(name)).strip() if name in names else ""
+                if text:
+                    return text
+    except OSError:
+        pass
     return ""
 
 

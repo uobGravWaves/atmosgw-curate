@@ -23,7 +23,7 @@ Change log:
 2026/11/25 [Claude] time rules, load record, choose_file moved to _common.py
 2026/11/25 [Claude] note_estimated_pres: files with estimated pressure recorded
 2026/11/25 [Claude] note_estimated_pres: which points is now the readers' PresEstimated
-2026/11/27 [Claude] newest_version (Q19); record_if_empty; loop_days empty_info
+2026/11/27 [Claude] newest_version (Q19); record_if_empty
 """
 
 import math
@@ -99,16 +99,13 @@ def conform_vars(store, settings):
     return store
 
 
-def loop_days(settings, var_names, find_file, read_file, label, inst_info=None,
-              empty_info=None):
+def loop_days(settings, var_names, find_file, read_file, label, inst_info=None):
     """
     Day loop for readers with one file per day.
 
     For each day (an integer datenum) from floor(start) to floor(end):
     find_file(day) gives the file's path or None (skipped, and the date added
-    to ``record(inst_info)["files_not_found"]`` if inst_info is given; a file
-    with no finite temperature is added to ``files_without_data`` if
-    inst_info or empty_info is given: empty_info alone records only that);
+    to ``record(inst_info)["files_not_found"]`` if inst_info is given);
     read_file(path, file_count, day) gives that day's variables, already
     conformed. Returns (data, file_list): the days
     stacked with ``concat_profiles``, and the file names (without folders) in
@@ -130,9 +127,9 @@ def loop_days(settings, var_names, find_file, read_file, label, inst_info=None,
         for main in ("Temp", "Temp_Residual"):
             if main in day_data and np.size(day_data[main]) and not np.any(
                     np.isfinite(np.asarray(day_data[main], dtype=float))):
-                if (inst_info or empty_info) is not None:
-                    record(inst_info or empty_info).setdefault(
-                        "files_without_data", []).append(os.path.basename(path))
+                if inst_info is not None:
+                    record(inst_info).setdefault("files_without_data", []).append(
+                        os.path.basename(path))
                 break
         days.append(day_data)
     return concat_profiles(days, var_names, consume=True), file_list

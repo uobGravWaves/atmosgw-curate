@@ -1028,10 +1028,11 @@ def _to_dataset(data, settings, call=None):
     common = load_attrs(settings, call, "atmosgw.curate.obs.load_nadir_sounders")
     # what was done to the files before loading, as the readers record it
     preprocessing = "; ".join(sorted(settings["record"].get("preprocessing", ())))
-    if sampled:
+    if sampled:  # (added to any comment the variable already has)
+        label = f"a model sampled as {settings['instrument']}: {sampled}"
+        earlier = ds[main].attrs.get("comment")
         ds[main].attrs.update(origin="derived",
-                              comment=f"a model sampled as {settings['instrument']}: "
-                                      f"{sampled}")
+                              comment=f"{earlier}; {label}" if earlier else label)
     ds.attrs = {
         "format": "swath", "format_version": FORMATS["swath"]["version"],
         "instrument": settings["instrument"], "product": settings["product"],

@@ -55,9 +55,9 @@ From "time_height" (``load_time_height``):
   = "time_height". A Dataset without temperature (e.g. radar winds only)
   raises ``ValueError``: the profile format requires temperature.
 - Not carried: ``additional_vars`` (e.g. ``T2_lidar``), which the profile
-  format does not define, and winds (not converted yet; their
-  ``availability`` reason is kept); ``session`` is an extra per-profile
-  variable.
+  format does not define, and winds (not converted yet: absent winds keep
+  their ``availability`` reason; winds the input does hold are listed
+  ``not_requested``); ``session`` is an extra per-profile variable.
 
 Science
 -------
@@ -97,7 +97,7 @@ import xarray as xr
 
 from atmosgw.curate.atmosphere import height_to_pressure
 from atmosgw.curate.data import states
-from atmosgw.curate.data.formats import FORMATS
+from atmosgw.curate.data.formats import FORMATS, WIND_NAMES
 
 _PER_PROFILE = ("granule", "granule_day", "segment", "source_row")
 
@@ -180,6 +180,9 @@ def _swath_to_profiles(ds):
     tracked = [n for n, s in FORMATS["profile"]["variables"].items()
                if s.get("tracked") and n not in result]
     availability = {n: swath_availability.get(n, "not_requested") for n in tracked}
+    for name in WIND_NAMES:  # (a swath saved before format version 2 lists none)
+        if name in availability and name not in swath_availability:
+            availability[name] = "not_measured"
     if "source_profile" in availability:
         availability["source_profile"] = "not_provided"
     for name in ("temperature_uncertainty", "pressure_uncertainty"):
