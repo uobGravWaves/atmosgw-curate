@@ -44,9 +44,10 @@ From "time_height" (``load_time_height``):
 - Each time (row) becomes a profile, in the same order; ``level`` is kept.
 - ``latitude``, ``longitude`` (the site) and ``time`` are repeated over
   levels, ``altitude`` over profiles.
-- ``temperature``, its flag and the uncertainties (``temperature_``,
-  ``pressure_uncertainty``) are kept as they are (copied); references in
-  ``ancillary_variables`` to variables not carried are dropped.
+- ``temperature``, its flag and the uncertainties (``temperature_``, and
+  ``pressure_uncertainty`` with the series' own pressure) are kept as they
+  are (copied); references in ``ancillary_variables`` to variables not
+  carried are dropped.
   ``pressure``: the series' own if it has one, else
   estimated from altitude as for swaths, in the temperature's type, with
   ``origin`` "derived" and the ``derived`` state.
@@ -235,8 +236,9 @@ def _time_height_to_profiles(ds):
         "pressure": (pl, pressure, pressure_attrs),
         "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
     }
+    own_pressure = "pressure" in ds and "pressure_flag" in ds  # (as _pressure)
     for name in ("temperature_uncertainty", "pressure_uncertainty"):
-        if name in ds:
+        if name in ds and (name != "pressure_uncertainty" or own_pressure):
             out[name] = (pl, ds[name].values.copy(), ds[name].attrs)
     if "session" in ds:  # (a copy: the input is not shared)
         out["session"] = (("profile",), ds["session"].values.copy(),
@@ -256,8 +258,11 @@ def _time_height_to_profiles(ds):
         refs = str(result[name].attrs.get("ancillary_variables", "")).split()
         if refs:
             kept = [r for r in refs if r in result]
-            result[name].attrs = {**result[name].attrs,
-                                  "ancillary_variables": " ".join(kept)}
+            attrs = {k: v for k, v in result[name].attrs.items()
+                     if k != "ancillary_variables"}
+            if kept:
+                attrs["ancillary_variables"] = " ".join(kept)
+            result[name].attrs = attrs
 
     # absent tracked variables keep the time_height reason where it has one
     th_availability = states.parse_availability(ds.attrs.get("availability", ""))

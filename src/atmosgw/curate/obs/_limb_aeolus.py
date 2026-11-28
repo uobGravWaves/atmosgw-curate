@@ -38,11 +38,13 @@ product would make it exact.
 Duplicates: consecutive L2B files overlap by about 30 s, so the flat files
 hold copies of some observations; an observation identical in every field
 read (time, bin, type, HLOS, error, validity, position, azimuth) to another,
-in the same file or an earlier one read for the request, is read once
-(2019-01-05, Rayleigh-clear: 758 of 164,750 share time and bin with
-another, 180 of them also the wind; pairs that differ in any field are both
-kept). Consecutive monthly files abut without overlap at the 10 month
-boundaries checked (2018-09 to 2023-03, every sixth). The
+in the same file or an earlier one read for the request, is read once; of
+copies differing only in validity, the valid one is read (2019-01-05,
+Rayleigh-clear: 758 of 164,750 share time and bin with another, 180 of them
+also the wind; pairs that differ in another field are both kept, the second
+starting a profile of its own). Consecutive monthly files abut without
+overlap at the 10 month boundaries checked (2018-09 to 2023-03, every
+sixth). The
 observations read reach 12 s beyond the requested days, so a profile
 crossing midnight is whole (the core selects profiles by mean time); one
 crossing the start of a file (about 00:00:35 on the first day of a file) is
@@ -201,13 +203,18 @@ def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings
     else:
         obs = {n.split("_", 1)[1]: np.empty(0) for n in names}
     if obs["time"].size:  # (exact copies from overlapping L2B files: once)
-        # (every field read is in the key: copies differing in validity,
-        # position or azimuth are both kept; before 2026-11-28 a valid copy
+        # (every field read is in the key; before 2026-11-28 a valid copy
         # could be dropped for an invalid one; found in review)
         key = np.stack([np.nan_to_num(obs[n], nan=-1.0) for n in KEY_FIELDS])
         order = np.lexsort(key[::-1])
         new = np.r_[True, np.any(np.diff(key[:, order], axis=1) != 0, axis=0)]
         keep = np.sort(order[new])  # (the first of each set, in time order)
+        # copies differing only in validity: the valid one (the invalid copy
+        # would otherwise make a profile of its own)
+        rest = [k for k, n in enumerate(KEY_FIELDS) if n != "valid"]
+        other = _rows_as_void(key[rest][:, keep].T)
+        valid_keys = other[obs["valid"][keep] != 0]
+        keep = keep[(obs["valid"][keep] != 0) | ~np.isin(other, valid_keys)]
         # and copies of observations already read from an earlier file
         if seen is not None and seen.size:
             keep = keep[~np.isin(_rows_as_void(key[:, keep].T), seen)]

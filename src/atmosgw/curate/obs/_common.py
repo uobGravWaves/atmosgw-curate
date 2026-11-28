@@ -413,13 +413,13 @@ def wrap_file_longitudes(lon):
     bad_geolocation by the loaders (the rule for every loader, as Q13; C.
     Wright, 2026-11-28). The requested lon_range is wrapped separately, by any
     number of turns (check_lon_range). Returns lon itself if nothing is
-    wrapped, else a float copy."""
+    wrapped, else a copy (in lon's own floating type)."""
     array = np.asarray(lon)
     with np.errstate(invalid="ignore"):
         over = (array > 180) & (array <= 360)
     if not over.any():
         return lon
-    out = np.array(array, dtype=float)
+    out = np.array(array, dtype=array.dtype if array.dtype.kind == "f" else float)
     out[over] -= 360.0
     return out
 STRAY_SECONDS = 600.0  # a pixel this far from its scan's median time is stray

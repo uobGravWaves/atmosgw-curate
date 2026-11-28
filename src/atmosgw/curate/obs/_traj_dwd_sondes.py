@@ -217,14 +217,16 @@ def read_rows(path, ref_lo, ref_hi):
     The sample rows of one product file whose reference time (yyyymmddhh)
     is in [ref_lo, ref_hi], as a float array [rows x 13] (COLUMNS), -999 as
     NaN. The file is sorted by reference time, so the first row is found by
-    bisection on byte offsets. The order is checked where the file is read:
-    at the bisection's probes, the rows read, the row where reading stops and
-    the file's last row; if any is out of order, the whole file is read
-    instead. (A file out of order only elsewhere is not detected: reading
-    every file in full would defeat the bisection; all 409 files on
-    eepc-0184 were sorted, 2026-11-27. Before 2026-11-28 the stopping row and
-    last row were not checked, so rows moved to the end of a file were
-    missed; found in review.)
+    bisection on byte offsets. The order is checked on the lines looked at:
+    the bisection's probes, every row scanned up to and including the row
+    where reading stops, and the file's last row; if any two are out of
+    order, the whole file is read instead. Not detected: disorder only
+    among rows not looked at, e.g. the requested ascent placed just after a
+    later one (``05, 00, 11`` asked for 00: reading stops at 05 and 00 is
+    never seen). Reading every file in full would defeat the bisection; all
+    409 files on eepc-0184 were sorted, 2026-11-27. (Before 2026-11-28 only
+    the rows returned were checked, so rows moved to the end of a file were
+    missed; found in review.) Blank lines are skipped.
     """
     probes = []  # (offset, reference) of each line looked at
     with open(path, "rb") as handle:
@@ -240,14 +242,14 @@ def read_rows(path, ref_lo, ref_hi):
             line = handle.readline()
             if line.strip():
                 probes.append((at, _ref_of(line)))
-            if not line or _ref_of(line) >= ref_lo:
+            if not line.strip() or _ref_of(line) >= ref_lo:
                 hi = mid
             else:
                 lo = mid
         handle.seek(lo)
         if lo > body:
             handle.readline()
-        lines = []
+        lines, previous, unsorted = [], None, False
         while True:
             at = handle.tell()
             line = handle.readline()
@@ -256,6 +258,8 @@ def read_rows(path, ref_lo, ref_hi):
             if not line.strip():
                 continue
             ref = _ref_of(line)
+            unsorted |= previous is not None and ref < previous  # (every row read)
+            previous = ref
             if ref < ref_lo:
                 continue
             if ref > ref_hi:
@@ -266,12 +270,13 @@ def read_rows(path, ref_lo, ref_hi):
         if last is not None:
             probes.append(last)
     refs = [ref for _, ref in sorted(probes)]  # (in file order)
-    unsorted = any(b < a for a, b in zip(refs, refs[1:], strict=False))
+    unsorted |= any(b < a for a, b in zip(refs, refs[1:], strict=False))
     rows = _parse(lines)
-    if unsorted or (rows.shape[0] and np.any(np.diff(rows[:, 1]) < 0)):  # (not sorted)
+    if unsorted:  # (not sorted)
         with open(path, "rb") as handle:
             handle.readline()
-            lines = [line for line in handle if ref_lo <= _ref_of(line) <= ref_hi]
+            lines = [line for line in handle
+                     if line.strip() and ref_lo <= _ref_of(line) <= ref_hi]
         rows = _parse(lines)
         order = np.argsort(rows[:, 1], kind="stable")
         rows = rows[order]

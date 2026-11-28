@@ -203,7 +203,10 @@ def _publish_new(temporary, path):
                                   "it.") from None
         os.replace(temporary, path)
         return
-    temporary.unlink()
+    try:  # (path is complete; a temporary file left behind is only clutter)
+        temporary.unlink()
+    except OSError:
+        pass
 
 
 def load_netcdf(path):

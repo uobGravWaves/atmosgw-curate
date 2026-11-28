@@ -7,7 +7,9 @@ reference outputs.
 ## [Unreleased]
 - Fixes from an external review (2026-11-28), each with a test. [Claude]
   - IAGOS: a time stored as the file's fill (-9999 in old files) is NaT
-    instead of a time the day before; GPS altitudes flagged 3 or 7 are NaN.
+    instead of a time the day before; samples of the flight's altitude
+    (GPS, else barometric) flagged 3 or 7 are NaN, with `keep_outliers` too
+    (a flight whose only altitude is all flagged has none).
   - `load_trajectories`: an extra named like an internal mask (e.g.
     `TempBad`) is refused; it had removed every temperature.
   - FAAM: 1 Hz longitudes are averaged on the circle at the dateline.
@@ -19,6 +21,8 @@ reference outputs.
   - GNSS without pressure: estimated from `MSL_alt` (was a KeyError).
   - MLS: a file missing a quality field gets the other rules, and its values
     the new state `qc_incomplete` (bit 2048; was: no screening, no mark).
+    Files saved before it (whose flags list the earlier states) stay valid
+    for `validate` and `load_netcdf`.
   - File longitudes must lie in -180 to 360, in every loader (C. Wright):
     180-360 are wrapped and kept, beyond is `bad_geolocation` (Q13). This
     now applies with `original_z=True` (which wrapped -200 to 160), and

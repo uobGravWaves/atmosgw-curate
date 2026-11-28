@@ -961,7 +961,7 @@ def _unwrap_crossing_rows(value):
         rows[k] = finite.size > 1 and np.any(np.abs(np.diff(finite)) > 180)
     if not rows.any():
         return value, rows  # (the usual case: untouched)
-    out = np.array(array, dtype=float)
+    out = np.array(array, dtype=array.dtype if array.dtype.kind == "f" else float)
     for k in np.flatnonzero(rows):
         finite = np.isfinite(out[k])
         out[k, finite] = np.unwrap(out[k, finite], period=360.0)

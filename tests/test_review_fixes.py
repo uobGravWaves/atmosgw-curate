@@ -128,8 +128,8 @@ def test_aeolus_copies_across_monthly_files_read_once(tmp_path):
 
 
 def test_aeolus_valid_copy_not_dropped_for_an_invalid_one(tmp_path):
-    # two copies equal in time, bin, wind and error, the first marked
-    # invalid: both are kept (they differ), so the valid wind survives
+    # two copies equal in every field but validity, the first invalid: the
+    # valid copy is read, in its own column's profile (no extra profile)
     from test_new_loaders import write_aeolus
     write_aeolus(tmp_path, duplicate=True)
     path = tmp_path / "Aeolus_L2B_monthly_2019_01.nc"
@@ -140,7 +140,9 @@ def test_aeolus_valid_copy_not_dropped_for_an_invalid_one(tmp_path):
     ds = load_limb_sounders("2019-01-10", "Aeolus", file_path=tmp_path,
                             original_z=True)
     hlos = ds.hlos_wind.values
-    assert np.any(np.isclose(hlos, 10.0))  # (the valid copy's 1000 cm/s)
+    assert ds.sizes["profile"] == 2  # (as without copies)
+    assert hlos[0, 2] == pytest.approx(10.0)  # (the valid copy's 1000 cm/s)
+    assert not states.has_state(ds.hlos_wind_flag.values[0, 2], "instrument_flag")
 
 
 # ------------------------------------------------------------------- DWD
@@ -208,6 +210,30 @@ def test_mls_missing_field_screens_the_rest_and_marks_incomplete(tmp_path):
     assert "Convergence" in ds.temperature.attrs["comment"]
 
 
+@pytest.mark.parametrize("missing", ["Status", "Quality", "Convergence",
+                                     "L2gpPrecision"])
+def test_mls_each_remaining_rule_applied(tmp_path, missing):
+    # one field missing; each of the other profile or level rules still marks
+    # its failure: profile 0 odd Status, 1 Quality 0.5 (bad at 100 hPa and
+    # below), 2 Convergence 1.04; precision -1 at profile 1, 10 hPa (where
+    # nothing else fails)
+    from test_limb_selection import _mls
+    precision = np.ones((3, 7), np.float32)
+    precision[1, 4] = -1.0
+    _mls(tmp_path, status=(1, 0, 0), quality=(1.5, 0.5, 1.5),
+         convergence=(1.0, 1.0, 1.04), precision=precision)
+    _drop_field(tmp_path / "2026" / "MLS-Aura_L2GP-Temperature_v06-04-c01_2026d001.he5",
+                missing)
+    ds = load_limb_sounders("2026-01-01", "MLS", file_path=tmp_path, original_z=True)
+    bad = states.has_state(ds.temperature_flag.values, "instrument_flag")
+    # (levels 2-5: 100, 82.5, 10, 0.001 hPa, inside the useful range)
+    expected = {"Status": bad[0, 2:6].all(), "Quality": bad[1, 2],
+                "Convergence": bad[2, 2:6].all(), "L2gpPrecision": bad[1, 4]}
+    for rule, applied in expected.items():
+        assert applied == (rule != missing), rule
+    assert not bad[1, [3, 5]].any()  # (Quality 0.5 is good above 83 hPa)
+
+
 def test_mls_incomplete_marked_only_for_the_incomplete_file(tmp_path):
     import h5py
     from test_limb_selection import _mls
@@ -256,6 +282,27 @@ def test_time_height_profiles_keep_versions_and_copy(tmp_path):
 # ---------------------------------------------------------------- netCDF
 
 
+def test_file_saved_before_a_new_state_still_valid(tmp_path):
+    # flag variables carrying the registry without its last state (as files
+    # saved before qc_incomplete was added) pass validate; a wrong one fails
+    from test_nadir_cris import write_cris
+
+    from atmosgw.curate.data import FormatError
+    write_cris(tmp_path)
+    ds = load_nadir_sounders(None, "CrIS", product="2d", file_path=tmp_path,
+                             granules=[("2019-01-01", 1)], original_grid=True)
+    attrs = states.flag_attrs()
+    old = {"flag_masks": np.asarray(attrs["flag_masks"])[:-1],
+           "flag_meanings": " ".join(attrs["flag_meanings"].split()[:-1])}
+    flags = [n for n in ds.data_vars if n.endswith("_flag")]
+    for name in flags:
+        ds[name].attrs.update(old)
+    validate(ds, "swath")
+    ds[flags[0]].attrs["flag_meanings"] = "x " + old["flag_meanings"]
+    with pytest.raises(FormatError, match="registry"):
+        validate(ds, "swath")
+
+
 def test_new_file_not_replaced_by_a_second_writer(tmp_path):
     # the second of two writers racing for one new path gets FileExistsError
     # and the first's file stays (before: both succeeded, the last won)
@@ -289,6 +336,16 @@ def test_file_longitudes_0_360_accepted_outside_bad_in_every_loader(tmp_path):
                                 file_path=tmp_path / "iasi", screen="none",
                                 lon_range=(190, 230))  # (asked for in 0-360)
     assert boxed.sizes["along_track"] > 0
+    with netCDF4.Dataset(path, "a") as f:  # (one scan beyond 360: bad)
+        lon = f["l1_lon"][:]
+        lon[10] = lon[10] + 200.0
+        f["l1_lon"][:] = lon
+    native = load_nadir_sounders(None, "IASI", granules=[("2007-11-07", 1)],
+                                 file_path=tmp_path / "iasi", screen="none",
+                                 original_grid=True)
+    flag = native.temperature_flag.values[..., 0]
+    assert states.has_state(flag[10], "bad_geolocation").all()
+    assert not states.has_state(flag[11], "bad_geolocation").any()
     faam = tmp_path / "faam" / "core_faam_20250709_v005_r0_c999.nc"
     faam.parent.mkdir()
     faam_file(faam)

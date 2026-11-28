@@ -207,8 +207,9 @@ def read_flight(handle, settings):
     # (a package temperature or GPS altitude whose every value is flagged
     # erroneous or missing is not used: about 2% of L2 3.1 flights)
     # A file without the fallback variable keeps the first choice it does
-    # have, flagged values and all (their states say so); "none" only where
-    # the file has no candidate at all.
+    # have, flagged values and all (temperature: their states say so;
+    # altitude: flagged samples NaN, below); "none" only where the file has
+    # no candidate at all.
     def choose(preferred, fallback):
         for name in preferred:
             if usable(name):
@@ -280,6 +281,8 @@ def _time_seconds(var):
     fill = ~np.isfinite(raw)
     if hasattr(var, "_FillValue"):
         fill |= raw == float(var._FillValue)
+        if float(var._FillValue) == 0.0:  # (new files: no time before departure day)
+            fill |= raw < 0
     if not packed:
         fill |= raw <= FILL
     seconds = raw * scale + offset if packed else raw.copy()
