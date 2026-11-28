@@ -66,11 +66,13 @@ def geometry(n_scan, wobble=0.0):
 
 def write_cris(folder, day="2019-01-01", sat="snpp", n_scan=90, nan_fors=(0, 29),
                nan_footprint=None, wobble=0.0, distance_fields=False, scan_slots=None,
-               big_fill=None):
+               big_fill=None, wave_km=None):
     """A daily file: n_scan scans from 00:00:12, every 8 s (or in the 8 s
     slots scan_slots). distance_fields: 8mu and 10mu hold 250 K + the true
     along and cross distance / 100 km. big_fill: (scans with times and
-    positions 9.97e36, (scan, FOR, FOV) of a 4mu value 9.97e36)."""
+    positions 9.97e36, (scan, FOR, FOV) of a 4mu value 9.97e36). wave_km:
+    15mu_high is 250 K + cos(2 pi along / wave_km), along the true
+    along-track distance."""
     folder.mkdir(parents=True, exist_ok=True)
     d = datenum(int(day[:4]), int(day[5:7]), int(day[8:10]))
     doy = int(d - datenum(int(day[:4]), 1, 1)) + 1
@@ -85,8 +87,10 @@ def write_cris(folder, day="2019-01-01", sat="snpp", n_scan=90, nan_fors=(0, 29)
     extra = {}
     if distance_fields:
         extra = {"8mu": 250.0 + along_true / 100, "10mu": 250.0 + cross_true / 100}
-        for v in extra.values():
-            v[:, list(nan_fors), :] = np.nan
+    if wave_km is not None:
+        extra["15mu_high"] = 250.0 + np.cos(2 * np.pi * along_true / wave_km)
+    for v in extra.values():
+        v[:, list(nan_fors), :] = np.nan
     if big_fill is not None:
         scans, footprint = big_fill
         for v in (seconds, lat, lon):
@@ -170,6 +174,111 @@ def test_regridded_frame_is_true_distance(tmp_path):
     assert np.max(np.abs(d_cross[good])) < 3
     # every cross-track column is filled (none NaN beside the always-NaN FORs)
     assert np.isfinite(along).mean(axis=0).min() > 0.95
+
+
+def test_missing_strip_does_not_depend_on_the_channels_asked_for(tmp_path):
+    # an interior field of regard missing in 4mu only: 4mu alone, 4mu with
+    # 8mu, and over a longer segment give the same grid, values and flags
+    # (the triangles were once built from the requested channels' values, so
+    # 4mu alone bridged the strip with 675 good-looking values; found in review)
+    path, *_ = write_cris(tmp_path, n_scan=90)
+    with netCDF4.Dataset(path, "a") as f:
+        f["bt_4mu"][:, 15, :] = np.nan
+
+    def load(channels, granules):
+        return load_nadir_sounders(None, "CrIS", product="2d", file_path=tmp_path,
+                                   channels=channels, granules=granules)
+    one = load(["4mu"], [("2019-01-01", 1)])
+    two = load(["4mu", "8mu"], [("2019-01-01", 1)])
+    np.testing.assert_array_equal(one.distance_cross.values, two.distance_cross.values)
+    np.testing.assert_array_equal(one.latitude.values, two.latitude.values)
+    for name in ("brightness_temperature", "brightness_temperature_flag"):
+        np.testing.assert_array_equal(one[name].values[..., 0],
+                                      two[name].values[..., 0])
+    # the strip: field of regard index 15 is centred 38 km right of the track
+    # (fields of view 22-54 km); NaN and flagged missing there on the grid
+    x = (one.distance_cross.values > 28) & (one.distance_cross.values < 48)
+    assert x.sum() >= 1
+    bt = one.brightness_temperature.values[:, x, 0]
+    assert np.isnan(bt).all(axis=1).mean() > 0.9
+    assert states.has_state(one.brightness_temperature_flag.values[:, x, 0][
+        np.isnan(bt)], "missing").all()
+    # a longer segment: the same axis (to rounding: its median is over more
+    # rows) and the strip still missing
+    longer = load(["4mu"], [("2019-01-01", 1), ("2019-01-01", 2)])
+    np.testing.assert_allclose(longer.distance_cross.values, one.distance_cross.values,
+                               rtol=0, atol=1e-9)
+    strip = longer.brightness_temperature.values[:, x, 0]
+    assert np.isnan(strip).all(axis=1).mean() > 0.9
+
+
+def test_short_dropout_splits_the_swath(tmp_path):
+    # scans 21 and 22 (1-based) without times: 24 s between their neighbours;
+    # the 12 s segment rule splits there, so no value is dated inside the
+    # gap (with the 180 s rule, 347 values were; found in review)
+    path, *_ = write_cris(tmp_path, n_scan=45)
+    with netCDF4.Dataset(path, "a") as f:
+        t = f["time"][:]
+        start, gap0, gap1 = float(t[0].mean()), float(t[19].mean()), float(t[22].mean())
+        t[20:22] = -999.0
+        f["time"][:] = t
+    ds = load_nadir_sounders(None, "CrIS", product="2d", file_path=tmp_path,
+                             channels=["8mu"], granules=[("2019-01-01", 1)])
+    validate(ds, "swath")
+    assert len(np.unique(ds.segment.values)) == 2
+    sec = (ds.time.values - np.datetime64("2000-01-01")) / np.timedelta64(1, "s")
+    finite = np.isfinite(ds.brightness_temperature.values[..., 0])
+    assert not np.any(finite & (sec > gap0 + 4) & (sec < gap1 - 4))
+    assert gap1 - start > gap0 - start  # (times as written)
+
+
+def test_nearest_is_the_nearest_footprint(tmp_path):
+    # each grid point takes the footprint nearest in (along, cross) km (the
+    # triangle's largest-weight vertex was farther for 1,698 of 12,150 points,
+    # by up to 16 km; found in review)
+    from scipy.spatial import cKDTree
+    _, lat, lon, _ = write_cris(tmp_path, n_scan=45)
+    la, lo = index_layout(lat), index_layout(lon)
+    ident = np.arange(la.size, dtype=float).reshape(la.shape)
+    f_along, f_cross = swath.footprint_coordinates(la, lo)
+    axis = np.linspace(np.nanmin(f_cross[3:-3]), np.nanmax(f_cross[3:-3]), 90)
+    out = swath.regrid_footprints(la, lo, {"id": ident}, axis, method="nearest")
+    got = out["fields"]["id"]
+    ok = np.isfinite(got)
+    assert ok.mean() > 0.9
+    q = np.column_stack([np.broadcast_to(out["along"][None, :], got.shape)[ok],
+                         np.broadcast_to(out["cross"][:, None], got.shape)[ok]])
+    pts = np.column_stack([f_along.ravel(), f_cross.ravel()])
+    best, _ = cKDTree(pts).query(q)
+    pick = got[ok].astype(int)
+    chosen = np.hypot(pts[pick, 0] - q[:, 0], pts[pick, 1] - q[:, 1])
+    np.testing.assert_allclose(chosen, best, atol=1e-9)
+
+
+@pytest.mark.parametrize("wave_km, centre, edge", [(100, 0.93, 0.82),
+                                                   (200, 0.98, 0.94),
+                                                   (400, 0.99, 0.98)])
+def test_wave_amplitude_after_regridding(tmp_path, wave_km, centre, edge):
+    # a unit along-track wave through the linear regridding: the amplitude
+    # kept, fitted (sine, cosine, constant) on distance_along, end rows left
+    # out. Lower bounds a little under the values measured on this geometry
+    # (docs/validation.md); interpolation attenuates short waves, more off
+    # the swath centre, and never amplifies them.
+    write_cris(tmp_path, wave_km=wave_km)
+    ds = load_nadir_sounders(None, "CrIS", product="2d", file_path=tmp_path,
+                             channels=["15mu_high"],
+                             granules=[("2019-01-01", 1), ("2019-01-01", 2)])
+    x = ds.distance_along.values[4:-4]
+    k = 2 * np.pi / wave_km
+    design = np.column_stack([np.cos(k * x), np.sin(k * x), np.ones_like(x)])
+
+    def amplitude(columns):
+        y = ds.brightness_temperature.values[4:-4, columns, 0].mean(axis=1)
+        coef = np.linalg.lstsq(design, y, rcond=None)[0]
+        return float(np.hypot(coef[0], coef[1]))
+    a_centre, a_edge = amplitude(slice(40, 50)), amplitude(slice(2, 10))
+    assert centre < a_centre <= 1.001
+    assert edge < a_edge <= 1.001
 
 
 def test_netcdf_default_fill_is_missing(tmp_path):

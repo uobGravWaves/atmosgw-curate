@@ -19,8 +19,11 @@ SNPP 2016-01-17 and NOAA-20 2019-01-13, where every 15 micron and
 perturbation value is fill): any value above 1e30 in size is treated as
 -9999 (missing, counted with the fill values). FORs 1 and 30, the
 outermost, are NaN in every channel in the files checked (2016-01-01;
-2019-01-01 and 15 of both satellites): they are kept on the native grid as
-``missing``, and the regridded swath spans FORs 2-29.
+2019-01-01 and 15 of both satellites; the scan and fill census of all 90
+files): they are kept on the native grid as ``missing``, and left out of
+the regridded swath by a fixed rule (``EMPTY_COLUMNS``), which spans FORs
+2-29 whichever channels are asked for (a note is recorded if a file has
+values there).
 
 Channel groups (``channels`` option; default all, in this order):
 
@@ -73,6 +76,7 @@ Origin: new code (no MATLAB equivalent).
 Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] review: netCDF default fill, granules by time slot, no previous day
+2026/11/28 [Claude] review: fields of regard 1 and 30 left out by a fixed rule
 """
 
 import math
@@ -104,6 +108,8 @@ FIRST_SCAN_S = 12.88  # mean time of a day's first scan, seconds after midnight
 BIG_FILL = 1e30  # |value| above: netCDF's default fill (9.97e36), missing
 GRANULE_S = SCANS_PER_GRANULE * SCAN_S  # 360 s
 N_FOR, N_FOV = 30, 9
+EMPTY_FORS = (1, 30)  # NaN in every channel of every file held: not regridded
+EMPTY_COLUMNS = tuple(3 * (j - 1) + c for j in EMPTY_FORS for c in range(3))
 SATELLITES = {"SNPP": "snpp", "NOAA-20": "j1", "J1": "j1"}
 
 # name: (file variable, nominal wavenumber cm-1, description, has perturbation)
@@ -270,6 +276,10 @@ def load(settings, inst_info, var_names):
     data["Channel"] = np.array([CHANNELS[c][1] for c in channels])
     data["ChannelName"] = np.array(channels)
     data["DerivedVars"] = DERIVED
+    if granules and np.any(np.isfinite(data["Temp"][list(EMPTY_COLUMNS)])):
+        note(inst_info, "Temp", "values in fields of regard 1 and 30 (NaN in the "
+                                "files checked): kept on the native grid, not "
+                                "regridded")
     plain = [c for c in channels if not CHANNELS[c][3]]
     if plain:
         note(inst_info, "BTPert", "no perturbation or variance in the files for "

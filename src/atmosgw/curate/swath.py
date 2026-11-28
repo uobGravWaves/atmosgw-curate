@@ -156,6 +156,7 @@ Change log
 2026/11/25 [Claude] initial version
 2026/11/27 [Claude] footprint_track, footprint_coordinates, regrid_footprints (CrIS)
 2026/11/27 [Claude] review: track smoothed over a scan; vertices option
+2026/11/28 [Claude] review: "nearest" is the nearest footprint, not the largest weight
 
 """
 
@@ -361,8 +362,8 @@ def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
       ``n_along`` points or a step of ``dx_along`` km.
     - ``method``: "linear": barycentric interpolation in the Delaunay
       triangles of the footprints in (along, cross) km, which reproduces a
-      field linear in distance exactly; "nearest": the triangle's vertex with
-      the largest weight.
+      field linear in distance exactly; "nearest": the nearest footprint in
+      (along, cross) km, for grid points inside the triangles.
     - A NaN at a vertex with a non-zero weight makes the grid point NaN (no
       bridging of missing values); ``flags``: each grid point gets the OR of
       the flags of those vertices.
@@ -432,6 +433,7 @@ def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
         if near.size < 3:
             continue
         tri = Delaunay(points[near])
+        tree = cKDTree(points[near])
         simplex = tri.find_simplex(q)
         inside = simplex >= 0
         vertices = np.zeros((q.shape[0], 3), dtype=int)
@@ -449,12 +451,16 @@ def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
             keep = np.flatnonzero(inside)
             inside[keep[long_edge]] = False
         weights[~inside] = 0.0
-        used = weights > 1e-12
         if method == "nearest":
-            best = np.argmax(weights, axis=1)
-            used = np.zeros_like(used)
-            used[np.arange(q.shape[0]), best] = inside
-            weights = used.astype(float)
+            # (the nearest footprint in (along, cross) km, inside the same
+            # support; not the triangle's largest-weight vertex, which can be
+            # a farther one: found in review, up to 16 km)
+            weights[:] = 0.0
+            vertices[:] = 0
+            if inside.any():
+                vertices[inside, 0] = tree.query(q[inside])[1]
+                weights[inside, 0] = 1.0
+        used = weights > 1e-12
         source = near[vertices]  # [n x 3] footprint indices
         for name, value in flat.items():
             v = value[source]  # [n x 3 x k]
@@ -470,7 +476,7 @@ def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
         # outside the triangles: the nearest footprint, if close enough
         outside = np.flatnonzero(~inside)
         if outside.size and (extrapolate or edge > 0):
-            dist, nearest = cKDTree(points[near]).query(q[outside])
+            dist, nearest = tree.query(q[outside])
             take = outside[dist <= edge] if not extrapolate else outside
             pick = near[nearest[dist <= edge]] if not extrapolate else near[nearest]
             for name, value in flat.items():

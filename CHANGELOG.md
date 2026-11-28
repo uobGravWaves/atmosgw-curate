@@ -6,6 +6,15 @@ reference outputs.
 
 ## [Unreleased]
 - Fixes from an external review (2026-11-28), each with a test. [Claude]
+  - `load_nadir_sounders`: IASI and CrIS swaths are split where successive
+    scans are more than 12 s apart (1.5 scans; was 180 s, still used for
+    AIRS), so a missing scan is no longer bridged by the regridding with
+    good-looking values. On the IASI and CrIS days checked only SNPP
+    2016-01-17 changes (up to 0.019 K). CrIS: the fields of regard left out
+    of the regridding (1 and 30, empty in the files) are fixed, so the grid
+    and each channel's missing values no longer depend on which channels
+    are asked for; `interp_type="nearest"` takes the nearest footprint (it
+    could take one up to 16 km farther).
   - IAGOS: a time stored as the file's fill (-9999 in old files) is NaT
     instead of a time the day before; samples of the flight's altitude
     (GPS, else barometric) flagged 3 or 7 are NaN, with `keep_outliers` too
