@@ -31,7 +31,8 @@ src/atmosgw/curate/
                   (preliminary), load_time_height, load_trajectories
     instrument/   instrument characterisations (CPs)        (planned)
     context/      global context (GC) interface             (planned)
-    analysis/     detrending, Stockwell wrappers            (planned)
+    analysis/     detrending and smoothing (detrend, smooth);
+                  Stockwell wrappers                        (planned)
     retrieval/    parameter engine                          (planned)
     sampling/     sampler and synthetic observations        (planned)
 ```

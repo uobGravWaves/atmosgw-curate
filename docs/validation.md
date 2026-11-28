@@ -301,6 +301,83 @@ units, signs, time bases and gross errors, not accuracy.
   `not_measured`) and the new comments differ. The ERA5 comparison, rerun,
   is unchanged.
 
+## `analysis.detrend` and radiosondes as profiles
+
+`analysis.detrend` against the group's MATLAB, in
+`tests/test_detrend_matlab.py` (run when the reference files are
+installed):
+
+- **References:** `detrend_sgolay_ref.mat`, made by
+  `tests/matlab/make_detrend_reference.m` from
+  corwin365/MatlabFunctions-Common@52518fc and
+  MatlabFunctions-Personal@5112703: `func_filter_sgolay` on HIRDLS and
+  SABER 2007-01-01 (five length and order cases, SABER also on its own
+  descending, irregular heights), `func_filter_hindley23` (with and without
+  `H23_OutRem`) and `smoothn` (box and Gaussian, with and without a NaN).
+  The polynomial is compared with `Tp` and `BG` in
+  `prep_airs_3d_reference.mat` (the nadir reference above): all 11 AIRS and
+  IASI cases with `Tp`, including `PreSmooth` [3, 3, 1] as a smoothing step
+  followed by the polynomial.
+- **Arrays** (float64; tolerance 1e-10 K): Savitzky-Golay within
+  4.6e-13 K, polynomial within 6.9e-13 K, smoothing within 1.8e-13 K,
+  Hindley23 identical; NaN patterns identical. The polynomial is fitted by
+  QR with column pivoting, as MATLAB's backslash: its design matrix (pixel
+  number to the 4th power) has a condition number of 1e8-1e9, and NumPy's
+  SVD-based least squares differed from MATLAB by up to 2.4e-7 K.
+- **Datasets** (outputs float32): profiles within 3.1e-5 K (one float32
+  spacing at 256-512 K), swaths within 1e-4 K (their float32 inputs'
+  rounding carried through the fit, plus the output's; largest seen
+  2.9e-5 K).
+- **Deliberate difference:** the Hindley23 background is NaN where every
+  mode is NaN (MATLAB: 0); no such point in the reference.
+- **Known answers** (`tests/test_detrend.py`, synthetic): a polynomial of
+  degree up to the order is its own background, a quadratic with gaps,
+  `skip_nan`, chains, the tropopause mask, the formats and the flags.
+- **Not compared with MATLAB** (new code): `skip_nan`, the tropopause mask
+  and `find_tropopause`, chains other than smoothing then the polynomial,
+  and radiosonde and time-height data.
+
+`to_profiles` for radiosondes (new code): `tests/test_convert_trajectory.py`
+against known answers (linear and exponential profiles, burst, wiggles,
+gaps, the dateline, the grid options).
+
+- **DWD radiosondes, 2010-01-15:** 18 ascents from 9 stations converted on
+  the 0.05 km grid, 0-34.15 km; the profiles pass `validate`. `detrend`
+  used Savitzky-Golay with 5 km (a frame of 101 levels, 5.05 km), found a
+  tropopause in all 18 (9.55-11.15 km, median 10.50 km), and the mask
+  removed 1,818 values (19.5 % of those computed).
+- **HIRDLS and SABER, 2007-01-01, default 18-60 km grid** (5,553 and 1,412
+  profiles): the outputs pass `validate`; frame 37 levels (18.5 km);
+  perturbation + background equals the temperature to 1.6e-5 K (float32
+  output). No tropopause is looked for, as the grid starts above 5 km.
+  (Before that rule was added, a "tropopause" at 18.5-22 km was found in
+  560 HIRDLS and 79 SABER profiles, mostly in the winter polar
+  stratosphere, where the temperature falls with height.)
+- **HIRDLS, 2007-01-01, on a 5-60 km grid** (`height_scale`): a tropopause
+  in all 5,553 profiles, median 16.5-17 km in the tropics and 9 km
+  poleward of 60 degrees; the mask (9.25 km either side) removed 179,870
+  values, 29.2 % of those computed.
+- **Hindley23 files, HIRDLS, 2007-01-01:** the perturbation is the stored
+  residual exactly and the background the sum of the stored modes; the
+  chain with Savitzky-Golay after it passes `validate`.
+- **AIRS 3-D, granule 53 of 2007-01-01, and IASI, granule 100 of
+  2007-11-06:** outputs pass `validate`. Through the private layer with
+  the MATLAB cross-track axis, the AIRS perturbation matches MATLAB's `Tp`
+  to 9e-13 K; the public loader's axis differs (Q14), so its values are
+  not MATLAB's. IASI: the perturbation is present at 89.8 % of points by
+  default and at 99.6 % with `skip_nan=True` (429 rows with gaps fitted),
+  which is every point that has a temperature.
+- **CrIS 2-D, 2016-01-17 00-01 UTC:** `detrend` refuses to replace the
+  producer's perturbation unless `overwrite=True`; with it, the output
+  passes `validate`, and correlates with the producer's perturbation at
+  0.83-0.89 in the three channels that have one (the producer's method
+  was not compared step by step).
+- **ALOMAR, 2007-01-01 to 2007-02-28** (2,429 profiles, 0.15 km levels):
+  frame 121 levels (18.15 km); temperature is present at 31.9 % of points,
+  the perturbation at 20.6 % by default and 31.8 % with `skip_nan=True`;
+  where the default has a value the two are identical (0 of 382,476
+  differ). No tropopause is looked for.
+
 ## Changes since the MATLAB comparisons
 
 Every later change meant to leave values alone was checked old against new

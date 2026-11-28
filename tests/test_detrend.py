@@ -848,3 +848,18 @@ def test_tropopause_mask_only_for_vertical_filters():
         warnings.simplefilter("error", TropopauseMaskWarning)
         out = detrend(_random_swath()[0])
     assert "tropopause_altitude" not in out
+
+
+def test_find_tropopause_needs_the_troposphere():
+    """Data that start in the stratosphere have no tropopause, even where the
+    winter polar stratosphere cools with height (HIRDLS, 70 N, 2007-01-01:
+    3.8 K/km at 18-19 km, then nearly isothermal, passed for one before)."""
+    z = np.arange(18.0, 60.5, 0.5)
+    t = np.where(z < 21, 209.5 - 3.2 * (z - 18.0), 199.9 + 0.2 * (z - 21.0))
+    assert np.isnan(find_tropopause(z[None, :], t[None, :])[0])
+    # the same shape lower down, reaching the troposphere, is found
+    low = np.arange(2.0, 44.5, 0.5)
+    assert find_tropopause(low[None, :], t[None, :])[0] == pytest.approx(5.0, abs=0.5)
+    # reach_km moves the rule
+    assert np.isfinite(find_tropopause(z[None, :], t[None, :], reach_km=18.0,
+                                       search_km=(18.0, 22.0))[0])

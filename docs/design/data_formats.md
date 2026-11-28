@@ -3,9 +3,11 @@
 **Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1).
 Added after 0.6.0 (CHANGELOG, Unreleased): `data.to_netcdf` with packing
 (§11) and, on 2026-11-27, profile format versions 2 and 3 (§3), swath
-version 2 (§4) and the trajectory format (§4b). Still planned, not
-implemented: the `analysis` steps (detrend, smooth, fill). Points marked
-*agreed* were agreed with C. Wright on 2026-11-25.
+version 2 (§4) and the trajectory format (§4b); on 2026-11-28,
+`analysis.detrend` (detrending and smoothing; its variables in §4c), the
+state `not_computed` (§6.2) and radiosondes to profiles (§8). Still
+planned, not implemented: a fill step and the Stockwell wrappers. Points
+marked *agreed* were agreed with C. Wright on 2026-11-25.
 
 The Curate plan gives "common interfaces and data structures" very high
 priority: every loader's output must be usable by the same Detrender,
@@ -242,6 +244,9 @@ will need the samples inside the requested times instead, with the flight
 marked as cut. The layout already fits (GPS-derived winds would have
 `origin` "derived").
 
+Radiosonde trajectories convert to profiles on a regular height grid
+(`to_profiles`, §8); aircraft trajectories do not.
+
 States: `no_observation` (padding, and before or after a variable's
 values), `missing`, `outside_physical_range`, `instrument_flag` (the
 provider's flags, per variable) and `bad_geolocation`. Values are removed
@@ -256,6 +261,32 @@ per variable (§6.3). `origin` is "measured".
   `upward_wind` is `not_measured`.
 - FAAM (`"FAAM"`, product "flight"): all three winds; attribute
   `sample_rate` ("1hz" or "full").
+
+## 4c. Variables added by analysis steps (all formats)
+
+Added by `analysis.detrend` (since 2026-11-28) to a copy of a Dataset in
+any of the formats above, for one data variable `<var>` (by default
+`temperature`; `brightness_temperature` for 2-D swaths). Trajectories are
+detrended after conversion to profiles.
+
+| Variable | Dimensions | Units | Required |
+|---|---|---|---|
+| `<var>_perturbation` | as `<var>` | as `<var>` | optional: what the detrending chain left; `origin` "derived" |
+| `<var>_background` | as `<var>` | as `<var>` | optional: the sum of the backgrounds removed; `origin` "derived" |
+| `<var>_perturbation_flag`, `<var>_background_flag` | as `<var>` | — | with each: the input's states (without its "no value" states where the output has a value), `derived` on every value, `not_computed` where the input has a value but none could be computed (§6.2) |
+| `tropopause_altitude` | the dimensions of `<var>` other than `level` | km | after a vertical filter with the tropopause mask: the tropopause height used, NaN where none was found |
+| `<var>_perturbation_step<k>` | as `<var>` | as `<var>` | with `keep_steps`: what was left after step k (1-based) |
+
+Both outputs are float32 (computed in float64) whatever the type of
+`<var>`, and carry the attribute `detrending`: the chain as JSON, with
+every option and the frame used. `<var>_perturbation_uncertainty` and
+`<var>_background_uncertainty` are listed in `availability` as
+`not_provided`. `validate` checks `<data variable>_perturbation` and
+`_background` where present as float32 data variables with the dimensions
+and units of the data variable. The producer's own
+`brightness_temperature_perturbation` in AIRS 2-D files (§4) has the same
+name; `detrend` replaces it only with `overwrite=True`. Details:
+`help(atmosgw.curate.analysis.detrend)`.
 
 ## 5. Required dataset attributes (all formats)
 
@@ -314,7 +345,7 @@ is a new entry; nothing else changes, and saved files stay readable because
 each carries its own `flag_masks` and `flag_meanings`. uint16 gives 16
 states, uint32 32 (the registry decides the type).
 
-Initial registry (proposal), in three groups:
+Initial registry (proposal), in four groups:
 
 | Bit | State | Value | Meaning |
 |---|---|---|---|
@@ -329,10 +360,12 @@ Initial registry (proposal), in three groups:
 | 64 | `instrument_flag` | NaN | the instrument's own QC marks it bad (limb, with `instrument_qc`: MLS, its data quality documents' rules; SOFIE, outside the endorsed 15-88 km; ROMEX `is_bad`; Aeolus `valid` 0. Trajectories, always: IAGOS validity flags 3 and 7, FAAM non-zero flags) |
 | | **Value present, but qualified** | | |
 | 128 | `derived` | value | computed, not measured or retrieved (e.g. pressure from height) |
-| 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
+| 256 | `filled` | value | filled from neighbours after loading (for a planned fill step; nothing sets it yet) |
 | 512 | `extrapolated` | value | outside the source data's coverage (with `extrapolate`; nadir: also cross-track edge columns taking a segment's edge value) |
 | 1024 | `a_priori_dominated` | value | the retrieval has little information here, as the provider marks it (with `instrument_qc`: HIRDLS negative precision); later perhaps also from the CPs' averaging kernels |
 | 2048 | `qc_incomplete` | value | the provider's quality control could not be completed: a quality field it needs is missing from the file (with `instrument_qc`: MLS); the other rules were applied (added 2026-11-28, C. Wright) |
+| | **No value: not computed** | | |
+| 4096 | `not_computed` | NaN | the input has a value here, but an analysis step could not compute one: e.g. a missing value within the filter's frame or the fitted row, or the tropopause mask (`analysis.detrend`; added 2026-11-28, C. Wright) |
 
 Several bits can be set together (e.g. `derived` and `extrapolated`). With
 `keep_outliers`, points in the "removed as bad" group keep their values,
@@ -433,6 +466,14 @@ created.
   (`origin` "derived", `derived` state), in the temperature's type;
   `session` is kept per profile, `source_profile` and `source_file`
   repeated over levels. Needs temperature.
+- `to_profiles(trajectory) -> profile` (since 2026-11-28; radiosondes only,
+  `instrument` ending in "sondes"; aircraft are refused): each flight
+  becomes a profile; its ascent (to its highest altitude) is interpolated
+  linearly in height, pressure in log(pressure), to one regular grid of
+  multiples of `dz_km` (default 0.05 km; or within `height_range`), with no
+  extrapolation and no bridging of a missing sample; per-flight variables
+  are kept per profile; pressure is estimated from altitude if the sondes
+  have none. Details: `help(atmosgw.curate.data.convert)`.
 - Others to be defined with the formats they connect.
 
 ## 9. Checking
@@ -441,7 +482,8 @@ created.
 units, value ranges of coordinates, required attributes, that every data
 variable has a flag variable, that every NaN has a "no value" state, and that
 every tracked optional variable (of the Dataset's format version) is either
-present or listed in `availability`. It raises with a list of every
+present or listed in `availability`, and the analysis outputs of §4c where
+present. It raises with a list of every
 problem. Every loader's tests run it on their outputs.
 
 ## 10. Versioning

@@ -2,9 +2,10 @@
 
 How to load limb-sounder and other profiles, nadir-sounder swaths,
 ground-based time-height series and in-situ trajectories (radiosondes,
-aircraft), and how to read what comes back. Every option is listed in the
-loaders' docstrings (`help(load_limb_sounders)`, `help(load_nadir_sounders)`,
-`help(load_time_height)`, `help(load_trajectories)`).
+aircraft), how to read what comes back, and how to detrend it. Every
+option is listed in the loaders' docstrings (`help(load_limb_sounders)`,
+`help(load_nadir_sounders)`, `help(load_time_height)`,
+`help(load_trajectories)`) and in `help(atmosgw.curate.analysis.detrend)`.
 
 | Loader | Format, dimensions | Instruments |
 |---|---|---|
@@ -328,6 +329,7 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `instrument_flag` | NaN | failed the provider's own screening (below) |
 | `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
 | `qc_incomplete` | value | the provider's screening could not be completed (an MLS file missing a quality field) |
+| `not_computed` | NaN | the input has a value, but an analysis step could not compute one (e.g. a gap in the filter's frame, or the tropopause mask; `analysis.detrend`) |
 
 A zero flag means that none of these states applies, not that every
 possible check was made: what each loader checks is in its docstring.
@@ -382,22 +384,118 @@ or flight with more than one candidate, and the one used),
 and per variable `source_variable` and `comment`. All are text, so they
 survive saving.
 
-## Swaths and time-height series as profiles
+## Swaths, time-height series and radiosondes as profiles
 
-`to_profiles` turns a 3-D swath (one profile per swath point) or a
-time-height series (one profile per time) into the profile format, so
-profile tools can use them too:
+`to_profiles` turns a 3-D swath (one profile per swath point), a
+time-height series (one profile per time) or radiosonde ascents (one
+profile per flight) into the profile format, so profile tools can use them
+too:
 
 ```python
 prof = to_profiles(load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS"))
 prof.temperature                   # (profile, level)
 prof.pressure                      # estimated from altitude, marked derived
 prof = to_profiles(load_time_height("2007-01-23", "ALOMAR"))
+
+# radiosondes: each ascent on one regular height grid (0.05 km by default)
+prof = to_profiles(load_trajectories("2010-01-15", "DWDsondes"))
+prof = to_profiles(load_trajectories("2010-01-15", "DWDsondes"), dz_km=0.1,
+                   height_range=(0, 30))
 ```
+
+For radiosondes, each flight's ascent (up to its highest altitude) is
+interpolated linearly in height, pressure in log(pressure), with no
+extrapolation and no bridging of a missing sample; the choices are in the
+`conversion` attribute. Aircraft trajectories are refused.
 
 Combining limb profiles with `to_profiles(swath)` output mixes float64 and
 float32 data variables: both are valid profile data, but stacking them gives
 float64.
+
+## Detrending
+
+`analysis.detrend` removes the background with the group's current
+methods and returns a copy of the Dataset with two variables added,
+`<var>_perturbation` and `<var>_background` (float32, each with a `_flag`;
+`var` is `temperature`, or `brightness_temperature` for 2-D swaths). The
+method is chosen from the data: a Savitzky-Golay filter in height for
+profiles and time-height series (18 km, order 2; 5 km for radiosondes), a
+4th-order polynomial across track for swaths, and `"hindley23"` for
+planetary-wave-filtered profiles. Every number is an option.
+
+```python
+import json
+from atmosgw.curate.analysis import detrend, TropopauseMaskWarning
+
+ds = load_limb_sounders("2007-01-01", "HIRDLS")
+out = detrend(ds)                              # Savitzky-Golay, 18 km, order 2
+out.temperature_perturbation                   # (profile, level), K, float32
+out.temperature_background
+out = detrend(ds, length_km=10, order=3)       # any number can be changed
+
+# AIRS: smooth 3 x 3 (cross x along track), then the polynomial across track
+airs = load_nadir_sounders(["2007-01-01T00:00", "2007-01-01T01:00"], "AIRS")
+out = detrend(airs, steps=[("smooth", {"size": {"cross_track": 3, "along_track": 3}}),
+                           "polynomial"])
+
+# planetary-wave-filtered files: load them, then use them as the background
+pw = load_limb_sounders("2007-01-01", "HIRDLS", hindley_pws=True)
+out = detrend(pw, method="hindley23")          # (also the default for these data)
+out = detrend(pw, steps=["hindley23", ("savgol", {"length_km": 18})])
+
+# radiosondes: convert to profiles first (detrend refuses trajectories)
+out = detrend(to_profiles(load_trajectories("2010-01-15", "DWDsondes")))
+
+# time-height series
+out = detrend(load_time_height("2007-01-23", "ALOMAR"))
+```
+
+In a chain each step acts on what the previous one left, the backgrounds
+are added, and `"hindley23"` must come first. After a smoothing step
+(`kernel="box"` or `"gaussian"`), perturbation plus background is the
+smoothed input, not the input. Time-height series get the limb default
+(Savitzky-Golay, 18 km, order 2), because the package has no
+lidar-specific method. Existing variables of the same names (e.g. the
+producer's `brightness_temperature_perturbation` in AIRS 2-D files) are an
+error unless `overwrite=True`.
+
+**Missing values.** By default they spread as in MATLAB: a polynomial row
+with any NaN gives NaN, and one NaN in a Savitzky-Golay frame removes half
+a frame either side. With `skip_nan=True` each fit uses the values present,
+so only the missing values stay missing. Values the input has but the
+output could not compute are `not_computed` in the output's flags.
+
+**Tropopause mask.** A vertical filter turns the kink at the tropopause
+into spurious waves, so after a Savitzky-Golay step the values within half
+a frame of each profile's lapse-rate tropopause are set to NaN, with a
+`TropopauseMaskWarning` saying how many. The heights used are returned as
+`tropopause_altitude`. A tropopause is looked for only in profiles that
+reach down to 5 km (`reach_km`), so the default 18-60 km limb grid and
+lidar data are not masked; if such data do start below their tropopause,
+give the heights with `tropopause_km`.
+
+```python
+out = detrend(ds, mask_half_width_km=2)        # a narrower mask
+out = detrend(ds, tropopause_km=16)            # given heights: one, or one per profile
+out = detrend(ds, tropopause_options={"search_km": (8, 20)})   # passed to find_tropopause
+out = detrend(ds, mask_tropopause=False)       # no mask (not recommended)
+
+import warnings
+warnings.simplefilter("ignore", TropopauseMaskWarning)   # keep the mask, drop the warning
+```
+
+**The record.** Each output variable's `detrending` attribute holds the
+chain as JSON, with every option, the frame used and the mask:
+
+```python
+out = detrend(ds)
+json.loads(out.temperature_perturbation.attrs["detrending"])
+# {'variable': 'temperature', 'steps': [{'method': 'savgol', 'order': 2,
+#   'length_km': 18.0, ..., 'frame_levels': [37, 37], 'frame_km': 18.5}],
+#  'skip_nan': False, 'tropopause_mask': {'half_width_km': 9.25, ...}}
+```
+
+The output still passes `validate` in its format.
 
 ## Saving
 

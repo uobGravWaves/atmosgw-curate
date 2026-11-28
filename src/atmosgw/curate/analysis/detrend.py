@@ -90,9 +90,13 @@ are set to NaN in the perturbation and background, with a warning
 (``TropopauseMaskWarning``) saying how much was removed. The tropopause is
 found in the Dataset's temperature (``find_tropopause``; options through
 ``tropopause_options``), or given as ``tropopause_km`` (a number, or one
-per profile). Profiles that start above their tropopause have none and are
-not masked. ``mask_tropopause=False`` switches the mask off. The heights
-used are returned as ``tropopause_altitude``.
+per profile). A tropopause is looked for only in profiles that reach down
+to 5 km (``reach_km``): data that start higher (the default 18-60 km limb
+grid, lidars) are taken to hold no tropopause and are not masked, because
+the winter polar stratosphere and noise otherwise pass for one. If such
+data do start below their tropopause, give ``tropopause_km``.
+``mask_tropopause=False`` switches the mask off. The heights used are
+returned as ``tropopause_altitude``.
 
 ``overwrite`` (bool, False): replace an existing ``<var>_perturbation`` or
 ``<var>_background`` (e.g. the producer's perturbation in AIRS 2-D files);
@@ -115,9 +119,11 @@ and units of ``var``:
   are listed in ``availability`` as ``not_provided``.
 
 ``find_tropopause(altitude, temperature, lapse_rate=2.0, depth_km=2.0,
-search_km=(5, 22), resolution_km=0.25)``: lapse-rate tropopause height (km)
-of each profile ([profile x level] arrays, any level order), NaN where none
-is found.
+search_km=(5, 22), resolution_km=0.25, reach_km=None)``: lapse-rate
+tropopause height (km) of each profile ([profile x level] arrays, any level
+order), NaN where none is found. ``reach_km`` (None: the lower search
+limit, 5 km): a profile is searched only if it has a value at or below this
+height.
 
 Differences from MATLAB
 -----------------------
@@ -146,9 +152,11 @@ Science
   by Wikipedia "Tropopause"; the WMO text itself was not read: UNVERIFIED
   at source). Choices made here, not from the definition: the search is
   limited to 5-22 km; profiles finer than 0.25 km are averaged to 0.25 km
-  first, against noise; a profile must show a lapse rate above the
-  threshold below the level found, so data starting in the stratosphere
-  have no tropopause.
+  first, against noise; a profile must reach down to 5 km (``reach_km``)
+  and show a lapse rate above the threshold below the level found. (Without
+  the first rule, HIRDLS, SABER and ALOMAR data starting at 15-22 km gave
+  "tropopauses" at 18.5-22 km in 560 of 5553, 79 of 1412 and 717 of 2429
+  profiles, mostly where the winter polar stratosphere cools with height.)
 - The mask half-width (half the frame) is the reach of the filter: an
   assumption, not a published value.
 
@@ -186,6 +194,7 @@ Usage
 Change log
 ----------
 2026/11/28 [Claude] initial version
+2026/11/28 [Claude] find_tropopause: only profiles reaching down to reach_km (5 km)
 2026/11/28 [Claude] find_tropopause: all-NaN profile gives NaN (was IndexError)
 
 """
@@ -206,10 +215,13 @@ DEFAULTS = {
     "hindley23": {},
     "smooth": {"size": None, "kernel": "box", "sigma": 0.65},
 }
-SONDE_LENGTH_KM = 5.0  # Savitzky-Golay frame for radiosondes (Wright et al. 2016)
+# Savitzky-Golay frame for radiosondes (as Wright et al. 2016, AMT 9, 877, are
+# understood to have used; not checked against the paper: UNVERIFIED)
+SONDE_LENGTH_KM = 5.0
 REGULAR_GRID_TOLERANCE = 0.01  # spacing spread below which a grid is regular (MATLAB)
 TROPOPAUSE_DEFAULTS = {"lapse_rate": 2.0, "depth_km": 2.0,
-                       "search_km": (5.0, 22.0), "resolution_km": 0.25}
+                       "search_km": (5.0, 22.0), "resolution_km": 0.25,
+                       "reach_km": None}
 _ALIASES = {"boxcar": ("smooth", {"kernel": "box"}),
             "gaussian": ("smooth", {"kernel": "gaussian"})}
 _BACKGROUND_METHODS = ("savgol", "polynomial", "hindley23")
@@ -344,7 +356,7 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
 
 
 def find_tropopause(altitude, temperature, lapse_rate=2.0, depth_km=2.0,
-                    search_km=(5.0, 22.0), resolution_km=0.25):
+                    search_km=(5.0, 22.0), resolution_km=0.25, reach_km=None):
     """Lapse-rate tropopause height (km) of each profile; NaN where none.
 
     altitude (km), temperature (K): [profile x level], levels in any order.
@@ -354,9 +366,10 @@ def find_tropopause(altitude, temperature, lapse_rate=2.0, depth_km=2.0,
     temperature = np.atleast_2d(np.asarray(temperature, dtype=np.float64))
     altitude = np.broadcast_to(altitude, temperature.shape)
     found = np.full(temperature.shape[0], np.nan)
+    reach = search_km[0] if reach_km is None else reach_km
     for p in range(temperature.shape[0]):
         z, t = _clean_profile(altitude[p], temperature[p], resolution_km)
-        if z.size < 3:
+        if z.size < 3 or z[0] > reach:  # (no troposphere in the data)
             continue
         lapse = -np.diff(t) / np.diff(z)  # K/km, of the layer above each level
         seen_troposphere = False
@@ -719,14 +732,23 @@ def _mask_tropopause(ds, dims, current, background, tropopause_km, half_width,
                 "mask_tropopause=False to silence this.",
                 TropopauseMaskWarning, stacklevel=3)
             return current, background, {}, "not applied: no temperature"
-        height = find_tropopause(alt, _level_last(temperature, dims)[0], **options)
+        rows = _level_last(temperature, dims)[0]
+        height = find_tropopause(alt, rows, **options)
         source = "found"
+        reach = (options["search_km"][0] if options["reach_km"] is None
+                 else options["reach_km"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # (all-NaN rows)
+            lowest = np.nanmin(np.where(np.isfinite(rows), alt, np.nan), axis=1)
+        not_searched = int(np.count_nonzero(~(lowest <= reach)))
     near = np.abs(alt - height[:, None]) <= half_width
     values = _level_last(current, dims)[0]
     removed = int(np.count_nonzero(near & np.isfinite(values)))
     affected = int(np.count_nonzero(np.any(near & np.isfinite(values), axis=1)))
     note = {"half_width_km": float(half_width), "tropopause": source,
             "profiles_masked": affected, "values_masked": removed,
+            **({"profiles_not_reaching_reach_km": not_searched}
+               if source == "found" else {}),
             **({k: (list(v) if isinstance(v, tuple) else v)
                 for k, v in options.items()} if source == "found" else {})}
     lead = tuple(d for d in dims if d != "level")
