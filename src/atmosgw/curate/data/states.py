@@ -75,6 +75,7 @@ Change log
 2026/11/26 [Claude] docstring: Validation names the existing tests
 2026/11/27 [Claude] descriptions: trajectories; instrument_flag rules referenced
 2026/11/28 [Claude] qc_incomplete (bit 2048), agreed with C. Wright
+2026/11/28 [Claude] not_computed (bit 4096), for analysis steps; agreed with C. Wright
 
 """
 
@@ -122,6 +123,10 @@ STATES = (
           "the provider's quality control could not be completed for this "
           "value: a quality field it needs is missing from the file (MLS); "
           "the other rules were applied"),
+    State("not_computed", 4096, True, "not computed",
+          "the input has a value here, but an analysis step could not compute "
+          "one: e.g. a missing value within the filter's frame or the fitted "
+          "row, or the tropopause mask (analysis.detrend)"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed
