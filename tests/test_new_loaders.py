@@ -156,7 +156,8 @@ def write_aeolus(folder, duplicate=False):
         "obs_type": np.array([2, 2, 2, 1, 2, 2, 2]),
         "valid": np.array([1, 1, 1, 1, 1, 0, 1]),
     }
-    if duplicate:  # (copies right after the originals, as in the files)
+    ray["lat"] = 10 + np.arange(ray["time"].size) * 0.01
+    if duplicate:  # (exact copies right after the originals, as in the files)
         ray = {k: np.r_[v[:3], v[:3], v[3:]] for k, v in ray.items()}
     n = ray["time"].size
     with netCDF4.Dataset(folder / "Aeolus_L2B_monthly_2019_01.nc", "w") as f:
@@ -876,7 +877,9 @@ def test_iagos_file_without_pressure_altitude_or_winds(tmp_path):
     kept = load_trajectories("2019-03-18", "IAGOS", file_path=tmp_path,
                              keep_outliers=True)
     assert np.all(kept.temperature.values == 221.0)
-    assert np.all(kept.altitude.values == 10.1)
+    # flagged altitudes are NaN even so: a coordinate has no flag to carry
+    # the state (as FAAM's flagged positions; since 2026-11-28)
+    assert np.all(np.isnan(kept.altitude.values))
 
 
 # ------------------------------- versions, availability, records (2026-11-27b)

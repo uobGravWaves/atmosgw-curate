@@ -356,14 +356,20 @@ def test_integer_flag_interpolated_with_nearest(syn):
 # longitudes
 
 
-def test_longitudes_wrapped_not_removed(syn):
+def test_longitudes_0_360_wrapped_outside_removed(syn):
+    # file longitudes 190, -190, 350, -350, 0 ... 30: 0-360 values are wrapped
+    # and kept; below -180 they are bad_geolocation (Q13), on both paths
+    # (original_z followed MATLAB and wrapped them until 2026-11-28)
     expected = np.array([-170, 170, -10, 10, 0, 10, 20, 30.0])
-    ds = misc(syn, "synlon", original_z=True)
-    np.testing.assert_array_equal(ds.longitude.values,
-                                  np.tile(expected[:, None], (1, ds.sizes["level"])))
-    assert not np.isnan(ds.temperature.values).any()
-    ds = misc(syn, "synlon")
-    assert np.nanmax(np.abs(ds.longitude.values - expected[:, None])) < 1e-9
+    bad = np.array([False, True, False, True, False, False, False, False])
+    for options in ({"original_z": True}, {}):
+        ds = misc(syn, "synlon", **options)
+        temp, flag = ds.temperature.values, ds.temperature_flag.values
+        good = np.isfinite(temp)
+        assert not good[bad].any() and good[~bad].any(axis=1).all()
+        assert states.has_state(flag[bad], "bad_geolocation").any(axis=1).all()
+        lon = ds.longitude.values[~bad]
+        assert np.nanmax(np.abs(lon - expected[~bad][:, None])) < 1e-9
 
 
 # sampler output

@@ -44,13 +44,16 @@ From "time_height" (``load_time_height``):
 - Each time (row) becomes a profile, in the same order; ``level`` is kept.
 - ``latitude``, ``longitude`` (the site) and ``time`` are repeated over
   levels, ``altitude`` over profiles.
-- ``temperature``, its flag and ``temperature_uncertainty`` are kept as
-  they are (copied). ``pressure``: the series' own if it has one, else
+- ``temperature``, its flag and the uncertainties (``temperature_``, and
+  ``pressure_uncertainty`` with the series' own pressure) are kept as they
+  are (copied); references in ``ancillary_variables`` to variables not
+  carried are dropped.
+  ``pressure``: the series' own if it has one, else
   estimated from altitude as for swaths, in the temperature's type, with
   ``origin`` "derived" and the ``derived`` state.
-- ``session`` is kept per profile; ``source_profile`` and ``source_file``
-  (``file_source=True``) are repeated over levels, and ``original_files`` is
-  kept.
+- ``session`` is kept per profile (copied); ``source_profile`` and
+  ``source_file`` (``file_source=True``) are repeated over levels, and
+  ``original_files`` with ``original_file_version`` are kept.
 - ``availability`` and the attributes as for swaths, with ``converted_from``
   = "time_height". A Dataset without temperature (e.g. radar winds only)
   raises ``ValueError``: the profile format requires temperature.
@@ -89,6 +92,7 @@ Change log
 2026/11/25 [Claude] initial version
 2026/11/25 [Claude] keep source_file, source_row, original_files; inherit availability
 2026/11/26 [Claude] time_height to profiles
+2026/11/28 [Claude] review: time_height file versions, pressure uncertainty, copies
 
 """
 
@@ -232,18 +236,35 @@ def _time_height_to_profiles(ds):
         "pressure": (pl, pressure, pressure_attrs),
         "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
     }
-    if "temperature_uncertainty" in ds:
-        out["temperature_uncertainty"] = (pl, ds["temperature_uncertainty"].values
-                                          .copy(), ds["temperature_uncertainty"].attrs)
-    if "session" in ds:
-        out["session"] = (("profile",), ds["session"].values, ds["session"].attrs)
+    own_pressure = "pressure" in ds and "pressure_flag" in ds  # (as _pressure)
+    carried = ("temperature_uncertainty",) + (("pressure_uncertainty",)
+                                              if own_pressure else ())
+    for name in carried:
+        if name in ds:
+            out[name] = (pl, ds[name].values.copy(), ds[name].attrs)
+    if "session" in ds:  # (a copy: the input is not shared)
+        out["session"] = (("profile",), ds["session"].values.copy(),
+                          ds["session"].attrs)
     for name in ("source_profile", "source_file"):  # (time,) -> (profile, level)
         if name in ds:
             out[name] = (pl, over_levels(ds[name].values), ds[name].attrs)
     result = xr.Dataset(out)
-    if "original_files" in ds.coords:  # (values only: not the site coordinates)
-        result = result.assign_coords(original_files=(
-            "file", ds["original_files"].values, ds["original_files"].attrs))
+    # the files and the version each states (values only: not the site
+    # coordinates)
+    files = {name: ("file", ds[name].values.copy(), ds[name].attrs)
+             for name in ("original_files", "original_file_version") if name in ds}
+    if files:
+        result = result.assign_coords(files)
+    # ancillary references only to variables carried over
+    for name in ("temperature", "pressure"):
+        refs = str(result[name].attrs.get("ancillary_variables", "")).split()
+        if refs:
+            kept = [r for r in refs if r in result]
+            attrs = {k: v for k, v in result[name].attrs.items()
+                     if k != "ancillary_variables"}
+            if kept:
+                attrs["ancillary_variables"] = " ".join(kept)
+            result[name].attrs = attrs
 
     # absent tracked variables keep the time_height reason where it has one
     th_availability = states.parse_availability(ds.attrs.get("availability", ""))

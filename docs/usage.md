@@ -327,12 +327,18 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `extrapolated` | value | outside the data's own coverage, with `extrapolate=True` (nadir: also edge columns given a segment's edge value, Q14) |
 | `instrument_flag` | NaN | failed the provider's own screening (below) |
 | `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
+| `qc_incomplete` | value | the provider's screening could not be completed (an MLS file missing a quality field) |
+
+A zero flag means that none of these states applies, not that every
+possible check was made: what each loader checks is in its docstring.
 
 Some of the providers' own quality screening is applied, as
 `instrument_flag`: MLS's temperature rules (from its data quality
 documents), SOFIE's endorsed heights (15-88 km), ROMEX's `is_bad`, Aeolus's
 `valid` flag, IAGOS's validity flags 3 and 7, and FAAM's flags. HIRDLS
 values dominated by the a priori are marked `a_priori_dominated` but kept.
+An MLS file missing a quality field gets the other rules, and its values
+are marked `qc_incomplete`.
 In `load_limb_sounders`, `instrument_qc=False` switches all of this off;
 `load_trajectories` has no such switch, so IAGOS and FAAM flags are always
 applied. For the other instruments, request their quality fields with

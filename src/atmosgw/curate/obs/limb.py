@@ -103,7 +103,9 @@ Options (type, default):
   provider either). HIRDLS: values with
   negative precision, "most of the information comes from the a priori"
   (V7 data quality document, section I.2), are kept and marked
-  ``a_priori_dominated`` (Q17).
+  ``a_priori_dominated`` (Q17). MLS: where a quality field is missing from
+  a file, the other rules are applied and every value of that file is
+  marked ``qc_incomplete`` (kept).
 - ``keep_duplicate_occultations`` (bool, False): GNSS: return every copy of
   an occultation present more than once in the files (from several
   processing centres) instead of one (see ``obs._limb_ace_gnss``).
@@ -162,12 +164,15 @@ scale), ``instrument_flag`` (with ``instrument_qc``: MLS values failing its
 data quality documents' rules, SOFIE heights outside 15-88 km, ROMEX ``is_bad``
 profiles, Aeolus ``valid`` 0; Q15, Q17) and, kept with their values,
 ``a_priori_dominated`` (with ``instrument_qc``: HIRDLS values with negative
-precision; Q17). When interpolating, a height that uses a file point with one
-of these states gets the state too (Q13). As in MATLAB, a point removed for one
-variable is removed (and flagged) in all of them. With ``keep_outliers`` the
-values are kept and the states still set. Every other NaN is ``missing`` if it
-lies between the profile's first and last value of that variable (a gap in what
-was measured, e.g. a fill value), and ``no_observation`` otherwise (above or
+precision; Q17) and ``qc_incomplete`` (MLS files missing a quality field).
+File longitudes outside -180 to 360 are ``bad_geolocation`` before they are
+wrapped, with ``original_z`` too (Q13). When interpolating, a height that
+uses a file point with one of these states gets the state too (Q13). As in
+MATLAB, a point removed for one variable is removed (and flagged) in all of
+them. With ``keep_outliers`` the values are kept and the states still set.
+Every other NaN is ``missing`` if it lies between the profile's first and
+last value of that variable (a gap in what was measured, e.g. a fill
+value), and ``no_observation`` otherwise (above or
 below the profile, or padding between profiles of different lengths). With
 ``extrapolate``, points outside a profile's own heights are ``extrapolated``
 (where they have a value).
@@ -250,9 +255,10 @@ Science
   ``additional_vars`` whose values are all whole numbers (flags, counts) use
   nearest-neighbour instead. Longitudes are unwrapped along each profile
   before interpolating and wrapped back afterwards, so profiles crossing the
-  dateline interpolate correctly. Pressure is interpolated in log(pressure)
-  [R3] (exact for an isothermal layer in geopotential height; in geometric
-  height within about 5e-6 relative for 1 km levels), except with
+  dateline interpolate correctly; so are azimuths (Aeolus ``LOSAz``) in a
+  profile crossing north, wrapped back to 0-360. Pressure is interpolated
+  in log(pressure) [R3] (exact for an isothermal layer in geopotential
+  height; in geometric height within about 5e-6 relative for 1 km levels), except with
   ``nearest``, ``next`` or ``previous``; pressures <= 0 become NaN. (Linear
   interpolation, as before 2026-11-25, overestimated it between levels: Q6
   in ``docs/quirks.md``.)
@@ -342,6 +348,8 @@ Change log
   warning when no data lie in the requested times
 2026/11/27 [Claude] LIMS, ROMEX, Aeolus (HLOS winds, profile format v2); sampled_from
 2026/11/27 [Claude] profile format v3 (winds listed); newest file version (Q19)
+2026/11/28 [Claude] review: azimuths interpolated on the circle; MLS qc_incomplete;
+  original_z marks raw longitudes outside -180..360 bad (Q13)
 
 """
 
@@ -404,6 +412,10 @@ from atmosgw.curate.profiles import (
 
 _FAR = datenum(9999, 999, 999)  # "still running" in the MATLAB table
 _PIECEWISE = ("linear", "nearest", "next", "previous")  # (the others: pchip ...)
+_ANGLES = ("LOSAz",)  # azimuths in degrees, interpolated on the circle
+# reader masks of qualified states (values kept): reader name -> state
+_READER_QUALIFIED = {"APrioriDominated": "a_priori_dominated",
+                     "QcIncomplete": "qc_incomplete"}
 
 # instruments, with the dates and heights they have data for, and their reader
 # (None: not ported yet). Heights are for information only, as in MATLAB.
@@ -570,6 +582,8 @@ def _load_limb_arrays(time_range, instrument, **options):
         var_names = var_names + ["InstrumentBad"]
     if settings["instrument_qc"] and reader is _limb_hirdls:
         var_names = var_names + ["APrioriDominated"]
+    if settings["instrument_qc"] and reader is _limb_mls:
+        var_names = var_names + ["QcIncomplete"]
     data, file_list = reader.load(settings, inst_info, var_names)
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
@@ -614,13 +628,13 @@ def _load_limb_arrays(time_range, instrument, **options):
         data.pop("SourceFile", None)
 
     instrument_bad = data.pop("InstrumentBad", None)
-    a_priori = data.pop("APrioriDominated", None)
+    # qualified states marked by the readers (values kept): {state: mask}
+    qualified = {state: np.asarray(data.pop(name), dtype=float) > 0.5
+                 for name, state in _READER_QUALIFIED.items() if name in data}
     var_names = [name for name in var_names
-                 if name not in ("InstrumentBad", "APrioriDominated")]
+                 if name != "InstrumentBad" and name not in _READER_QUALIFIED]
     if instrument_bad is not None:
         instrument_bad = np.asarray(instrument_bad, dtype=float) > 0.5
-    if a_priori is not None:
-        a_priori = np.asarray(a_priori, dtype=float) > 0.5
     contributed = {}
     plan = None
     if not settings["original_z"]:
@@ -631,30 +645,26 @@ def _load_limb_arrays(time_range, instrument, **options):
         # below is NaN in every variable but height (so it is not bridged
         # over), and the heights it reaches when interpolated get its state
         native = _native_bad(data, instrument_bad)
-        if any(m.any() for m in native.values()):
-            method = settings["interp_type"].lower()
-            piecewise = method in ("linear", "nearest", "next", "previous")
-            # (pchip, spline and makima give values only where linear
-            # interpolation does (Q18), so their states are spread linearly;
-            # with keep_outliers, the influence of a kept bad point beyond its
-            # neighbouring levels is not marked: pchip's reaches 2 intervals,
-            # makima's 3, spline's the whole profile)
-            reach = method if piecewise else "linear"
-            extrap = True if settings["extrapolate"] else None
-            for state, mask in native.items():
+        # (pchip, spline and makima give values only where linear
+        # interpolation does (Q18), so their states are spread linearly; with
+        # keep_outliers, the influence of a kept bad point beyond its
+        # neighbouring levels is not marked: pchip's reaches 2 intervals,
+        # makima's 3, spline's the whole profile)
+        method = settings["interp_type"].lower()
+        reach = method if method in _PIECEWISE else "linear"
+        extrap = True if settings["extrapolate"] else None
+        for state, mask in native.items():
+            if mask.any():
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
                                               height_scale, reach, extrap, plan)
                 contributed[state] = np.nan_to_num(spread) != 0
-        if a_priori is not None and a_priori.any():
-            # (a qualified state: values kept; marked wherever such a point
-            # contributes, spread as the no-value states are)
-            method = settings["interp_type"].lower()
-            piecewise = method in ("linear", "nearest", "next", "previous")
-            spread = interpolate_profiles(
-                data["Alt"], a_priori.astype(float), height_scale,
-                method if piecewise else "linear",
-                True if settings["extrapolate"] else None, plan)
-            contributed["a_priori_dominated"] = np.nan_to_num(spread) != 0
+        # qualified states (values kept): marked wherever such a point
+        # contributes, spread as the no-value states are
+        for state, mask in qualified.items():
+            if mask.any():
+                spread = interpolate_profiles(data["Alt"], mask.astype(float),
+                                              height_scale, reach, extrap, plan)
+                contributed[state] = np.nan_to_num(spread) != 0
         if any(m.any() for m in native.values()) and not settings["keep_outliers"]:
             # (extras keep their values here: they may be interpolated by
             # another method; they are removed with the others below)
@@ -684,6 +694,13 @@ def _load_limb_arrays(time_range, instrument, **options):
                        for name in var_names)
         done = 0
         new = {}
+        # azimuths (degrees, 0-360): profiles crossing north unwrapped, so
+        # 359 and 1 interpolate to 0, not 180 (Aeolus files held: 99.7-260.3
+        # degrees, none cross); wrapped back below
+        crossing = {}
+        for name in _ANGLES:
+            if name in var_names and name not in skip:
+                data[name], crossing[name] = _unwrap_crossing_rows(data[name])
         for name in var_names:
             value = lon if name == "Lon" else data[name]
             if name in skip:
@@ -730,6 +747,9 @@ def _load_limb_arrays(time_range, instrument, **options):
             value = None
         data = new
         data["Lon"] = np.rad2deg(wrap_to_pi(data["Lon"]))
+        for name, rows in crossing.items():
+            if rows.any():
+                data[name][rows] = np.mod(data[name][rows], 360.0)
     else:
         # clip to the height range: NaN outside it, then drop empty levels
         # (the points set to NaN are recorded for the data states, on the
@@ -740,10 +760,13 @@ def _load_limb_arrays(time_range, instrument, **options):
                        | (alt > max(settings["height_range"])))
         levels = np.flatnonzero(np.any(np.isfinite(alt) & ~outside, axis=0))
         outside_requested = outside[:, levels]
+        # raw positions out of range, as Q13 (before longitudes are wrapped
+        # below, which made -200 160; C. Wright, 2026-11-28)
+        contributed["bad_geolocation"] = _native_bad(data)["bad_geolocation"][:, levels]
         if instrument_bad is not None:  # (on the levels kept)
             contributed["instrument_flag"] = instrument_bad[:, levels]
-        if a_priori is not None:
-            contributed["a_priori_dominated"] = a_priori[:, levels]
+        for state, mask in qualified.items():
+            contributed[state] = mask[:, levels]
         data = clip_to_height_range(data, data["Alt"], settings["height_range"], skip,
                                     copy=False)  # (in place: memory)
 
@@ -813,7 +836,7 @@ def _prepare(time_range, instrument, options):
     # (extras may not replace the loader's own variables: MATLAB names, output
     # names and flags, or the internal PresEstimated)
     reserved = (set(OUTPUT_NAMES) | set(OUTPUT_NAMES.values())
-                | {"PresEstimated", "InstrumentBad", "APrioriDominated"}
+                | {"PresEstimated", "InstrumentBad", *_READER_QUALIFIED}
                 | {f"{n}_uncertainty" for n in _DATA_VARIABLES})
     additional = check_additional_vars(options, reserved)
 
@@ -919,6 +942,24 @@ def _nanmean_rows(x):
     total = np.where(finite, x, 0).sum(axis=1)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(count > 0, total / np.maximum(count, 1), np.nan)
+
+
+def _unwrap_crossing_rows(value):
+    """(value, rows): an angle array [profiles x levels] (degrees) with the
+    profiles whose successive finite values jump by more than 180 degrees
+    unwrapped (others unchanged, bit for bit), and those profiles (bool)."""
+    array = np.asarray(value)
+    rows = np.zeros(array.shape[0], dtype=bool)
+    for k, row in enumerate(array):
+        finite = row[np.isfinite(row)]
+        rows[k] = finite.size > 1 and np.any(np.abs(np.diff(finite)) > 180)
+    if not rows.any():
+        return value, rows  # (the usual case: untouched)
+    out = np.array(array, dtype=array.dtype if array.dtype.kind == "f" else float)
+    for k in np.flatnonzero(rows):
+        finite = np.isfinite(out[k])
+        out[k, finite] = np.unwrap(out[k, finite], period=360.0)
+    return out, rows
 
 
 def _is_whole_numbers(value):

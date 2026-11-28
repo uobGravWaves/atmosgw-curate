@@ -5,6 +5,49 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- Fixes from an external review (2026-11-28), each with a test. [Claude]
+  - `load_nadir_sounders`: IASI and CrIS swaths are split where successive
+    scans are more than 12 s apart (1.5 scans; was 180 s, still used for
+    AIRS), so a missing scan is no longer bridged by the regridding with
+    good-looking values. On the IASI and CrIS days checked only SNPP
+    2016-01-17 changes (up to 0.019 K). CrIS: the fields of regard left out
+    of the regridding (1 and 30, empty in the files) are fixed, so the grid
+    and each channel's missing values no longer depend on which channels
+    are asked for; `interp_type="nearest"` takes the nearest footprint (it
+    could take one up to 16 km farther). A row's time for this rule is the
+    median of its pixels' times, so one stray pixel cannot fake a gap.
+    Segments are numbered on the native grid too; for IASI, splitting at a
+    missing scan is a new difference from MATLAB.
+  - IAGOS: a time stored as the file's fill (-9999 in old files) is NaT
+    instead of a time the day before; samples of the flight's altitude
+    (GPS, else barometric) flagged 3 or 7 are NaN, with `keep_outliers` too
+    (a flight whose only altitude is all flagged has none).
+  - `load_trajectories`: an extra named like an internal mask (e.g.
+    `TempBad`) is refused; it had removed every temperature.
+  - FAAM: 1 Hz longitudes are averaged on the circle at the dateline.
+  - Aeolus: azimuths are interpolated across north (359 and 1 gave 180);
+    copies are matched on every field and across monthly files (none in the
+    files held: they abut, and no azimuth crosses north).
+  - DWD: a file found out of order at the row where reading stops, or at its
+    last row, is read in full (an ascent moved to the end was missed).
+  - GNSS without pressure: estimated from `MSL_alt` (was a KeyError).
+  - MLS: a file missing a quality field gets the other rules, and its values
+    the new state `qc_incomplete` (bit 2048; was: no screening, no mark).
+    Files saved before it (whose flags list the earlier states) stay valid
+    for `validate` and `load_netcdf`.
+  - File longitudes must lie in -180 to 360, in every loader (C. Wright):
+    180-360 are wrapped and kept, beyond is `bad_geolocation` (Q13). This
+    now applies with `original_z=True` (which wrapped -200 to 160), and
+    nadir and trajectory files may hold 180-360 (they were marked
+    `bad_geolocation`). FAAM: a second with one position sample out of
+    range is `bad_geolocation`, not averaged into a plausible value. The
+    requested `lon_range` takes any value, wrapped, as before.
+  - `to_profiles` (time-height): file versions and pressure uncertainty
+    kept, `session` copied, dangling `ancillary_variables` dropped.
+  - `to_netcdf`: a new file is published by hard link, so of two jobs
+    writing it one fails (both had succeeded).
+  - `load_nadir_sounders`: `additional_vars` with a 2-D product is a clear
+    TypeError (was a KeyError); docs: nadir extras keep their own levels.
 - New `load_nadir_sounders` instrument `"CrIS"` (new code): 2-D brightness
   temperatures from L. Hoffmann's daily files, SNPP or NOAA-20 (new option
   `satellite`), in 6-minute pseudo-granules by time. As each field of

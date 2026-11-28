@@ -409,6 +409,23 @@ STRAY_SECONDS = 600.0  # a pixel this far from its scan's median time is stray
 MISDATED_DAYS = 1.0  # a scan this far outside its file's span is misdated
 
 
+def wrap_file_longitudes(lon):
+    """File longitudes with those in (180, 360] wrapped to (-180, 0]; others
+    unchanged, so values outside -180..360 stay out of range and are marked
+    bad_geolocation by the loaders (the rule for every loader, as Q13; C.
+    Wright, 2026-11-28). The requested lon_range is wrapped separately, by any
+    number of turns (check_lon_range). Returns lon itself if nothing is
+    wrapped, else a copy (in lon's own floating type)."""
+    array = np.asarray(lon)
+    with np.errstate(invalid="ignore"):
+        over = (array > 180) & (array <= 360)
+    if not over.any():
+        return lon
+    out = np.array(array, dtype=array.dtype if array.dtype.kind == "f" else float)
+    out[over] -= 360.0
+    return out
+
+
 def nadir_fill_to_nan(lat, lon, time, temp, span):
     """
     Fill values and impossible times in one nadir file's arrays to NaN, in

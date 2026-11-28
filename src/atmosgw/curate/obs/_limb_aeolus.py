@@ -36,10 +36,16 @@ column's (independent review, 2026-11-27). A profile identifier from the L2B
 product would make it exact.
 
 Duplicates: consecutive L2B files overlap by about 30 s, so the flat files
-hold copies of some observations; an observation identical in time, bin,
-type, HLOS and error to another is read once (2019-01-05, Rayleigh-clear:
-758 of 164,750 share time and bin with another, 180 of them also the wind; the
-other pairs differ in wind and are both kept). The
+hold copies of some observations; an observation identical in every field
+read (time, bin, type, HLOS, error, validity, position, azimuth) to another,
+in the same file or an earlier one read for the request, is read once; of
+copies in one file differing only in validity, the valid one is read
+(2019-01-05,
+Rayleigh-clear: 758 of 164,750 share time and bin with another, 180 of them
+also the wind; pairs that differ in another field are both kept, the second
+starting a profile of its own). Consecutive monthly files abut without
+overlap at the 10 month boundaries checked (2018-09 to 2023-03, every
+sixth). The
 observations read reach 12 s beyond the requested days, so a profile
 crossing midnight is whole (the core selects profiles by mean time); one
 crossing the start of a file (about 00:00:35 on the first day of a file) is
@@ -68,6 +74,7 @@ Change log:
 2026/11/27 [Claude] HLOS sign convention stated, from comparison with ERA5
 2026/11/27 [Claude] files_without_data recorded; valid-flag rule in the comments
 2026/11/27 [Claude] file names taken with os.path.basename (Windows paths)
+2026/11/28 [Claude] review: copies matched on every field, and across monthly files
 """
 
 import math
@@ -103,6 +110,9 @@ SIGN_CONVENTION = ("hlos_wind = -u sin(az) - v cos(az), az = "
                    "comparison with ERA5 (2026-11-27), not from ESA "
                    "documentation")
 EXTRAS = ("z_bot", "z_top", "obs_type", "valid")
+# an observation is a copy of another if all of these are equal
+KEY_FIELDS = ("time", "z_bot", "z_top", "obs_type", "hlos", "hlos_err", "valid",
+              "lat", "lon", "az")
 
 _SOURCE = re.compile(r"'(\w+)',\s*'([\w.]+)'\)")
 
@@ -136,7 +146,7 @@ def load(settings, inst_info, var_names):
     for year, mon in requested:
         previous = (year - 1, 12) if mon == 1 else (year, mon - 1)
         months += [m for m in (previous, (year, mon)) if m not in months]
-    parts, file_list = [], []
+    parts, file_list, seen = [], [], []
     for k, (year, mon) in enumerate(months, start=1):
         if settings["verbose"]:
             print(f"----> Loading Aeolus data: file {k} of {len(months)}")
@@ -146,8 +156,10 @@ def load(settings, inst_info, var_names):
             if (year, mon) in requested:
                 record(inst_info)["files_not_found"].append(f"{year:04d}-{mon:02d}")
             continue
-        part = read_month(path, prefix, obs_type, (first, last + 1), var_names,
-                          len(file_list) + 1, settings)
+        part, keys = read_month(path, prefix, obs_type, (first, last + 1), var_names,
+                                len(file_list) + 1, settings,
+                                np.concatenate(seen) if seen else None)
+        seen.append(keys)
         if np.shape(part["Lat"])[0] == 0 and (year, mon) not in requested:
             continue  # (the previous month's file holds none of these days)
         file_list.append(os.path.basename(path))
@@ -157,12 +169,22 @@ def load(settings, inst_info, var_names):
     return concat_profiles(parts, var_names, consume=True), file_list
 
 
-def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings):
+def _rows_as_void(rows):
+    """The rows of a 2-D float array as single comparable items (for
+    np.isin on whole rows)."""
+    rows = np.ascontiguousarray(rows, dtype=float)
+    return rows.view(np.dtype((np.void, rows.dtype.itemsize * rows.shape[1]))).ravel()
+
+
+def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings,
+               seen=None):
     """
     The profiles of one month file whose observations fall in day_span
     (datenums [start, end)), as [profiles x levels] arrays named as in
     var_names (Lat, Lon, Time, HLOS, HLOSErr, LOSAz, Pres, Alt, SourceProf,
-    SourceFile, PresEstimated, InstrumentBad and extras).
+    SourceFile, PresEstimated, InstrumentBad and extras), and the keys of
+    the observations kept (``_rows_as_void`` of KEY_FIELDS). seen: keys of
+    observations read from earlier files, left out here.
     """
     names = [f"{prefix}_{n}" for n in ("time", "lat", "lon", "z_bot", "z_top", "hlos",
                                        "hlos_err", "obs_type", "valid", "az")]
@@ -182,12 +204,24 @@ def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings
     else:
         obs = {n.split("_", 1)[1]: np.empty(0) for n in names}
     if obs["time"].size:  # (exact copies from overlapping L2B files: once)
-        key = np.stack([np.nan_to_num(obs[n], nan=-1.0) for n in
-                        ("time", "z_bot", "z_top", "obs_type", "hlos", "hlos_err")])
+        # (every field read is in the key)
+        key =np.stack([np.nan_to_num(obs[n], nan=-1.0) for n in KEY_FIELDS])
         order = np.lexsort(key[::-1])
         new = np.r_[True, np.any(np.diff(key[:, order], axis=1) != 0, axis=0)]
         keep = np.sort(order[new])  # (the first of each set, in time order)
+        # copies differing only in validity: the valid one (the invalid copy
+        # would otherwise make a profile of its own)
+        rest = [k for k, n in enumerate(KEY_FIELDS) if n != "valid"]
+        other = _rows_as_void(key[rest][:, keep].T)
+        valid_keys = other[obs["valid"][keep] != 0]
+        keep = keep[(obs["valid"][keep] != 0) | ~np.isin(other, valid_keys)]
+        # and copies of observations already read from an earlier file
+        if seen is not None and seen.size:
+            keep = keep[~np.isin(_rows_as_void(key[:, keep].T), seen)]
         obs = {n: v[keep] for n, v in obs.items()}
+        kept_keys = _rows_as_void(key[:, keep].T)
+    else:
+        kept_keys = _rows_as_void(np.zeros((0, len(KEY_FIELDS))))
     obs["hlos"][obs["hlos"] == HLOS_FILL] = np.nan
     obs["hlos_err"][obs["hlos_err"] == ERR_FILL] = np.nan
     group = profile_groups(obs["time"], obs["z_bot"] / 1000, obs["z_top"] / 1000)
@@ -223,7 +257,7 @@ def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings
         grid = np.full((n_prof, n_lev), np.nan)
         grid[group[order], level] = value[order]
         store[name] = grid
-    return conform_vars(store, settings)
+    return conform_vars(store, settings), kept_keys
 
 
 def profile_groups(seconds, z_bot, z_top):

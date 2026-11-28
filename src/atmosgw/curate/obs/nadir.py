@@ -66,7 +66,10 @@ Options (type, default; MATLAB name):
 - ``keep_native_geolocation`` (bool, False; ``KeepOldTime`` for time): also
   return the positions and times before regridding.
 - ``additional_vars`` (list of str, ()): extra file variables, [cross x
-  along] or [cross x along x level], regridded like temperature.
+  along] or [cross x along x level], regridded horizontally like
+  temperature. Their levels are kept as in the files (own dimension
+  ``<name>_dim2``): not interpolated to the output heights nor cut to
+  ``height_range``. 3-D products only (2-D: TypeError; use ``channels``).
 - ``file_source`` (bool, False): also return ``source_file``, ``source_row``
   and ``original_files``.
 - ``file_path`` (str or Path, None): read the files from this folder.
@@ -116,19 +119,27 @@ straight scan lines (each field of regard's 3 x 3 pattern rotates towards
 the swath edges), so the values are interpolated from the footprints' own
 positions in (along, cross) distance from the track, barycentrically in
 their Delaunay triangles, instead of along scan lines. The track is
-smoothed over one scan (3 rows). The cross-track axis spans the footprints
-holding values (fields of regard 2-29 in the files held; columns with no
-value anywhere in a segment are left out of its triangles); a missing
-footprint makes the grid points around it NaN (no bridging); grid points
-outside the footprints but within half a cross-track step of one take its
-value (``extrapolated``). Interpolation lowers the variance of
-footprint-to-footprint noise (the 15 micron high perturbation of
-2019-01-01: standard deviation 0.240 K native, 0.190 K regridded), as any
-regridding does; spatially coherent signal is kept.
+smoothed over one scan (3 rows). Fields of regard 1 and 30 (NaN in every
+file held) are left out by a fixed rule, so the grid and the triangles are
+the same whichever channels are asked for; the cross-track axis spans the
+other footprints. A missing footprint makes the grid points around it NaN
+in that variable (no bridging); grid points outside the footprints but
+within half a cross-track step of one take its value (``extrapolated``);
+"nearest" takes the nearest footprint in (along, cross) km. Interpolation
+lowers variance: the 15 micron high perturbation of 2019-01-01 has a
+standard deviation of 0.240 K native, 0.190 K regridded; how much of that is
+footprint noise and how much signal is not established. A coherent wave
+also loses amplitude: on the synthetic geometry of ``tests/test_nadir_cris.py``
+an along-track wave of 100 km keeps about 96% at the swath centre and 85%
+in the outer columns (200 km: 99% and 96%; ``docs/validation.md``).
 
-Segments: the swath is split where successive rows are more than 180 s apart
-(missing granules, or separate time ranges; not 1.5 scans, because the AIRS
-daily files store times as float32); each segment is
+Segments: the swath is split where successive rows are more than
+``max_row_gap_seconds`` apart: AIRS 180 s (missing granules, or separate
+time ranges; not 1.5 scans, because the AIRS daily files store times as
+float32); IASI and CrIS 12 s, 1.5 scans, so a missing scan is not bridged
+(for IASI a difference from MATLAB, which regrids across it). A row's time
+is the median of its pixels' times. Segments are numbered on the native grid
+too (``original_grid=True``). Each segment is
 regridded on its own along-track axis, all on one cross-track axis (the
 median over every scan that can be placed, Q14; MATLAB takes that of the
 first scan, assuming every scan has the same cross-track geometry). Rows of
@@ -231,6 +242,7 @@ Change log
 2026/11/27 [Claude] swath format v2: pressure and winds listed in availability
 2026/11/27 [Claude] CrIS 2-D (SNPP, NOAA-20): satellite option; footprint regridding
 2026/11/27 [Claude] AIRS 2-D also from L. Hoffmann's published daily files
+2026/11/28 [Claude] review: IASI, CrIS split at 12 s gaps; CrIS empty FORs by fixed rule
 
 """
 
@@ -272,6 +284,7 @@ from atmosgw.curate.obs._common import (
     warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
+    wrap_file_longitudes,
 )
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import in_box
@@ -309,7 +322,7 @@ INSTRUMENTS = {
 INSTRUMENTS["IASI"] = {
     "time_range": (datenum(2007, 5, 29), _FAR), "reader": _nadir_iasi,
     "dataset": "IASI", "n_cross": 90, "rows_per_granule": 135,
-    "row_seconds": 4.0, "max_row_gap_seconds": 180.0, "products": ("3d",),
+    "row_seconds": 4.0, "max_row_gap_seconds": 12.0, "products": ("3d",),
     # (the middle of the widths of 1.1e5 scans 2008-2018, 2086-2163 km)
     "scan_width_km": 2125.0,
     "characterisation": {"3d": "IASI-3D-placeholder/0"},
@@ -330,7 +343,9 @@ INSTRUMENTS["CrIS"] = {
     "time_range": (datenum(2012, 1, 20), _FAR),  # (UNVERIFIED: SNPP data start)
     "reader": {"2d": _nadir_cris}, "dataset_kind": {"2d": "raw"},
     "dataset": "CrIS", "n_cross": 90, "rows_per_granule": 135,
-    "row_seconds": 8.0 / 3, "max_row_gap_seconds": 180.0,
+    "row_seconds": 8.0 / 3, "max_row_gap_seconds": 12.0,
+    # (index-layout columns of fields of regard 1 and 30: never regridded)
+    "empty_columns": _nadir_cris.EMPTY_COLUMNS,
     # first to last pixel of an index-layout row: 2041-2276 km on 2016-01-01
     # and 2019-01-01 (rows differ: the edge fields of regard are rotated)
     "scan_width_km": 2145.0,
@@ -415,6 +430,8 @@ def _load_nadir_arrays(time_range, instrument, **options):
             t0, t1 = settings["time_range"]
             load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
     data, file_list = inst_info["reader"].load(load_settings, inst_info, var_names)
+    # file longitudes of 180-360 wrapped; outside -180..360 stay bad (as Q13)
+    data["Lon"] = wrap_file_longitudes(data["Lon"])
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=3)
@@ -478,13 +495,18 @@ def _load_nadir_arrays(time_range, instrument, **options):
                                   else (np.nan, np.nan))
 
     # segments: break where successive rows are more than max_row_gap_seconds
-    # apart (180 s for AIRS: the daily files store times as float32, in steps of
+    # apart. AIRS 180 s: the daily files store times as float32, in steps of
     # 16 s in 2007 to 64 s in 2025, so a 1.5-scan rule would split every
-    # granule; a missing granule leaves a 6 min gap)
+    # granule; a missing granule leaves a 6 min gap. IASI and CrIS 12 s (1.5
+    # scans of 8 s; their rows step by 0 or 8 s apart from gaps, e.g. 12.3
+    # and 19 s on SNPP 2016-01-17), so a missing scan splits the swath
+    # instead of being bridged by the regridding. Each row's time is its
+    # median, so one stray pixel time (up to 600 s off is kept) cannot fake
+    # a gap.
     n_rows = lat.shape[1]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        row_time = np.nanmean(np.asarray(data["Time"], float), axis=0)
+        row_time = np.nanmedian(np.asarray(data["Time"], float), axis=0)
     gap = np.diff(row_time) * 86400 > info["max_row_gap_seconds"]
     # and around scans that cannot be placed (any position or time missing)
     placeable = _placeable(data, info["scan_width_km"])
@@ -606,6 +628,9 @@ def _prepare(time_range, instrument, options):
                                  "brightness_temperature_variance", "native_time",
                                  "original_files", "original_file_version"})
     additional = check_additional_vars(options, reserved)
+    if additional and product == "2d":  # (2-D readers: channel groups only)
+        raise TypeError(f"additional_vars is not supported for {name} 2-D: its "
+                        "file variables are the channel groups (channels option).")
 
     for label in ("n_cross", "n_along"):
         value = options[label]
@@ -804,32 +829,30 @@ def _regrid_footprints(data, flags, settings, info):
     (``swath.regrid_footprints``; CrIS); returns (data, flags, (cross km,
     along km)), as ``_regrid``. One cross-track axis for all segments: over
     the median, over the rows that can be placed, of each row's nearest and
-    farthest footprint across track holding a value (``n_cross`` points or
-    ``dx_cross`` km);
+    farthest footprint across track (columns not in ``empty_columns``;
+    ``n_cross`` points or ``dx_cross`` km);
     grid points outside the footprints but within half a cross-track step of
-    one take its value (``extrapolated``), as ``_regrid``'s edge rule.
-    Cross-track columns with no value anywhere in a segment are left out of
-    its triangulation (else the grid points beside them meet a NaN vertex).
+    one take its value (``extrapolated``), as ``_regrid``'s edge rule. The
+    columns in ``info["empty_columns"]`` (CrIS fields of regard 1 and 30) are
+    left out of the axis and the triangles by that fixed rule, not by which
+    values the requested channels hold, so the grid, the triangles and each
+    variable's NaNs do not depend on the channels asked for.
     """
     lat, lon = data["Lat"], data["Lon"]
     segment = data["Segment"]
     placeable = _placeable(data, info["scan_width_km"])
-    # (over the footprints that hold a value: CrIS fields of regard 1 and 30
-    # are always NaN in L. Hoffmann's files, so the grid spans 2-29; each
-    # segment measured from its own track)
-    has_value = np.any(np.isfinite(np.asarray(data["Temp"], float)),
-                       axis=tuple(range(2, np.ndim(data["Temp"]))))
+    column_used = np.ones(lat.shape[0], dtype=bool)
+    column_used[list(info.get("empty_columns", ()))] = False
+    # (each segment measured from its own track)
     cross_all = np.full(lat.shape, np.nan)
     for seg in np.unique(segment):
         rows = np.flatnonzero((segment == seg) & placeable)
         if rows.size >= 2:
             _, cross_all[:, rows] = swath.footprint_coordinates(lat[:, rows],
                                                                 lon[:, rows])
-    if has_value[:, placeable].any():
-        cross_all = np.where(has_value, cross_all, np.nan)
-    cross_all = cross_all[:, placeable]
+    cross_all = cross_all[column_used][:, placeable]
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # (rows without values)
+        warnings.simplefilter("ignore", RuntimeWarning)  # (rows without positions)
         low = float(np.nanmedian(np.nanmin(cross_all, axis=0)))
         high = float(np.nanmedian(np.nanmax(cross_all, axis=0)))
     cross_axis = swath.regular_axis(np.array([low, high]),
@@ -853,10 +876,7 @@ def _regrid_footprints(data, flags, settings, info):
         if n_along is not None and rows.size < 0.95 * native_rows * n_gran:
             n_along = max(2, int(round(per_granule * rows.size / native_rows)))
         xyz = _unit_vectors(lat[:, take], lon[:, take])
-        # (columns with no value anywhere in the segment are not vertices)
-        column_used = has_value[:, take].any(axis=1)
-        vertices = (np.broadcast_to(column_used[:, None], has_value[:, take].shape)
-                    if column_used.any() else None)
+        vertices = np.broadcast_to(column_used[:, None], lat[:, take].shape)
         fields = {"Temp": data["Temp"][:, take], "Time": data["Time"][:, take],
                   **{n: data[n][:, take] for n in extra},
                   "_X": xyz[0], "_Y": xyz[1], "_Z": xyz[2]}

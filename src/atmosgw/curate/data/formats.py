@@ -492,10 +492,15 @@ def _check_data_variable(ds, name, var, listed):
     if f.dtype != states.FLAG_DTYPE:
         out.append(f"{flag_name!r} is {f.dtype}, expected "
                    f"{np.dtype(states.FLAG_DTYPE)}")
+    # (the registry, or its first states: a file saved before a state was
+    # appended stays valid, as states.py promises)
     expected = states.flag_attrs()
-    if (f.attrs.get("flag_meanings") != expected["flag_meanings"]
-            or not np.array_equal(np.asarray(f.attrs.get("flag_masks", [])),
-                                  expected["flag_masks"])):
+    meanings = str(f.attrs.get("flag_meanings", "")).split()
+    masks = np.asarray(f.attrs.get("flag_masks", []))
+    known = expected["flag_meanings"].split()
+    n = len(meanings)
+    if (n == 0 or meanings != known[:n] or masks.shape != (n,)
+            or not np.array_equal(masks, np.asarray(expected["flag_masks"])[:n])):
         out.append(f"{flag_name!r} does not have the registry's flag_masks and "
                    "flag_meanings")
     unexplained = np.isnan(np.asarray(v, dtype=float)) & ~states.no_value_mask(f)

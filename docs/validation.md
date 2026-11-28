@@ -132,6 +132,34 @@ CrIS 2-D (new code, 2026-11-27; L. Hoffmann's daily files):
   counted by rows in a file with a 4.6-hour gap (SNPP 2016-01-17), and
   7.5% NaN in the outermost regridded column. All fixed; the numbers below
   are after the fixes.
+- **External review** (2026-11-28, of b6ba9fd), reproduced and fixed:
+  - the triangles were built from the requested channels' values, so a field of regard missing in one channel was bridged
+    when that channel was asked for alone (675 good-looking values in the
+    synthetic case);
+  - a short dropout (two missing scans) was bridged within one segment;
+  - `interp_type="nearest"` took the triangle's largest-weight vertex,
+    farther than the nearest footprint for 1,698 of 12,150 points (by up to
+    16 km).
+
+  Now fields of regard 1 and 30 are left out by a fixed rule, IASI and CrIS
+  split at 12 s, and "nearest" is the nearest footprint; each has a test.
+  Against the previous version, on real data: CrIS SNPP and NOAA-20
+  (2019-01-01, 2019-01-13 with its fill values, 1-2 hours each), IASI
+  (2007-11-07, 2010-07-01) and AIRS (2007-01-01) are bit-identical; with
+  "nearest", 13% of values change (up to 94 K at cloud edges in the 8.1
+  micron window); SNPP 2016-01-17, the one file with short gaps (12.3 and
+  19 s between scans), is now split there, which moves that day's
+  along-track grid slightly (brightness temperatures by up to 0.019 K, no
+  value gained or lost). Apart from those gaps, the rows of every IASI
+  (2007-11-07, 2010-07-01, 2014-03-15) and CrIS day measured step by
+  exactly 0 or 8 s. The 12.3 s step is a timing irregularity, not a missing
+  scan (16 s), so the 12 s rule splits a swath where none is missing; a
+  threshold of about 14 s would bridge it and still split at 16 s and 19 s
+  (open choice, C. Wright). Row times are the median of each row's pixels
+  (one stray pixel time, up to 600 s off, cannot fake a gap); unchanged
+  results on every case above. An independent review of the nadir changes
+  and a quality review of the whole set found nothing else that changes
+  values.
 - **The layout's effect, on real data** (SNPP, 2019-01-01, granules
   100-109): each regridded value lies within a median 0.2 km of its grid
   point at the centre of the swath and 1.1 km in the outer 8 columns (95%:
@@ -143,8 +171,14 @@ CrIS 2-D (new code, 2026-11-27; L. Hoffmann's daily files):
   at the 95th percentile (15 micron high, by latitude band; neighbouring
   footprints differ by up to 1.03 K); none of 322,975 by more than 2 K. The
   day's mean brightness temperature is unchanged (250.90 against 250.94 K).
-  The perturbation's standard deviation falls from 0.240 to 0.190 K:
-  interpolation averages footprint-to-footprint noise.
+  The perturbation's standard deviation falls from 0.240 to 0.190 K. How
+  much of that is footprint noise and how much signal is not established:
+  a coherent wave loses amplitude too.
+- **Wave response** (`tests/test_nadir_cris.py`, the synthetic geometry,
+  a unit along-track wave, amplitude fitted on `distance_along`; following
+  the external review): 100 km keeps 0.956 at the swath centre and 0.848 in
+  the outer columns, 200 km 0.988 and 0.959, 400 km 0.997 and 0.990. One
+  geometry and one wave orientation only: not a correction factor.
 - **SNPP against NOAA-20** (2019-01-01; regridded values within 25 km and
   50 min of each other, 571,388 pairs): median difference +0.03 to +0.18 K
   (8.1 to 15 micron high), correlation 0.946 (8.1 and 10.4 micron, which

@@ -37,9 +37,12 @@ Option       Type         Default  Description
 - stores times (``time``, ``granule_day``, ``native_time``) as int64
   microseconds since 1970-01-01, with NaT as ``_FillValue``, so they read back
   as the same ``datetime64[us]`` values;
-- writes to a temporary file in the same folder and renames it to ``path``
+- writes to a temporary file in the same folder and moves it to ``path``
   only when complete; on any error the temporary file is removed and ``path``
-  is left as it was;
+  is left as it was; without ``clobber`` the move is a hard link that fails
+  if ``path`` exists, so of several jobs writing one new file, one succeeds
+  and the others get ``FileExistsError`` (on a filesystem without hard
+  links, an existence check before the rename instead, not atomic);
 - ignores any encoding the Dataset carries from a file it was read from (so
   re-saving a packed file without ``pack`` stores the values unpacked);
 - text variables cannot hold NaN in netCDF: missing values in text (e.g.
@@ -119,6 +122,7 @@ Usage
 Change log
 ----------
 2026/11/26 [Claude] initial version
+2026/11/28 [Claude] review: new files published by hard link (atomic no-clobber)
 
 """
 
@@ -173,13 +177,36 @@ def to_netcdf(ds, path, pack=False, clobber=False):
     try:
         out.to_netcdf(temporary, engine="netcdf4", format="NETCDF4",
                       encoding=encoding)
-        if path.exists() and not clobber:  # (created by someone else meanwhile)
-            raise FileExistsError(f"{path} exists: pass clobber=True to replace it.")
-        os.replace(temporary, path)
+        if clobber:
+            os.replace(temporary, path)
+        else:
+            _publish_new(temporary, path)
     except BaseException:
         if temporary.exists():
             temporary.unlink()
         raise
+
+
+def _publish_new(temporary, path):
+    """Move the complete temporary file to path only if path does not exist,
+    atomically where the filesystem has hard links (os.link fails if path
+    exists, so of two writers racing for one path exactly one succeeds);
+    else check, then rename."""
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        raise FileExistsError(f"{path} exists: pass clobber=True to replace it.") \
+            from None
+    except OSError:  # (no hard links here: the check and rename are separate)
+        if path.exists():
+            raise FileExistsError(f"{path} exists: pass clobber=True to replace "
+                                  "it.") from None
+        os.replace(temporary, path)
+        return
+    try:  # (path is complete; a temporary file left behind is only clutter)
+        temporary.unlink()
+    except OSError:
+        pass
 
 
 def load_netcdf(path):
