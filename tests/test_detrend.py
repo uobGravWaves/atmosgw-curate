@@ -13,6 +13,7 @@ Tolerances (each also stated where used):
   up to 7.6e-6 K, carried through the fit).
 """
 
+import contextlib
 import importlib
 import json
 import warnings
@@ -23,9 +24,9 @@ import xarray as xr
 from test_data_formats import example_swath, example_time_height
 
 from atmosgw.curate.analysis import (
-    TropopauseMaskWarning,
+    TropopauseKinkWarning,
     detrend,
-    find_tropopause,
+    find_tropopause_kink,
     smooth_array,
 )
 from atmosgw.curate.data import FORMATS, load_netcdf, states, to_netcdf, validate
@@ -138,15 +139,28 @@ def example_2d_swath(bt):
 
 
 def wave_profiles(n_profile=3, altitude=Z):
-    """Temperature that rises with height plus a 1 K, 6 km wave: its lapse
-    rate never exceeds 2 K/km, so it has no tropopause (no mask)."""
+    """Temperature that rises with height plus a 1 K, 6 km wave: its 2 km
+    mean gradients change by at most 1.5 K/km, so it has no tropopause kink
+    (no mask)."""
     phase = np.arange(n_profile)[:, None]
     return 220 + 0.5 * altitude + np.sin(2 * np.pi * altitude / 6 + phase)
 
 
+def piecewise_profile(breaks, slopes, altitude=Z, t0=288.0):
+    """t0 at breaks[0], then slopes[k] (K/km) from breaks[k] to breaks[k + 1]
+    (the last one to the top)."""
+    edges = list(breaks) + [np.inf]
+    t = np.full(np.shape(altitude), t0)
+    for k, slope in enumerate(slopes):
+        t = t + slope * np.clip(np.asarray(altitude) - edges[k], 0,
+                                edges[k + 1] - edges[k])
+    return t
+
+
 def kinked_profile(z0=11.0, altitude=Z):
-    """6.5 K/km from 288 K at 0 km up to z0, isothermal above."""
-    return 288.0 - 6.5 * np.minimum(altitude, z0)
+    """-6.5 K/km from 288 K at 0 km up to z0, +2 K/km above: a tropopause
+    kink of strength 2 - (-6.5) = 8.5 K/km at z0."""
+    return piecewise_profile([0.0, z0], [-6.5, 2.0], altitude)
 
 
 def record(out, var="temperature"):
@@ -414,7 +428,7 @@ def test_hindley23():
     assert not states.no_value_mask(flag)[2, 9]
     assert states.has_state(out["temperature_perturbation_flag"].values,
                             "missing")[2, 9]
-    assert "tropopause_altitude" not in out  # (no vertical filter, no mask)
+    assert "tropopause_kink_altitude" not in out  # (no vertical filter, no mask)
     validate(out, "profile")
 
 
@@ -449,7 +463,7 @@ def test_kept_outliers_keep_their_states():
                      "outside_physical_range")
     ds["temperature_flag"] = (ds["temperature_flag"].dims, flag,
                               ds["temperature_flag"].attrs)
-    out = detrend(ds, mask_tropopause=False)
+    out = detrend(ds, mask_tropopause_kink=False)
     assert np.isfinite(out["temperature_perturbation"].values.ravel()[40])
     assert states.has_state(out["temperature_perturbation_flag"].values,
                             "outside_physical_range").ravel()[40]
@@ -466,7 +480,7 @@ def test_hindley23_rules():
     with pytest.raises(ValueError, match="first step"):
         detrend(pw, steps=["savgol", "hindley23"])
     out = detrend(pw, steps=[("hindley23", {"outlier_removal": False}), "savgol"],
-                  mask_tropopause=False)
+                  mask_tropopause_kink=False)
     # savgol on the residual; backgrounds add
     bg, _ = DT._savgol_step(np.broadcast_to(Z, residual.shape), residual, PL, SG,
                             False)
@@ -669,7 +683,7 @@ def test_hlos_wind_needs_var():
                                  ancillary_variables="hlos_wind_flag")
     with pytest.raises(ValueError, match="var="):
         detrend(ds)
-    out = detrend(ds, var="hlos_wind", mask_tropopause=False)
+    out = detrend(ds, var="hlos_wind", mask_tropopause_kink=False)
     assert out["hlos_wind_perturbation"].attrs["units"] == "m s-1"
     with pytest.raises(ValueError, match="not in the Dataset"):
         detrend(ds, var="eastward_wind")
@@ -709,8 +723,8 @@ def test_outputs():
     assert set(DT.DEFAULTS["savgol"]) <= set(step)
     assert step["frame_levels"] == [37, 37] and step["frame_km"] == 18.5
     assert step["regular_grid"] is True
-    assert info["tropopause_mask"]["half_width_km"] == 9.25
-    assert info["tropopause_mask"]["values_masked"] == 0
+    assert info["tropopause_kink_mask"]["half_width_km"] == 2.0
+    assert info["tropopause_kink_mask"]["values_masked"] == 0
     listed = states.parse_availability(out.attrs["availability"])
     assert listed["temperature_perturbation_uncertainty"] == "not_provided"
     assert listed["temperature_background_uncertainty"] == "not_provided"
@@ -770,44 +784,114 @@ def test_netcdf_round_trip(tmp_path):
     to_netcdf(out, tmp_path / "detrended.nc")
     back = load_netcdf(tmp_path / "detrended.nc")
     for name in ("temperature_perturbation", "temperature_background",
-                 "temperature_perturbation_flag", "tropopause_altitude"):
+                 "temperature_perturbation_flag", "tropopause_kink_altitude",
+                 "tropopause_kink_strength"):
         np.testing.assert_array_equal(back[name].values, out[name].values)
         assert back[name].dtype == out[name].dtype
     assert (back["temperature_perturbation"].attrs["detrending"]
             == out["temperature_perturbation"].attrs["detrending"])
 
 
-# ------------------------------------------------------------ tropopause
+# ----------------------------------------------------- tropopause kink
 
 
-@pytest.mark.parametrize("z0", [11.0, 11.3, 16.7])
-def test_find_tropopause_kink(z0):
+@pytest.mark.parametrize("z0, level", [(11.0, 11.0), (11.3, 11.5), (16.7, 16.5)])
+def test_find_tropopause_kink(z0, level):
+    """-6.5 K/km below z0, +2 K/km above: found at the level nearest z0
+    (within the 0.5 km spacing). At a distance d from z0 the 2 km mean
+    gradient below is -6.5 + 8.5 d / 2, so the strength is 8.5 (1 - d / 2)
+    K/km: 8.5 on the kink, 7.65 for d = 0.2 (KNOWN: float64 rounding)."""
     t = kinked_profile(z0)
-    found = find_tropopause(Z, t)
-    assert z0 <= found[0] <= z0 + 0.5  # (within the grid spacing, at or above)
+    height, strength = find_tropopause_kink(Z, t)
+    assert height.shape == strength.shape == (1,)
+    assert height[0] == level and abs(height[0] - z0) <= 0.5
+    np.testing.assert_allclose(strength, 8.5 * (1 - abs(level - z0) / 2),
+                               atol=KNOWN)
     # descending level order: the same
-    assert find_tropopause(Z[::-1], t[::-1])[0] == found[0]
+    down = find_tropopause_kink(Z[::-1], t[::-1])
+    assert down[0][0] == height[0]
+    np.testing.assert_allclose(down[1], strength, atol=KNOWN)
 
 
-def test_find_tropopause_fine_noisy_profiles():
+def test_find_tropopause_kink_min_strength():
+    weak = piecewise_profile([0.0, 11.0], [-1.0, 1.0])  # strength 2 K/km
+    assert np.isnan(find_tropopause_kink(Z, weak)).all()  # (below 3 K/km)
+    height, strength = find_tropopause_kink(Z, weak, min_strength=1.5)
+    assert height[0] == 11.0
+    np.testing.assert_allclose(strength, 2.0, atol=KNOWN)
+
+
+def test_find_tropopause_kink_needs_a_sign_change():
+    """Cooling then isothermal is no tropopause kink: the winter polar
+    stratosphere (HIRDLS, 70 N, 2007-01-01: 3.2 K/km at 18-21 km, then
+    nearly isothermal), which the rejected lapse-rate rule marked."""
+    z = np.arange(18.0, 60.5, 0.5)
+    t = np.where(z < 21, 209.5 - 3.2 * (z - 18.0), 199.9 + 0.0 * (z - 21.0))
+    assert np.isnan(find_tropopause_kink(z, t)).all()
+    # the same at 6.5 K/km from the ground
+    assert np.isnan(find_tropopause_kink(Z, 288.0 - 6.5 * np.minimum(Z, 11.0))).all()
+    # only warming, only cooling, or the wave profiles (no 3 K/km change)
+    assert np.isnan(find_tropopause_kink(Z, 200.0 + 2.0 * Z)).all()
+    assert np.isnan(find_tropopause_kink(Z, 288.0 - 6.5 * Z)).all()
+    assert np.isnan(find_tropopause_kink(Z, wave_profiles(3))).all()
+
+
+@pytest.mark.parametrize("slopes, level, expected", [
+    ([-6.5, 1.0, -6.5, 3.0], 16.0, 9.5),  # 7.5 K/km at 8 km, 9.5 at 16 km
+    ([-6.5, 4.0, -6.5, 1.0], 8.0, 10.5),  # 10.5 K/km at 8 km, 7.5 at 16 km
+])
+def test_find_tropopause_kink_strongest(slopes, level, expected):
+    t = piecewise_profile([0.0, 8.0, 12.0, 16.0], slopes)
+    height, strength = find_tropopause_kink(Z, t)
+    assert height[0] == level
+    np.testing.assert_allclose(strength, expected, atol=KNOWN)
+
+
+def test_find_tropopause_kink_search_range():
+    t = piecewise_profile([0.0, 24.0], [-3.0, 2.0])  # a kink at 24 km
+    assert np.isnan(find_tropopause_kink(Z, t)).all()  # (above 22 km)
+    height, strength = find_tropopause_kink(Z, t, search_km=(5.0, 30.0))
+    assert height[0] == 24.0
+    np.testing.assert_allclose(strength, 5.0, atol=KNOWN)
+
+
+def test_find_tropopause_kink_needs_depth_on_both_sides():
+    # each gradient must span at least 0.75 x 2 km = 1.5 km
+    z = np.arange(0, 12.01, 0.5)  # 1 km above the kink at 11 km
+    assert np.isnan(find_tropopause_kink(z, kinked_profile(11.0, z))).all()
+    z = np.arange(0, 12.51, 0.5)  # 1.5 km: enough
+    height, strength = find_tropopause_kink(z, kinked_profile(11.0, z))
+    assert height[0] == 11.0
+    np.testing.assert_allclose(strength, 8.5, atol=KNOWN)
+    # 0.5 km below the kink at 11 km (from 12 km up, where 1.5 km lie below,
+    # the gradient below has turned too weak: 2.8 K/km of change at most)
+    z = np.arange(10.5, 30.01, 0.5)
+    assert np.isnan(find_tropopause_kink(z, kinked_profile(11.0, z))).all()
+
+
+def test_find_tropopause_kink_fine_noisy_profiles():
+    """50 m levels with 0.05 K noise are averaged into 0.25 km layers first
+    (layer centres 0.1 km above each multiple of 0.25 km): found within one
+    layer of the kink (0.25 km, plus 0.05 km for the layer centre), strength
+    8.5 (1 - d / 2) for d <= 0.15 km, at least 7.86 K/km, with up to 0.05
+    K/km for the noise."""
     rng = np.random.default_rng(10)
     z = np.arange(0, 30.0001, 0.05)
     z0 = np.array([9.0, 12.4, 15.0])
-    t = 288 - 6.5 * np.minimum(z[None, :], z0[:, None]) + rng.normal(
+    t = np.vstack([kinked_profile(k, z) for k in z0]) + rng.normal(
         0, 0.05, (3, z.size))
-    found = find_tropopause(z, t)
-    # (averaged into 0.25 km layers first: within one layer of the kink)
-    assert np.all(np.abs(found - z0) <= 0.25 + 0.05), found
+    height, strength = find_tropopause_kink(z, t)
+    assert np.all(np.abs(height - z0) <= 0.25 + 0.05), height
+    assert np.all((strength > 7.8) & (strength < 8.55)), strength
 
 
-def test_find_tropopause_none():
-    z = np.arange(15, 40.01, 0.5)  # starts above the tropopause
-    assert np.isnan(find_tropopause(z, np.full(z.size, 216.5)))[0]
-    z = np.arange(0, 12.01, 0.5)  # top within 2 km of the kink at 11 km
-    assert np.isnan(find_tropopause(z, kinked_profile(11.0, z)))[0]
-    assert np.isnan(find_tropopause(Z, wave_profiles(1)))[0]
-    found = find_tropopause(np.full((2, 3), np.nan), np.full((2, 3), 250.0))
+def test_find_tropopause_kink_no_values():
+    found = find_tropopause_kink(np.full((2, 3), np.nan), np.full((2, 3), 250.0))
     assert np.isnan(found).all()
+    t = np.vstack([kinked_profile(11.0), np.full(Z.size, np.nan)])
+    height, strength = find_tropopause_kink(Z, t)
+    np.testing.assert_array_equal(height, [11.0, np.nan])
+    assert np.isnan(strength[1])
 
 
 def _kinked_dataset():
@@ -815,89 +899,207 @@ def _kinked_dataset():
     return example_profile(t, Z)
 
 
-def test_tropopause_mask():
+@contextlib.contextmanager
+def _no_kink_warning():
+    """A context in which a TropopauseKinkWarning is an error."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", TropopauseKinkWarning)
+        yield
+
+
+def test_tropopause_kink_mask():
     ds = _kinked_dataset()
-    with pytest.warns(TropopauseMaskWarning, match="TROPOPAUSE MASK"):
+    with pytest.warns(TropopauseKinkWarning, match="^detrend: TROPOPAUSE KINK MASK:"):
         out = detrend(ds)
-    free = detrend(ds, mask_tropopause=False)
+    free = detrend(ds, mask_tropopause_kink=False)
     near = np.zeros((2, 121), bool)
-    near[0] = np.abs(Z - 11.0) <= 9.25  # half the 18.5 km frame
+    near[0] = np.abs(Z - 11.0) <= 2.0  # the default 2 km either side
+    assert near.sum() == 9  # (9 to 13 km)
     pert, plain = out["temperature_perturbation"].values, free[
         "temperature_perturbation"].values
     np.testing.assert_array_equal(np.isnan(pert), near | np.isnan(plain))
     np.testing.assert_array_equal(pert[~near], plain[~near])
-    assert np.isnan(out["temperature_background"].values[near]).all()
-    flag = out["temperature_perturbation_flag"].values
-    np.testing.assert_array_equal(states.has_state(flag, "not_computed"), near)
-    np.testing.assert_array_equal(out["tropopause_altitude"].values, [11.0, np.nan])
-    assert out["tropopause_altitude"].dims == ("profile",)
-    note = record(out)["tropopause_mask"]
-    assert note["values_masked"] == int(near.sum()) and note["profiles_masked"] == 1
-    assert "tropopause_altitude" not in free
+    bg = out["temperature_background"].values
+    np.testing.assert_array_equal(np.isnan(bg), near)
+    np.testing.assert_array_equal(bg[~near],
+                                  free["temperature_background"].values[~near])
+    for name in ("temperature_perturbation_flag", "temperature_background_flag"):
+        flag = out[name].values
+        np.testing.assert_array_equal(states.has_state(flag, "not_computed"), near)
+    np.testing.assert_array_equal(out["tropopause_kink_altitude"].values,
+                                  [11.0, np.nan])
+    assert out["tropopause_kink_altitude"].dims == ("profile",)
+    assert out["tropopause_kink_altitude"].attrs["units"] == "km"
+    strength = out["tropopause_kink_strength"].values
+    np.testing.assert_allclose(strength[0], 8.5, atol=KNOWN)  # (2 - (-6.5) K/km)
+    assert np.isnan(strength[1])
+    assert out["tropopause_kink_strength"].dims == ("profile",)
+    assert out["tropopause_kink_strength"].attrs["units"] == "K km-1"
+    note = record(out)["tropopause_kink_mask"]
+    assert note == {"half_width_km": 2.0, "tropopause_kink": "found",
+                    "profiles_masked": 1, "values_masked": 9,
+                    "min_strength": 3.0, "depth_km": 2.0,
+                    "search_km": [5.0, 22.0], "resolution_km": 0.25}
+    assert "tropopause_kink_altitude" not in free
+    assert "tropopause_kink_strength" not in free
+    assert record(free)["tropopause_kink_mask"] is None
     validate(out, "profile")
 
 
-def test_tropopause_options():
+def test_tropopause_kink_given_heights():
     ds = _kinked_dataset()
-    with pytest.warns(TropopauseMaskWarning):
-        given = detrend(ds, tropopause_km=15.0)
-    expected = np.abs(Z - 15.0) <= 9.25
+    with pytest.warns(TropopauseKinkWarning):
+        given = detrend(ds, tropopause_kink_km=15.0)
+    expected = np.abs(Z - 15.0) <= 2.0
     np.testing.assert_array_equal(np.isnan(given["temperature_perturbation"][0]),
                                   expected)
     np.testing.assert_array_equal(np.isnan(given["temperature_perturbation"][1]),
                                   expected)  # (a number applies to every profile)
-    with pytest.warns(TropopauseMaskWarning):
-        each = detrend(ds, tropopause_km=[15.0, np.nan])
+    np.testing.assert_array_equal(given["tropopause_kink_altitude"].values,
+                                  [15.0, 15.0])
+    assert "tropopause_kink_strength" not in given  # (given, not found)
+    note = record(given)["tropopause_kink_mask"]
+    assert note["tropopause_kink"] == "given" and "min_strength" not in note
+    with pytest.warns(TropopauseKinkWarning):
+        each = detrend(ds, tropopause_kink_km=[15.0, np.nan])
+    np.testing.assert_array_equal(np.isnan(each["temperature_perturbation"][0]),
+                                  expected)
     assert not np.isnan(each["temperature_perturbation"][1]).any()
-    with pytest.warns(TropopauseMaskWarning):
-        narrow = detrend(ds, mask_half_width_km=2.0)
-    np.testing.assert_array_equal(np.isnan(narrow["temperature_perturbation"][0]),
-                                  np.abs(Z - 11.0) <= 2.0)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", TropopauseMaskWarning)
-        off = detrend(ds, mask_tropopause=False)
+    np.testing.assert_array_equal(each["tropopause_kink_altitude"].values,
+                                  [15.0, np.nan])
+    assert "tropopause_kink_strength" not in each
+
+
+def test_tropopause_kink_options():
+    ds = _kinked_dataset()
+    with pytest.warns(TropopauseKinkWarning):
+        wide = detrend(ds, mask_half_width_km=5.0)
+    np.testing.assert_array_equal(np.isnan(wide["temperature_perturbation"][0]),
+                                  np.abs(Z - 11.0) <= 5.0)
+    assert record(wide)["tropopause_kink_mask"]["half_width_km"] == 5.0
+    # detection options, passed to find_tropopause_kink and recorded
+    with pytest.warns(TropopauseKinkWarning):
+        shallow = detrend(ds, tropopause_kink_options={"depth_km": 1.0})
+    assert shallow["tropopause_kink_altitude"].values[0] == 11.0
+    note = record(shallow)["tropopause_kink_mask"]
+    assert note["depth_km"] == 1.0 and note["min_strength"] == 3.0
+    # (8.5 K/km is below 9; from 13 km up the 2 km below lie in the warming
+    # part, while at 12 km the change is still 4.25 K/km)
+    for options in ({"min_strength": 9.0}, {"search_km": (13.0, 22.0)}):
+        with _no_kink_warning():
+            none = detrend(ds, tropopause_kink_options=options)
+        assert np.isnan(none["tropopause_kink_altitude"]).all()
+        assert np.isfinite(none["temperature_perturbation"]).all()
+    with _no_kink_warning():
+        off = detrend(ds, mask_tropopause_kink=False)
     assert np.isfinite(off["temperature_perturbation"]).all()
 
 
-def test_no_warning_without_a_tropopause():
+def test_no_warning_without_a_tropopause_kink():
     ds = example_profile(wave_profiles(), Z)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", TropopauseMaskWarning)
+    with _no_kink_warning():
         out = detrend(ds)
-    assert np.isnan(out["tropopause_altitude"]).all()
+    assert np.isnan(out["tropopause_kink_altitude"]).all()
+    assert np.isnan(out["tropopause_kink_strength"]).all()
     assert np.isfinite(out["temperature_perturbation"]).all()
+    assert record(out)["tropopause_kink_mask"]["values_masked"] == 0
+
+
+def test_tropopause_kink_only_searched_in_kelvin():
+    t = np.vstack([kinked_profile(11.0), wave_profiles(1)[0]])
+    ds = example_profile(t, Z, product="hlos_wind")
+    ds = ds.rename({"temperature": "hlos_wind", "temperature_flag": "hlos_wind_flag"})
+    ds["hlos_wind"].attrs.update(units="m s-1",
+                                 ancillary_variables="hlos_wind_flag")
+    with _no_kink_warning():
+        out = detrend(ds, var="hlos_wind")
+    assert (record(out, "hlos_wind")["tropopause_kink_mask"]
+            == "not applied: the variable is not in K")
+    assert "tropopause_kink_altitude" not in out
+    assert np.isfinite(out["hlos_wind_perturbation"]).all()
+    # (given heights are applied whatever the units)
+    with pytest.warns(TropopauseKinkWarning):
+        given = detrend(ds, var="hlos_wind", tropopause_kink_km=11.0)
+    np.testing.assert_array_equal(np.isnan(given["hlos_wind_perturbation"][1]),
+                                  np.abs(Z - 11.0) <= 2.0)
 
 
 def test_profile_without_values():
     # (e.g. a padding profile, or one removed entirely by quality control)
     t = np.vstack([kinked_profile(11.0), np.full(Z.size, np.nan)])
     ds = example_profile(t, Z)
-    with pytest.warns(TropopauseMaskWarning):
+    with pytest.warns(TropopauseKinkWarning):
         out = detrend(ds)
-    np.testing.assert_array_equal(out["tropopause_altitude"].values, [11.0, np.nan])
+    np.testing.assert_array_equal(out["tropopause_kink_altitude"].values,
+                                  [11.0, np.nan])
     assert np.isnan(out["temperature_perturbation"][1]).all()
     flag = out["temperature_perturbation_flag"].values[1]
     assert not states.has_state(flag, "not_computed").any()
     validate(out, "profile")
 
 
-def test_tropopause_mask_only_for_vertical_filters():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", TropopauseMaskWarning)
+def test_tropopause_kink_mask_time_height():
+    th = example_time_height(n_time=3, n_level=Z.size)
+    th = th.assign_coords(altitude=(("level",), Z, {"units": "km"}))
+    th["temperature"].values[1] = kinked_profile(11.0)
+    th["temperature"].values[2] = wave_profiles(1)[0]
+    with pytest.warns(TropopauseKinkWarning):
+        out = detrend(th)
+    assert out["tropopause_kink_altitude"].dims == ("time",)
+    np.testing.assert_array_equal(out["tropopause_kink_altitude"].values,
+                                  [np.nan, 11.0, np.nan])
+    np.testing.assert_array_equal(np.isnan(out["temperature_perturbation"][1]),
+                                  np.abs(Z - 11.0) <= 2.0)
+    assert np.isfinite(out["temperature_perturbation"][2]).all()
+    assert record(out)["tropopause_kink_mask"]["profiles_masked"] == 1
+    validate(out, "time_height")
+
+
+def test_tropopause_kink_mask_swath():
+    t = wave_profiles(6).reshape(2, 3, Z.size)
+    t[0, 1] = kinked_profile(11.0)
+    ds = example_3d_swath(t, altitude=Z)
+    with pytest.warns(TropopauseKinkWarning):
+        out = detrend(ds, method="savgol")
+    assert out["tropopause_kink_altitude"].dims == ("along_track", "cross_track")
+    expected = np.full((2, 3), np.nan)
+    expected[0, 1] = 11.0
+    np.testing.assert_array_equal(out["tropopause_kink_altitude"].values, expected)
+    # (float32 input: strength to 1e-4 K/km, from float32 rounding of about
+    # 1e-5 K in temperatures over 2 km)
+    np.testing.assert_allclose(out["tropopause_kink_strength"].values[0, 1], 8.5,
+                               atol=1e-4)
+    lost = np.isnan(out["temperature_perturbation"].values)
+    np.testing.assert_array_equal(lost[0, 1], np.abs(Z - 11.0) <= 2.0)
+    lost[0, 1] = False
+    assert not lost.any()
+    validate(out, "swath")
+
+
+def test_tropopause_kink_mask_only_for_vertical_filters():
+    with _no_kink_warning():
         out = detrend(_random_swath()[0])
-    assert "tropopause_altitude" not in out
+    assert "tropopause_kink_altitude" not in out
+    assert record(out)["tropopause_kink_mask"] is None
 
 
-def test_find_tropopause_needs_the_troposphere():
-    """Data that start in the stratosphere have no tropopause, even where the
-    winter polar stratosphere cools with height (HIRDLS, 70 N, 2007-01-01:
-    3.8 K/km at 18-19 km, then nearly isothermal, passed for one before)."""
-    z = np.arange(18.0, 60.5, 0.5)
-    t = np.where(z < 21, 209.5 - 3.2 * (z - 18.0), 199.9 + 0.2 * (z - 21.0))
-    assert np.isnan(find_tropopause(z[None, :], t[None, :])[0])
-    # the same shape lower down, reaching the troposphere, is found
-    low = np.arange(2.0, 44.5, 0.5)
-    assert find_tropopause(low[None, :], t[None, :])[0] == pytest.approx(5.0, abs=0.5)
-    # reach_km moves the rule
-    assert np.isfinite(find_tropopause(z[None, :], t[None, :], reach_km=18.0,
-                                       search_km=(18.0, 22.0))[0])
+def test_tropopause_kink_searched_in_the_residual():
+    """hindley23 -> savgol: the tropopause kink is looked for in what the
+    Savitzky-Golay step is given (the residual), not in the temperature.
+    Profile 0: a kink in the residual, cancelled by the waves (their sum
+    plus the residual is 220 K at every height)."""
+    shape = (2, Z.size)
+    residual = np.vstack([kinked_profile(11.0) - 288.0, wave_profiles(1)[0] - 220])
+    waves = np.full(shape + (4,), 55.0)
+    waves[0] -= residual[0][:, None] / 4  # (sums 193.5 to 291.5 K: not outliers)
+    total = residual + waves.sum(axis=-1)
+    np.testing.assert_allclose(total[0], 220.0, atol=KNOWN)
+    assert np.isnan(find_tropopause_kink(Z, total[0])[0]).all()
+    ds = example_pw_profile(residual, waves, Z)
+    with pytest.warns(TropopauseKinkWarning):
+        out = detrend(ds, steps=["hindley23", "savgol"])
+    np.testing.assert_array_equal(out["tropopause_kink_altitude"].values,
+                                  [11.0, np.nan])
+    np.testing.assert_array_equal(np.isnan(out["temperature_perturbation"][0]),
+                                  np.abs(Z - 11.0) <= 2.0)
+    validate(out, "profile")

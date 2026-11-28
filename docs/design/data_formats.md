@@ -273,8 +273,9 @@ detrended after conversion to profiles.
 |---|---|---|---|
 | `<var>_perturbation` | as `<var>` | as `<var>` | optional: what the detrending chain left; `origin` "derived" |
 | `<var>_background` | as `<var>` | as `<var>` | optional: the sum of the backgrounds removed; `origin` "derived" |
-| `<var>_perturbation_flag`, `<var>_background_flag` | as `<var>` | — | with each: the input's states (without its "no value" states where the output has a value), `derived` on every value, `not_computed` where the input has a value but none could be computed (§6.2) |
-| `tropopause_altitude` | the dimensions of `<var>` other than `level` | km | after a vertical filter with the tropopause mask: the tropopause height used, NaN where none was found |
+| `<var>_perturbation_flag`, `<var>_background_flag` | as `<var>` | — | with each: the input's states (without `missing`, `no_observation` and `outside_requested_range` where the output has a value; the states of values removed as bad are kept), `derived` on every value, `not_computed` where the input has a value but none could be computed: a NaN in the filter's frame or the polynomial's row, or the tropopause kink mask (§6.2) |
+| `tropopause_kink_altitude` | the dimensions of `<var>` other than `level` | km | after a Savitzky-Golay step with the tropopause kink mask: the height of each profile's strongest tropopause kink (a sharp reversal of the temperature gradient, cooling below and warming above, most likely the tropopause), found or given (`tropopause_kink_km`); NaN where there is none |
+| `tropopause_kink_strength` | the dimensions of `<var>` other than `level` | K km-1 | with `tropopause_kink_altitude` when the tropopause kinks were found, not given: the mean gradient over the 2 km above minus that over the 2 km below; NaN where there is none |
 | `<var>_perturbation_step<k>` | as `<var>` | as `<var>` | with `keep_steps`: what was left after step k (1-based) |
 
 Both outputs are float32 (computed in float64) whatever the type of
@@ -365,7 +366,7 @@ Initial registry (proposal), in four groups:
 | 1024 | `a_priori_dominated` | value | the retrieval has little information here, as the provider marks it (with `instrument_qc`: HIRDLS negative precision); later perhaps also from the CPs' averaging kernels |
 | 2048 | `qc_incomplete` | value | the provider's quality control could not be completed: a quality field it needs is missing from the file (with `instrument_qc`: MLS); the other rules were applied (added 2026-11-28, C. Wright) |
 | | **No value: not computed** | | |
-| 4096 | `not_computed` | NaN | the input has a value here, but an analysis step could not compute one: e.g. a missing value within the filter's frame or the fitted row, or the tropopause mask (`analysis.detrend`; added 2026-11-28, C. Wright) |
+| 4096 | `not_computed` | NaN | the input has a value here, but an analysis step could not compute one: e.g. a missing value within the filter's frame or the fitted row, or the tropopause kink mask (values within 2 km, by default, of a sharp reversal of the temperature gradient; `analysis.detrend`; added 2026-11-28, C. Wright) |
 
 Several bits can be set together (e.g. `derived` and `extrapolated`). With
 `keep_outliers`, points in the "removed as bad" group keep their values,

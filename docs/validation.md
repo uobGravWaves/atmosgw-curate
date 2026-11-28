@@ -332,10 +332,16 @@ installed):
   mode is NaN (MATLAB: 0); no such point in the reference.
 - **Known answers** (`tests/test_detrend.py`, synthetic): a polynomial of
   degree up to the order is its own background, a quadratic with gaps,
-  `skip_nan`, chains, the tropopause mask, the formats and the flags.
-- **Not compared with MATLAB** (new code): `skip_nan`, the tropopause mask
-  and `find_tropopause`, chains other than smoothing then the polynomial,
-  and radiosonde and time-height data.
+  `skip_nan`, chains, `find_tropopause_kink` (piecewise-linear profiles
+  with known tropopause kink heights and strengths, weak, missing and
+  out-of-range ones, fine noisy profiles) and the tropopause kink mask, the
+  formats and the flags.
+- **Not compared with MATLAB** (new code): `skip_nan`, the tropopause kink
+  mask and `find_tropopause_kink`, chains other than smoothing then the
+  polynomial, and radiosonde and time-height data.
+
+The tropopause kink figures below were computed on eepc-0184 with Python
+3.12.4 and default options, unless stated.
 
 `to_profiles` for radiosondes (new code): `tests/test_convert_trajectory.py`
 against known answers (linear and exponential profiles, burst, wiggles,
@@ -344,19 +350,30 @@ gaps, the dateline, the grid options).
 - **DWD radiosondes, 2010-01-15:** 18 ascents from 9 stations converted on
   the 0.05 km grid, 0-34.15 km; the profiles pass `validate`. `detrend`
   used Savitzky-Golay with 5 km (a frame of 101 levels, 5.05 km), found a
-  tropopause in all 18 (9.55-11.15 km, median 10.50 km), and the mask
-  removed 1,818 values (19.5 % of those computed).
+  tropopause kink in all 18 ascents (9.8-11.4 km, median 10.3 km), and the
+  mask removed 1,442 values (15.4 % of those computed).
 - **HIRDLS and SABER, 2007-01-01, default 18-60 km grid** (5,553 and 1,412
   profiles): the outputs pass `validate`; frame 37 levels (18.5 km);
   perturbation + background equals the temperature to 1.6e-5 K (float32
-  output). No tropopause is looked for, as the grid starts above 5 km.
-  (Before that rule was added, a "tropopause" at 18.5-22 km was found in
-  560 HIRDLS and 79 SABER profiles, mostly in the winter polar
-  stratosphere, where the temperature falls with height.)
+  output). HIRDLS: a tropopause kink in 156 profiles (19.5-22.0 km); 1,367
+  values masked (0.3 % of those computed). SABER: 68 tropopause kinks, 577
+  values masked (0.5 %). A lapse-rate tropopause finder was tried first
+  and rejected: on this grid it marked 560 of the 5,553 HIRDLS profiles at
+  18.5-22 km, mostly in the winter polar stratosphere, where the
+  temperature falls with height.
 - **HIRDLS, 2007-01-01, on a 5-60 km grid** (`height_scale`): a tropopause
-  in all 5,553 profiles, median 16.5-17 km in the tropics and 9 km
-  poleward of 60 degrees; the mask (9.25 km either side) removed 179,870
-  values, 29.2 % of those computed.
+  kink in 4,751 of the 5,553 profiles, median height 17.0 km at 0-30
+  degrees latitude, 11.0 km at 30-60 and 9.0 km at 60-90; 42,759 values
+  masked (6.9 % of those computed). The RMS perturbation at 10-20 km is
+  2.59 K with the mask and 3.11 K without (5-10 km: 4.19 and 4.22 K;
+  20-30 km: 1.78 K both).
+- **Why 3 K/km and 2 km** (the same 5-60 km grid, no mask): the median size
+  of the 18 km Savitzky-Golay perturbation is 1.14 K away from any
+  tropopause kink. At a tropopause kink of strength below 3 K/km it is
+  1.05 K (no spike); 3-5 K/km, 3.27 K; 5-8 K/km, 5.84 K; 8-12 K/km,
+  8.51 K. At 2 km from the tropopause kink it is 1.37, 1.64 and 2.66 K for
+  those three classes. A second lobe near 5 km (1.53, 2.28 and 3.87 K) is
+  outside the default mask.
 - **Hindley23 files, HIRDLS, 2007-01-01:** the perturbation is the stored
   residual exactly and the background the sum of the stored modes; the
   chain with Savitzky-Golay after it passes `validate`.
@@ -376,7 +393,10 @@ gaps, the dateline, the grid options).
   frame 121 levels (18.15 km); temperature is present at 31.9 % of points,
   the perturbation at 20.6 % by default and 31.8 % with `skip_nan=True`;
   where the default has a value the two are identical (0 of 382,476
-  differ). No tropopause is looked for.
+  differ). (The `skip_nan=True` figure was computed before the tropopause
+  kink mask and has not been rechecked.) A tropopause kink in 319
+  profiles, at 18.5-22 km, near the bottom of the lidar's range, where the
+  default filter gives no values anyway: 0 values masked.
 
 ## Changes since the MATLAB comparisons
 

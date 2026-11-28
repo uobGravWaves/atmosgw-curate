@@ -17,9 +17,15 @@ reference outputs.
   (`analysis.smooth_array`). Steps can be chained (`steps=[...]`); every
   number is an option, and the chain is recorded in the `detrending`
   attribute. New code, not in MATLAB: `skip_nan=True` (each fit uses the
-  values present) and, after a vertical filter, a mask around each
-  profile's lapse-rate tropopause (`find_tropopause`), with a
-  `TropopauseMaskWarning`. Existing variables are replaced only with
+  values present) and, after a Savitzky-Golay step, a tropopause kink mask:
+  values within 2 km (`mask_half_width_km`) of each profile's strongest
+  tropopause kink (a sharp reversal of the temperature gradient, cooling
+  below and warming above by at least 3 K/km, most likely the tropopause;
+  `find_tropopause_kink`) are set to NaN, with a `TropopauseKinkWarning`;
+  the heights and strengths are returned as `tropopause_kink_altitude` and
+  `tropopause_kink_strength` (`mask_tropopause_kink=False` switches it
+  off). `"hindley23"` removes outliers as MATLAB's `H23_OutRem`
+  (`outlier_removal=True`). Existing variables are replaced only with
   `overwrite=True`. Matches MATLAB R2024b at array level within 7e-13 K
   (`docs/validation.md`). [Claude]
 - `data.to_profiles` also converts radiosonde trajectories (instrument

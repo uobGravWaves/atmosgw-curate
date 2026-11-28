@@ -198,7 +198,7 @@ def test_savgol_dataset(sgolay, name):
     ds = example_profile(case["Temp"], case["Alt"])
     options = sg_options(case)
     out = detrend(ds, method="savgol", order=options["order"],
-                  length_km=options["length_km"], mask_tropopause=False)
+                  length_km=options["length_km"], mask_tropopause_kink=False)
     assert_close(out["temperature_background"], case["BG"], PROFILE_F32, "BG")
     assert_close(out["temperature_perturbation"], case["Tp"], PROFILE_F32, "Tp")
     validate(out, "profile")

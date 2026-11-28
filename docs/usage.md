@@ -329,7 +329,7 @@ ds.attrs["state_counts"]                           # e.g. "temperature: no_obser
 | `instrument_flag` | NaN | failed the provider's own screening (below) |
 | `a_priori_dominated` | value | mostly a priori, as the provider marks it (HIRDLS negative precision) |
 | `qc_incomplete` | value | the provider's screening could not be completed (an MLS file missing a quality field) |
-| `not_computed` | NaN | the input has a value, but an analysis step could not compute one (e.g. a gap in the filter's frame, or the tropopause mask; `analysis.detrend`) |
+| `not_computed` | NaN | the input has a value, but an analysis step could not compute one (e.g. a gap in the filter's frame, or the tropopause kink mask; `analysis.detrend`) |
 
 A zero flag means that none of these states applies, not that every
 possible check was made: what each loader checks is in its docstring.
@@ -425,7 +425,7 @@ planetary-wave-filtered profiles. Every number is an option.
 
 ```python
 import json
-from atmosgw.curate.analysis import detrend, TropopauseMaskWarning
+from atmosgw.curate.analysis import detrend, TropopauseKinkWarning
 
 ds = load_limb_sounders("2007-01-01", "HIRDLS")
 out = detrend(ds)                              # Savitzky-Golay, 18 km, order 2
@@ -465,23 +465,34 @@ a frame either side. With `skip_nan=True` each fit uses the values present,
 so only the missing values stay missing. Values the input has but the
 output could not compute are `not_computed` in the output's flags.
 
-**Tropopause mask.** A vertical filter turns the kink at the tropopause
-into spurious waves, so after a Savitzky-Golay step the values within half
-a frame of each profile's lapse-rate tropopause are set to NaN, with a
-`TropopauseMaskWarning` saying how many. The heights used are returned as
-`tropopause_altitude`. A tropopause is looked for only in profiles that
-reach down to 5 km (`reach_km`), so the default 18-60 km limb grid and
-lidar data are not masked; if such data do start below their tropopause,
-give the heights with `tropopause_km`.
+**Tropopause kink mask.** A tropopause kink is a sharp reversal of the
+temperature gradient, cooling with height below and warming above, most
+likely the tropopause. A vertical filter leaves a spike in the perturbation
+there, so after a Savitzky-Golay step the perturbation and background
+within 2 km either side of each profile's strongest tropopause kink are set
+to NaN (`not_computed`), with a `TropopauseKinkWarning` saying how many
+values. A tropopause kink is a level between 5 and 22 km where the mean
+gradient over the 2 km below is negative, the one over the 2 km above is
+positive, and the difference (its strength) is at least 3 K/km. It is
+looked for in the values given to the first Savitzky-Golay step (for
+`["hindley23", "savgol"]`, in the residual), and only for variables in K.
+The heights and strengths are returned as `tropopause_kink_altitude` and
+`tropopause_kink_strength` (NaN where there is none). This is a guard for
+the filter, not a tropopause product: it finds such reversals wherever they
+are in the data, including noise that looks like one.
+`find_tropopause_kink(altitude, temperature)` applies the same rule to any
+[profile x level] arrays.
 
 ```python
-out = detrend(ds, mask_half_width_km=2)        # a narrower mask
-out = detrend(ds, tropopause_km=16)            # given heights: one, or one per profile
-out = detrend(ds, tropopause_options={"search_km": (8, 20)})   # passed to find_tropopause
-out = detrend(ds, mask_tropopause=False)       # no mask (not recommended)
+out = detrend(ds, mask_half_width_km=3)        # a wider mask (default 2 km)
+out = detrend(ds, tropopause_kink_options={"min_strength": 5, "search_km": (8, 20)})
+                                               # passed to find_tropopause_kink; also
+                                               # depth_km (2) and resolution_km (0.25)
+out = detrend(ds, tropopause_kink_km=16)       # given heights: one, or one per profile
+out = detrend(ds, mask_tropopause_kink=False)  # no mask (not recommended)
 
 import warnings
-warnings.simplefilter("ignore", TropopauseMaskWarning)   # keep the mask, drop the warning
+warnings.simplefilter("ignore", TropopauseKinkWarning)   # keep the mask, drop the warning
 ```
 
 **The record.** Each output variable's `detrending` attribute holds the
@@ -492,7 +503,7 @@ out = detrend(ds)
 json.loads(out.temperature_perturbation.attrs["detrending"])
 # {'variable': 'temperature', 'steps': [{'method': 'savgol', 'order': 2,
 #   'length_km': 18.0, ..., 'frame_levels': [37, 37], 'frame_km': 18.5}],
-#  'skip_nan': False, 'tropopause_mask': {'half_width_km': 9.25, ...}}
+#  'skip_nan': False, 'tropopause_kink_mask': {'half_width_km': 2.0, ...}}
 ```
 
 The output still passes `validate` in its format.

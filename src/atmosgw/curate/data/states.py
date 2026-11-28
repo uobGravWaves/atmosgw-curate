@@ -126,7 +126,7 @@ STATES = (
     State("not_computed", 4096, True, "not computed",
           "the input has a value here, but an analysis step could not compute "
           "one: e.g. a missing value within the filter's frame or the fitted "
-          "row, or the tropopause mask (analysis.detrend)"),
+          "row, or the tropopause kink mask (analysis.detrend)"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed

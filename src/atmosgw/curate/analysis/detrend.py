@@ -11,8 +11,8 @@ and the values used are recorded in the output.
 Inputs and outputs
 ------------------
 ``detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
-mask_tropopause=True, tropopause_km=None, mask_half_width_km=None,
-tropopause_options=None, overwrite=False, keep_steps=False, **params)``
+mask_tropopause_kink=True, tropopause_kink_km=None, mask_half_width_km=2.0,
+tropopause_kink_options=None, overwrite=False, keep_steps=False, **params)``
 -> a new ``xarray.Dataset`` (the input is not altered) with two added
 variables, ``<var>_perturbation`` and ``<var>_background``, each with a
 ``_flag`` variable.
@@ -86,20 +86,22 @@ perturbation + background is the smoothed input, not the input.
   the same as with False (identical for the fits; to rounding, 1e-13 K,
   for smoothing). New behaviour, not in MATLAB.
 
-Tropopause mask (``"savgol"`` steps): a vertical filter turns the kink at
-the tropopause into spurious waves, so by default values within
-``mask_half_width_km`` (None: half the frame) of each profile's tropopause
-are set to NaN in the perturbation and background, with a warning
-(``TropopauseMaskWarning``) saying how much was removed. The tropopause is
-found in the Dataset's temperature (``find_tropopause``; options through
-``tropopause_options``), or given as ``tropopause_km`` (a number, or one
-per profile). A tropopause is looked for only in profiles that reach down
-to 5 km (``reach_km``): data that start higher (the default 18-60 km limb
-grid, lidars) are taken to hold no tropopause and are not masked, because
-the winter polar stratosphere and noise otherwise pass for one. If such
-data do start below their tropopause, give ``tropopause_km``.
-``mask_tropopause=False`` switches the mask off. The heights used are
-returned as ``tropopause_altitude``.
+Tropopause kink mask (``"savgol"`` steps): a tropopause kink is a sharp reversal of the
+temperature gradient (cooling with height below, warming above), most
+likely the tropopause. A vertical filter leaves a spike in the perturbation
+there, which then reaches the spectral analysis. By default the
+perturbation and background within ``mask_half_width_km`` (2 km) of each
+profile's strongest tropopause kink are set to NaN, with a warning
+(``TropopauseKinkWarning``) saying how much was removed. The tropopause kink is
+looked for in the values given to the first ``"savgol"`` step
+(``find_tropopause_kink``; its options through ``tropopause_kink_options``:
+``min_strength`` 3 K/km, ``depth_km`` 2, ``search_km`` (5, 22),
+``resolution_km`` 0.25), or its height is given as ``tropopause_kink_km`` (a
+number, or one per profile). Only variables in K are searched.
+``mask_tropopause_kink=False`` switches the mask off. The heights and strengths
+used are returned as ``tropopause_kink_altitude`` and ``tropopause_kink_strength``. This
+is a guard for the filter, not a tropopause product: it finds tropopause kinks
+wherever they are in the data, including noise that looks like one.
 
 ``overwrite`` (bool, False): replace an existing ``<var>_perturbation`` or
 ``<var>_background`` (e.g. the producer's perturbation in AIRS 2-D files);
@@ -115,18 +117,17 @@ and units of ``var``:
   sum of the backgrounds removed. ``origin`` "derived"; the ``detrending``
   attribute is the chain as JSON, with every option and the frame used.
 - flags: the input's states (without ``missing``, ``no_observation`` and
-  ``outside_requested_range`` where the output has a value), plus ``derived`` on every value, and
-  ``not_computed`` where the input has a value but none could be computed
-  (a NaN in the frame or row, the tropopause mask).
+  ``outside_requested_range`` where the output has a value), plus
+  ``derived`` on every value, and ``not_computed`` where the input has a
+  value but none could be computed (a NaN in the frame or row, the
+  tropopause kink mask).
 - ``<var>_perturbation_uncertainty`` and ``<var>_background_uncertainty``
   are listed in ``availability`` as ``not_provided``.
 
-``find_tropopause(altitude, temperature, lapse_rate=2.0, depth_km=2.0,
-search_km=(5, 22), resolution_km=0.25, reach_km=None)``: lapse-rate
-tropopause height (km) of each profile ([profile x level] arrays, any level
-order), NaN where none is found. ``reach_km`` (None: the lower search
-limit, 5 km): a profile is searched only if it has a value at or below this
-height.
+``find_tropopause_kink(altitude, temperature, min_strength=3.0,
+depth_km=2.0, search_km=(5, 22), resolution_km=0.25)`` -> (height in km,
+strength in K/km) of the strongest tropopause kink of each profile
+([profile x level] arrays, any level order); NaN where there is none.
 
 Differences from MATLAB
 -----------------------
@@ -149,20 +150,23 @@ Science
 - Savitzky-Golay: least-squares polynomial of the given order over a
   sliding frame; the first and last half-frames take the fit to the first
   and last full frame (as MATLAB ``sgolayfilt``).
-- Tropopause: "the lowest level at which the lapse rate decreases to
-  2 degC/km or less, provided that the average lapse-rate, between that
-  level and all other higher levels within 2.0 km does not exceed
-  2 degC/km" (WMO International Meteorological Vocabulary, 1992, as quoted
-  by Wikipedia "Tropopause"; the WMO text itself was not read: UNVERIFIED
-  at source). Choices made here, not from the definition: the search is
-  limited to 5-22 km; profiles finer than 0.25 km are averaged to 0.25 km
-  first, against noise; a profile must reach down to 5 km (``reach_km``)
-  and show a lapse rate above the threshold below the level found. (Without
-  the first rule, HIRDLS, SABER and ALOMAR data starting at 15-22 km gave
-  "tropopauses" at 18.5-22 km in 560 of 5553, 79 of 1412 and 717 of 2429
-  profiles, mostly where the winter polar stratosphere cools with height.)
-- The mask half-width (half the frame) is the reach of the filter: an
-  assumption, not a published value.
+- Tropopause kink (new, defined here): at each level between 5 and
+  22 km the mean gradient dT/dz over the ``depth_km`` (2 km) below and
+  above is taken (each must span at least three quarters of that depth); a
+  tropopause kink is a level with a negative gradient below and a positive one
+  above, its strength the difference of the two (K/km); the strongest in
+  the profile counts if it reaches ``min_strength``. Profiles finer than
+  0.25 km are first averaged to 0.25 km, against noise.
+- Why 3 K/km and 2 km (HIRDLS, 2007-01-01, 5-60 km grid, 18 km filter, no
+  mask; median size of the perturbation, 1.14 K away from any tropopause
+  kink): tropopause kinks weaker than 3 K/km leave no spike (1.05 K at the
+  tropopause kink); 3-5 K/km give 3.3 K, 5-8 K/km 5.8 K, 8-12 K/km 8.5 K
+  at the tropopause kink, falling to 1.4, 1.6 and 2.7 K at 2 km from it.
+  A weaker second lobe remains near 5 km (1.5, 2.3, 3.9 K), outside the default mask.
+- A lapse-rate tropopause (the lowest level with a lapse rate of 2 K/km or
+  less) was tried first and rejected: in data starting above the
+  tropopause it marked 560 of 5553 HIRDLS profiles at 18.5-22 km, mostly
+  where the winter polar stratosphere cools with height.
 
 Origin
 ------
@@ -171,8 +175,8 @@ The group's own MATLAB (port freely): ``func_filter_sgolay.m`` and
 52518fc) and ``airs_4dp_detrend`` in ``prep_airs_3d.m``
 (MatlabFunctions-Personal 5112703). The Savitzky-Golay filter itself is
 written from its documented behaviour (MathWorks ``sgolayfilt`` was not
-copied). ``skip_nan``, chaining, the tropopause mask and ``find_tropopause``
-are new code.
+copied). ``skip_nan``, chaining, the tropopause kink mask and
+``find_tropopause_kink`` are new code.
 
 Validation
 ----------
@@ -180,12 +184,12 @@ Validation
 against MATLAB R2024b outputs for HIRDLS and SABER, 2007-01-01; the
 polynomial against the ``Tp`` and ``BG`` of ``prep_airs_3d_reference.mat``
 (tolerances stated there). ``tests/test_detrend.py``: known answers,
-``skip_nan``, chains, the tropopause mask, formats and flags.
+``skip_nan``, chains, the tropopause kink mask, formats and flags.
 
 Status
 ------
 Matching MATLAB for the ported methods (see Validation); ``skip_nan``, the
-tropopause mask and chains are new and preliminary. AI-ported (Claude); to
+tropopause kink mask and chains are new and preliminary. AI-ported (Claude); to
 be reviewed by C. Wright.
 
 Usage
@@ -198,9 +202,9 @@ Usage
 Change log
 ----------
 2026/11/28 [Claude] initial version
-2026/11/28 [Claude] find_tropopause: only profiles reaching down to reach_km (5 km)
-2026/11/28 [Claude] hindley23 outlier removal (H23_OutRem); kept outliers keep their states
-2026/11/28 [Claude] find_tropopause: all-NaN profile gives NaN (was IndexError)
+2026/11/28 [Claude] hindley23 outlier removal (H23_OutRem); kept outliers keep states
+2026/11/28 [Claude] tropopause kink mask (sharp gradient reversal, 2 km),
+    not a tropopause mask
 
 """
 
@@ -224,9 +228,8 @@ DEFAULTS = {
 # understood to have used; not checked against the paper: UNVERIFIED)
 SONDE_LENGTH_KM = 5.0
 REGULAR_GRID_TOLERANCE = 0.01  # spacing spread below which a grid is regular (MATLAB)
-TROPOPAUSE_DEFAULTS = {"lapse_rate": 2.0, "depth_km": 2.0,
-                       "search_km": (5.0, 22.0), "resolution_km": 0.25,
-                       "reach_km": None}
+TROPOPAUSE_KINK_DEFAULTS = {"min_strength": 3.0, "depth_km": 2.0,
+                     "search_km": (5.0, 22.0), "resolution_km": 0.25}
 _ALIASES = {"boxcar": ("smooth", {"kernel": "box"}),
             "gaussian": ("smooth", {"kernel": "gaussian"})}
 _BACKGROUND_METHODS = ("savgol", "polynomial", "hindley23")
@@ -237,13 +240,14 @@ _ABSENT_BITS = states.FLAG_DTYPE(sum(s.bit for s in states.STATES if s.no_value
 _CHUNK_VALUES = 2.0e7  # values per block of sliding frames (memory)
 
 
-class TropopauseMaskWarning(UserWarning):
-    """Values near the tropopause were removed after a vertical filter."""
+class TropopauseKinkWarning(UserWarning):
+    """Values near a tropopause kink (a sharp reversal of the temperature gradient, most
+    likely the tropopause) were removed after a vertical filter."""
 
 
 def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
-            mask_tropopause=True, tropopause_km=None, mask_half_width_km=None,
-            tropopause_options=None, overwrite=False, keep_steps=False, **params):
+            mask_tropopause_kink=True, tropopause_kink_km=None, mask_half_width_km=2.0,
+            tropopause_kink_options=None, overwrite=False, keep_steps=False, **params):
     """Add ``<var>_perturbation`` and ``<var>_background`` to a copy of ds.
     See the module docstring."""
     kind = ds.attrs.get("format")
@@ -287,12 +291,14 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
                          "replace.")
 
     # apply the chain
-    record, kept, frames_km = [], [], []
+    record, kept, frames_km, filtered = [], [], [], None
     for name, options in chain:
         if name == "hindley23":
             info = pw_info
         elif name == "savgol":
             _need_dim(dims, "level", name)
+            if filtered is None:
+                filtered = current.copy()  # (what the vertical filter is given)
             removed, info = _savgol_step(_heights(ds, dims), current, dims,
                                          options, skip_nan)
             current, background = current - removed, background + removed
@@ -306,16 +312,14 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
         record.append({"method": name, **_plain(options), **info})
         kept.append(current.copy())
 
-    # the tropopause mask, for vertical filters
+    # the tropopause kink mask, for vertical filters
     extra = {}
     mask_note = None
-    if frames_km and mask_tropopause:
-        current, background, extra, mask_note = _mask_tropopause(
-            ds, dims, current, background, tropopause_km,
-            mask_half_width_km if mask_half_width_km is not None
-            else max(frames_km) / 2.0,
-            {**TROPOPAUSE_DEFAULTS, **(tropopause_options or {})},
-            first_is_pw)
+    if frames_km and mask_tropopause_kink:
+        current, background, extra, mask_note = _mask_tropopause_kink(
+            ds, dims, current, background, filtered, attrs.get("units"),
+            tropopause_kink_km, float(mask_half_width_km),
+            {**TROPOPAUSE_KINK_DEFAULTS, **(tropopause_kink_options or {})})
 
     # assemble the output
     out = ds.copy()
@@ -324,7 +328,7 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
                              if n in names or n in [f"{m}_flag" for m in names]])
     detrending = json.dumps({"variable": base, "steps": record,
                              "skip_nan": bool(skip_nan),
-                             "tropopause_mask": mask_note})
+                             "tropopause_kink_mask": mask_note})
     flags = {}
     for name, values, what in ((names[0], current, "perturbation"),
                                (names[1], background, "background")):
@@ -352,7 +356,7 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
                 "units": attrs.get("units", ""),
                 "comment": f"what was left after step {k} "
                            f"({record[k - 1]['method']}) of analysis.detrend; "
-                           "before any tropopause mask"})
+                           "before any tropopause kink mask"})
     for name, (var_dims, values, var_attrs) in extra.items():
         out[name] = (var_dims, values, var_attrs)
     listed = states.parse_availability(out.attrs.get("availability", ""))
@@ -364,37 +368,38 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
     return out
 
 
-def find_tropopause(altitude, temperature, lapse_rate=2.0, depth_km=2.0,
-                    search_km=(5.0, 22.0), resolution_km=0.25, reach_km=None):
-    """Lapse-rate tropopause height (km) of each profile; NaN where none.
+def find_tropopause_kink(altitude, temperature, min_strength=3.0, depth_km=2.0,
+                           search_km=(5.0, 22.0), resolution_km=0.25):
+    """(height in km, strength in K/km) of each profile's strongest tropopause kink (a
+    sharp gradient reversal: cooling with height below, warming above); NaN
+    where none.
 
     altitude (km), temperature (K): [profile x level], levels in any order.
-    See the module docstring (Science) for the rule and the choices made.
+    See the module docstring (Science) for the rule.
     """
     altitude = np.atleast_2d(np.asarray(altitude, dtype=np.float64))
     temperature = np.atleast_2d(np.asarray(temperature, dtype=np.float64))
     altitude = np.broadcast_to(altitude, temperature.shape)
-    found = np.full(temperature.shape[0], np.nan)
-    reach = search_km[0] if reach_km is None else reach_km
+    height = np.full(temperature.shape[0], np.nan)
+    strength = np.full(temperature.shape[0], np.nan)
+    span = 0.75 * depth_km  # the least depth a gradient may be taken over
     for p in range(temperature.shape[0]):
         z, t = _clean_profile(altitude[p], temperature[p], resolution_km)
-        if z.size < 3 or z[0] > reach:  # (no troposphere in the data)
+        if z.size < 3:
             continue
-        lapse = -np.diff(t) / np.diff(z)  # K/km, of the layer above each level
-        seen_troposphere = False
-        for i in range(z.size - 1):
-            if lapse[i] > lapse_rate:
-                seen_troposphere = True
-                continue
-            if (not seen_troposphere or z[i] < search_km[0] or z[i] > search_km[1]
-                    or z[-1] < z[i] + depth_km):
-                continue
-            above = (z > z[i]) & (z <= z[i] + depth_km)
-            mean_lapse = -(t[above] - t[i]) / (z[above] - z[i])
-            if np.all(mean_lapse <= lapse_rate):
-                found[p] = z[i]
-                break
-    return found
+        low = np.searchsorted(z, z - depth_km, side="left")
+        high = np.searchsorted(z, z + depth_km, side="right") - 1
+        with np.errstate(invalid="ignore", divide="ignore"):
+            below = (t - t[low]) / (z - z[low])
+            above = (t[high] - t) / (z[high] - z)
+        change = above - below
+        ok = ((z >= search_km[0]) & (z <= search_km[1]) & (z - z[low] >= span)
+              & (z[high] - z >= span) & (below < 0) & (above > 0)
+              & (change >= min_strength))
+        if np.any(ok):
+            best = np.flatnonzero(ok)[np.argmax(change[ok])]
+            height[p], strength[p] = z[best], change[best]
+    return height, strength
 
 
 # supporting functions: the chain and its starting values
@@ -728,68 +733,63 @@ def _by_dimension(value, dims, default, name):
     return list(value)
 
 
-# supporting functions: tropopause
+# supporting functions: the tropopause kink mask
 
 
-def _mask_tropopause(ds, dims, current, background, tropopause_km, half_width,
-                     options, first_is_pw):
-    """NaN within half_width (km) of each profile's tropopause, with a warning.
-    Returns (current, background, extra variables, a note for the record)."""
+def _mask_tropopause_kink(ds, dims, current, background, filtered, units,
+                          tropopause_kink_km, half_width, options):
+    """NaN within half_width (km) of each profile's strongest tropopause kink, with a
+    warning. filtered: the values the first vertical filter
+    was given. Returns (current, background, extra variables, a note)."""
     altitude = _heights(ds, dims)
     alt, shape, axis = _level_last(altitude, dims)
-    if tropopause_km is not None:
-        height = np.broadcast_to(np.asarray(tropopause_km, dtype=np.float64).ravel(),
-                                 (alt.shape[0],)).copy()
+    strength = None
+    if tropopause_kink_km is not None:
+        height = np.broadcast_to(
+            np.asarray(tropopause_kink_km, dtype=np.float64).ravel(),
+            (alt.shape[0],)).copy()
         source = "given"
+    elif units != "K":
+        return current, background, {}, "not applied: the variable is not in K"
     else:
-        if "temperature" in ds and ds["temperature"].dims == dims:
-            temperature = np.asarray(ds["temperature"].values, dtype=np.float64)
-        elif first_is_pw:  # the temperature the planetary-wave fit was made on
-            temperature = (np.asarray(ds["temperature_residual"].values, float)
-                           + np.nansum(np.asarray(ds["temperature_pw"].values,
-                                                  float), axis=-1))
-        else:
-            warnings.warn(
-                "detrend: no temperature on this grid to find the tropopause "
-                "in, so nothing was masked near it; pass tropopause_km, or "
-                "mask_tropopause=False to silence this.",
-                TropopauseMaskWarning, stacklevel=3)
-            return current, background, {}, "not applied: no temperature"
-        rows = _level_last(temperature, dims)[0]
-        height = find_tropopause(alt, rows, **options)
+        height, strength = find_tropopause_kink(
+            alt, _level_last(filtered, dims)[0], **options)
         source = "found"
-        reach = (options["search_km"][0] if options["reach_km"] is None
-                 else options["reach_km"])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)  # (all-NaN rows)
-            lowest = np.nanmin(np.where(np.isfinite(rows), alt, np.nan), axis=1)
-        not_searched = int(np.count_nonzero(~(lowest <= reach)))
     near = np.abs(alt - height[:, None]) <= half_width
     values = _level_last(current, dims)[0]
     removed = int(np.count_nonzero(near & np.isfinite(values)))
     affected = int(np.count_nonzero(np.any(near & np.isfinite(values), axis=1)))
-    note = {"half_width_km": float(half_width), "tropopause": source,
+    note = {"half_width_km": float(half_width), "tropopause_kink": source,
             "profiles_masked": affected, "values_masked": removed,
-            **({"profiles_not_reaching_reach_km": not_searched}
-               if source == "found" else {}),
             **({k: (list(v) if isinstance(v, tuple) else v)
                 for k, v in options.items()} if source == "found" else {})}
     lead = tuple(d for d in dims if d != "level")
-    extra = {"tropopause_altitude": (
+    extra = {"tropopause_kink_altitude": (
         lead, height.reshape(shape[:-1]),
-        {"units": "km", "long_name": "tropopause height used by analysis.detrend",
-         "comment": (f"lapse-rate tropopause ({source}); NaN: none within the "
-                     "data")})}
+        {"units": "km",
+         "long_name": "height of the tropopause kink masked by analysis.detrend",
+         "comment": f"strongest sharp reversal of the temperature gradient, most "
+                    f"likely the tropopause ({source}); NaN: none"})}
+    if strength is not None:
+        extra["tropopause_kink_strength"] = (
+            lead, strength.reshape(shape[:-1]),
+            {"units": "K km-1",
+             "long_name": "change of gradient across the tropopause kink",
+             "comment": "gradient above minus gradient below "
+                        "(find_tropopause_kink)"})
     if removed:
         total = int(np.count_nonzero(np.isfinite(values)))
         warnings.warn(
-            f"detrend: TROPOPAUSE MASK: {removed} values ({100 * removed / total:.1f}"
-            f" % of those computed) in {affected} of {alt.shape[0]} profiles lie "
-            f"within {half_width:g} km of the tropopause and were set to NaN, "
-            "because a vertical filter turns the tropopause into spurious waves. "
-            "Narrow it with mask_half_width_km, or keep the values with "
-            "mask_tropopause=False (not recommended).",
-            TropopauseMaskWarning, stacklevel=3)
+            f"detrend: TROPOPAUSE KINK MASK: {removed} values "
+            f"({100 * removed / total:.1f} % of those computed) in {affected} of "
+            f"{alt.shape[0]} profiles lie within {half_width:g} km of a "
+            "tropopause kink (a sharp reversal of the temperature gradient, "
+            "most likely the tropopause) and were set to NaN, because a "
+            "vertical filter leaves a spike there. Change the width with "
+            "mask_half_width_km or the "
+            "detection with tropopause_kink_options; mask_tropopause_kink=False "
+            "keeps the values (not recommended).",
+            TropopauseKinkWarning, stacklevel=3)
         mask = _level_back(near, shape, axis)
         current = np.where(mask, np.nan, current)
         background = np.where(mask, np.nan, background)

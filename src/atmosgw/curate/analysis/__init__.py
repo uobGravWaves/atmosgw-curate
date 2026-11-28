@@ -2,15 +2,16 @@
 
 ``detrend`` (``analysis.detrend``) removes the background with the group's
 current methods; ``smooth_array`` (``analysis.smooth``) is its box or
-Gaussian smoothing step; ``find_tropopause`` gives the lapse-rate
-tropopause that ``detrend`` masks around.
+Gaussian smoothing step; ``find_tropopause_kink`` finds the tropopause
+kinks (sharp reversals of the temperature gradient, most likely the
+tropopause) that ``detrend`` masks around.
 """
 
 from atmosgw.curate.analysis.detrend import (
-    TropopauseMaskWarning,
+    TropopauseKinkWarning,
     detrend,
-    find_tropopause,
+    find_tropopause_kink,
 )
 from atmosgw.curate.analysis.smooth import smooth_array
 
-__all__ = ["TropopauseMaskWarning", "detrend", "find_tropopause", "smooth_array"]
+__all__ = ["TropopauseKinkWarning", "detrend", "find_tropopause_kink", "smooth_array"]
