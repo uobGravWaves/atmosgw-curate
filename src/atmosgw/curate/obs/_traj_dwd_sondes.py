@@ -224,9 +224,7 @@ def read_rows(path, ref_lo, ref_hi):
     among rows not looked at, e.g. the requested ascent placed just after a
     later one (``05, 00, 11`` asked for 00: reading stops at 05 and 00 is
     never seen). Reading every file in full would defeat the bisection; all
-    409 files on eepc-0184 were sorted, 2026-11-27. (Before 2026-11-28 only
-    the rows returned were checked, so rows moved to the end of a file were
-    missed; found in review.) Blank lines are skipped.
+    409 files on eepc-0184 were sorted, 2026-11-27. Blank lines are skipped.
     """
     probes = []  # (offset, reference) of each line looked at
     with open(path, "rb") as handle:

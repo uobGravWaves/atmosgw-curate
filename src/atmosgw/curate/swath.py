@@ -293,7 +293,7 @@ def footprint_track(lat, lon, span=3):
     scan's 3 rows are 16 km apart but 22 km from the next scan's and offset
     across track by up to a few km, so unsmoothed, the heading from
     neighbouring rows zigzags by about 5 degrees (moving footprints at the
-    swath edge up to 90 km along track; found in review, 2019-01-01) and the
+    swath edge up to 90 km along track, 2019-01-01) and the
     distance summed along the zigzag is too long (0.7% for a 1.5 km offset).
     Returns dict ``lat``, ``lon``, ``along``, ``heading`` (each per row).
     """
@@ -454,7 +454,7 @@ def regrid_footprints(lat, lon, fields, cross_axis, n_along=None, dx_along=None,
         if method == "nearest":
             # (the nearest footprint in (along, cross) km, inside the same
             # support; not the triangle's largest-weight vertex, which can be
-            # a farther one: found in review, up to 16 km)
+            # a farther one, by up to 16 km)
             weights[:] = 0.0
             vertices[:] = 0
             if inside.any():

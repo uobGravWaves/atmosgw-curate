@@ -27,7 +27,9 @@ each variable's ``comment``).
 Sample rate (``sample_rate``, decided by C. Wright, 2026-11-27): "1hz"
 (default): for each second, the mean of that second's unflagged samples
 (longitude: the mean on the circle, so a second across the dateline stays
-there; NaN, and the flag kept, if none is unflagged), at the centre of the
+there; a position sample outside -90..90 or -180..360 gives the second
+that value, so it is bad_geolocation, not averaged into a plausible one;
+NaN, and the flag kept, if none is unflagged), at the centre of the
 second's samples (Time + 15.5/32 s for 32 Hz); "full": every sample, at
 Time + k/N s. Extras at other rates are averaged the same way ("1hz") or
 repeated to 32 Hz ("full"; rates that do not divide 32, e.g. 20 or 64 Hz,
@@ -46,7 +48,8 @@ Change log:
   extras of rates other than divisors of 32 refused at sample_rate='full'
 2026/11/27 [Claude] flag rule in the variables' comments
 2026/11/27 [Claude] review: highest core version before revision; scale/offset applied
-2026/11/28 [Claude] review: 1 Hz longitude averaged on the circle
+2026/11/28 [Claude] review: 1 Hz longitude averaged on the circle; out-of-range
+  position samples not averaged
 """
 
 import math
@@ -64,6 +67,7 @@ _NAME = re.compile(r"core_faam_(\d{8})_v(\d+)_r(\d+)_(\w+?)(?:_1hz)?\.nc$")
 _UNITS = re.compile(r"seconds since (\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d):(\d\d)")
 _ISO = re.compile(r"(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)")
 FULL_RATE = 32
+POSITION_RANGE = {"Lat": (-90.0, 90.0), "Lon": (-180.0, 360.0)}  # (file values)
 FILE_NAMES = {"Lat": "LAT_GIN", "Lon": "LON_GIN", "Alt": "ALT_GIN", "Pres": "PS_RVSM",
               "Temp": "TAT_DI_R", "U": "U_C", "V": "V_C", "W": "W_C"}
 
@@ -142,10 +146,12 @@ def read_flight(handle, settings):
     seconds[seconds == -9999] = np.nan
     seconds = _unpacked(handle["Time"], seconds)
 
-    def per_sample(name, circular=False):
+    def per_sample(name, circular=False, valid=None):
         """(values, flagged) of a variable at the output rate; circular: a
-        longitude (degrees), averaged on the circle (an arithmetic mean of
-        +179.9 and -179.9 is 0; found in review)."""
+        longitude (degrees), averaged on the circle where a second spans
+        more than 180 degrees; valid: (low, high) of a position: at 1 Hz, a
+        second with an unflagged sample outside it takes that sample's value
+        (so it is bad_geolocation, as at full rate) instead of a mean."""
         var = handle[name]
         value = np.asarray(var[:], dtype=float)
         value[value == float(getattr(var, "_FillValue", -9999.0))] = np.nan
@@ -168,6 +174,11 @@ def read_flight(handle, settings):
                     mean[across] = np.rad2deg(np.arctan2(
                         np.nanmean(np.sin(rad), axis=1),
                         np.nanmean(np.cos(rad), axis=1)))
+            if valid is not None:
+                with np.errstate(invalid="ignore"):
+                    out = (good < valid[0]) | (good > valid[1])
+                rows = np.flatnonzero(out.any(axis=1))
+                mean[rows] = good[rows, np.argmax(out[rows], axis=1)]
             no_good = np.all(flagged | np.isnan(value), axis=1)
             return mean, no_good & np.any(flagged, axis=1)
         if FULL_RATE % value.shape[1]:  # (e.g. 20 or 64 Hz: no exact placing)
@@ -186,7 +197,8 @@ def read_flight(handle, settings):
                 / 86400.0).ravel()
     out = {"Time": time}
     for key, name in FILE_NAMES.items():
-        value, flagged = per_sample(name, circular=key == "Lon")
+        value, flagged = per_sample(name, circular=key == "Lon",
+                                    valid=POSITION_RANGE.get(key))
         if key == "Alt":
             value = value / 1000.0
         if key in ("Lat", "Lon", "Alt"):

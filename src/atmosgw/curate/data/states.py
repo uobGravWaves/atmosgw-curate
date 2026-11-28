@@ -12,7 +12,7 @@ helpers to set, test and describe them. Two levels (see
 - **Individual points** (``STATES``): each data variable ``<name>`` has an
   unsigned-integer variable ``<name>_flag`` of the same shape, one bit per
   state, following the CF flag convention (``flag_masks``,
-  ``flag_meanings``). Zero is a plain, good value.
+  ``flag_meanings``). Zero: none of the recorded states applies.
 
 Inputs and outputs
 ------------------
@@ -121,7 +121,7 @@ STATES = (
     State("qc_incomplete", 2048, False, "qualified value",
           "the provider's quality control could not be completed for this "
           "value: a quality field it needs is missing from the file (MLS); "
-          "the rules that could be applied were"),
+          "the other rules were applied"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed

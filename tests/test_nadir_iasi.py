@@ -70,7 +70,7 @@ def test_granule_spanning_a_file_start_gets_both_files(tmp_path):
 
 
 def test_short_dropout_splits_the_swath(tmp_path):
-    # 5 rows (20 s) missing after row 40: with the 12 s segment rule the
+    # 5 rows (20 s) missing after the first 40: with the 12 s segment rule the
     # regular grid has two segments and no value dated inside the gap (the
     # earlier 180 s rule bridged it with good-looking values; found in review)
     write_orbit(tmp_path, DAY_SECONDS, 180, skip=(40, 5))
@@ -82,6 +82,21 @@ def test_short_dropout_splits_the_swath(tmp_path):
     sec = (ds.time.values - np.datetime64("2007-11-07")) / np.timedelta64(1, "s")
     finite = np.isfinite(ds.temperature.values[..., 0])
     assert not np.any(finite & (sec > 4 * 39 + 2) & (sec < 4 * 45 - 2))
+
+
+def test_stray_pixel_time_or_short_step_does_not_split(tmp_path):
+    # one pixel 590 s off its scan (kept: within the 600 s stray rule) moved
+    # a row's mean time by 9.8 s, enough to fake a 12 s gap; the row's
+    # median ignores it. A step of 11 s (under 1.5 scans) is not a gap.
+    path = write_orbit(tmp_path, DAY_SECONDS, 90)
+    with netCDF4.Dataset(path, "a") as f:
+        t = f["l1_time"][:]
+        t[50, 7] += 590.0
+        t[60:] += 7.0  # (rows 59 -> 60: 11 s)
+        f["l1_time"][:] = t
+    ds = load_nadir_sounders(None, "IASI", granules=[("2007-11-07", 1)],
+                             file_path=tmp_path, screen="none")
+    assert len(np.unique(ds.segment.values)) == 1
 
 
 def test_file_without_temperature_is_skipped_and_recorded(tmp_path):

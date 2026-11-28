@@ -150,8 +150,16 @@ CrIS 2-D (new code, 2026-11-27; L. Hoffmann's daily files):
   micron window); SNPP 2016-01-17, the one file with short gaps (12.3 and
   19 s between scans), is now split there, which moves that day's
   along-track grid slightly (brightness temperatures by up to 0.019 K, no
-  value gained or lost). The rows of every IASI (2007-11-07, 2010-07-01,
-  2014-03-15) and CrIS day measured step by exactly 0 or 8 s.
+  value gained or lost). Apart from those gaps, the rows of every IASI
+  (2007-11-07, 2010-07-01, 2014-03-15) and CrIS day measured step by
+  exactly 0 or 8 s. The 12.3 s step is a timing irregularity, not a missing
+  scan (16 s), so the 12 s rule splits a swath where none is missing; a
+  threshold of about 14 s would bridge it and still split at 16 s and 19 s
+  (open choice, C. Wright). Row times are the median of each row's pixels
+  (one stray pixel time, up to 600 s off, cannot fake a gap); unchanged
+  results on every case above. An independent review of the nadir changes
+  and a quality review of the whole set found nothing else that changes
+  values.
 - **The layout's effect, on real data** (SNPP, 2019-01-01, granules
   100-109): each regridded value lies within a median 0.2 km of its grid
   point at the centre of the swath and 1.1 km in the outer 8 columns (95%:

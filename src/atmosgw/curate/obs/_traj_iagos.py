@@ -269,28 +269,16 @@ def read_flight(handle, settings):
 
 
 def _time_seconds(var):
-    """``UTC_time`` in seconds, NaN where the stored value is the declared
-    ``_FillValue`` (old files -9999, new files 0) or, unpacked, <= -9999;
-    removed before any scale/offset. A stored 0 is a real midnight unless 0
-    is the declared fill. (Before 2026-11-28 only a fill of 0 was removed: a
-    -9999 became 21:13:21 the day before departure; found in review.)"""
-    raw = np.asarray(var[:], dtype=float)
-    scale = float(getattr(var, "scale_factor", 1.0))
-    offset = float(getattr(var, "add_offset", 0.0))
-    packed = scale != 1.0 or offset != 0.0
-    fill = ~np.isfinite(raw)
-    if hasattr(var, "_FillValue"):
-        fill |= raw == float(var._FillValue)
-        if float(var._FillValue) == 0.0:  # (new files: no time before departure day)
-            fill |= raw < 0
-    if not packed:
-        fill |= raw <= FILL
-    seconds = raw * scale + offset if packed else raw.copy()
-    seconds[fill] = np.nan
+    """``UTC_time`` in seconds, read as ``_values`` (the declared fill, old
+    files -9999, new files 0, as NaN); with a declared fill of 0, negative
+    stored times too (none before the departure day)."""
+    seconds = _values(var)
+    if float(getattr(var, "_FillValue", FILL)) == 0.0:
+        seconds[np.asarray(var[:], dtype=float) < 0] = np.nan
     return seconds
 
 
-def _values(var, fill_to_nan=True):
+def _values(var):
     """
     A file variable as float64, read with automatic scaling off so that
     fill values are seen as stored: the declared ``_FillValue`` (else
@@ -305,9 +293,8 @@ def _values(var, fill_to_nan=True):
     scale = float(getattr(var, "scale_factor", 1.0))
     offset = float(getattr(var, "add_offset", 0.0))
     packed = scale != 1.0 or offset != 0.0
-    if fill_to_nan:
-        fill = float(getattr(var, "_FillValue", FILL))
-        value[(value == fill) | ((value <= FILL) & (not packed))] = np.nan
+    fill = float(getattr(var, "_FillValue", FILL))
+    value[(value == fill) | ((value <= FILL) & (not packed))] = np.nan
     return value * scale + offset if packed else value
 
 

@@ -273,7 +273,7 @@ def _prepare(time_range, instrument, options):
                            " (satellite profiles: load_limb_sounders)")
     info = INSTRUMENTS[name]
     # (the readers' working names, e.g. the per-sample masks "TempBad", are
-    # reserved too: an extra of that name replaced the mask; found in review)
+    # reserved too: an extra of that name would replace the mask)
     reserved = ({"Lat", "Lon", "Time", "Alt", *_OUTPUTS}
                 | {f"{key}Bad" for key in _OUTPUTS}
                 | {out for out, _ in _OUTPUTS.values()} | set(info["per_flight"])

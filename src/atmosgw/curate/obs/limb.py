@@ -645,32 +645,26 @@ def _load_limb_arrays(time_range, instrument, **options):
         # below is NaN in every variable but height (so it is not bridged
         # over), and the heights it reaches when interpolated get its state
         native = _native_bad(data, instrument_bad)
-        if any(m.any() for m in native.values()):
-            method = settings["interp_type"].lower()
-            piecewise = method in ("linear", "nearest", "next", "previous")
-            # (pchip, spline and makima give values only where linear
-            # interpolation does (Q18), so their states are spread linearly;
-            # with keep_outliers, the influence of a kept bad point beyond its
-            # neighbouring levels is not marked: pchip's reaches 2 intervals,
-            # makima's 3, spline's the whole profile)
-            reach = method if piecewise else "linear"
-            extrap = True if settings["extrapolate"] else None
-            for state, mask in native.items():
+        # (pchip, spline and makima give values only where linear
+        # interpolation does (Q18), so their states are spread linearly; with
+        # keep_outliers, the influence of a kept bad point beyond its
+        # neighbouring levels is not marked: pchip's reaches 2 intervals,
+        # makima's 3, spline's the whole profile)
+        method = settings["interp_type"].lower()
+        reach = method if method in _PIECEWISE else "linear"
+        extrap = True if settings["extrapolate"] else None
+        for state, mask in native.items():
+            if mask.any():
                 spread = interpolate_profiles(data["Alt"], mask.astype(float),
                                               height_scale, reach, extrap, plan)
                 contributed[state] = np.nan_to_num(spread) != 0
+        # qualified states (values kept): marked wherever such a point
+        # contributes, spread as the no-value states are
         for state, mask in qualified.items():
-            if not mask.any():
-                continue
-            # (a qualified state: values kept; marked wherever such a point
-            # contributes, spread as the no-value states are)
-            method = settings["interp_type"].lower()
-            piecewise = method in ("linear", "nearest", "next", "previous")
-            spread = interpolate_profiles(
-                data["Alt"], mask.astype(float), height_scale,
-                method if piecewise else "linear",
-                True if settings["extrapolate"] else None, plan)
-            contributed[state] = np.nan_to_num(spread) != 0
+            if mask.any():
+                spread = interpolate_profiles(data["Alt"], mask.astype(float),
+                                              height_scale, reach, extrap, plan)
+                contributed[state] = np.nan_to_num(spread) != 0
         if any(m.any() for m in native.values()) and not settings["keep_outliers"]:
             # (extras keep their values here: they may be interpolated by
             # another method; they are removed with the others below)
@@ -701,8 +695,8 @@ def _load_limb_arrays(time_range, instrument, **options):
         done = 0
         new = {}
         # azimuths (degrees, 0-360): profiles crossing north unwrapped, so
-        # 359 and 1 interpolate to 0, not 180 (found in review; Aeolus files
-        # held: 99.7-260.3 degrees, none cross); wrapped back below
+        # 359 and 1 interpolate to 0, not 180 (Aeolus files held: 99.7-260.3
+        # degrees, none cross); wrapped back below
         crossing = {}
         for name in _ANGLES:
             if name in var_names and name not in skip:

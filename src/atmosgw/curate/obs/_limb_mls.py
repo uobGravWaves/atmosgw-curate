@@ -33,12 +33,14 @@ import numpy as np
 from atmosgw.curate.atmosphere import pressure_to_height
 from atmosgw.curate.matlab_time import datenum
 from atmosgw.curate.obs._common import (
+    _append_note,
     choose_file,
     day_label,
     find_in,
     note,
     note_sources,
     note_version,
+    record,
     year_and_day,
 )
 from atmosgw.curate.obs._limb_tools import conform_vars, loop_days, newest_mls_version
@@ -172,8 +174,7 @@ def screen(working, version_text, inst_info):
     the whole profile's affected levels; level rules (precision <= 0,
     pressure outside 261-0.00046 hPa) mark points. A rule whose field is
     missing from the file is not applied, the others are, and every value of
-    the file is incomplete (``qc_incomplete``; before 2026-11-28 a missing
-    field turned all screening off and left no mark; found in review).
+    the file is incomplete (``qc_incomplete``).
     Versions the documents do not cover are not screened (noted).
     """
     temp = np.asarray(working["L2gpValue"])
@@ -183,7 +184,7 @@ def screen(working, version_text, inst_info):
     if not version.lower().startswith(SCREENED_VERSIONS):
         note(inst_info, "Temp", f"no MLS screening rules for version "
                                 f"{version or 'unknown'}: not screened")
-        return none, none
+        return none, np.zeros(shape)
     missing = [f for f in ("Status", "Quality", "Convergence", "L2gpPrecision")
                if np.size(working[f]) == 0]
     note(inst_info, "Temp", "MLS data quality document screening applied "
@@ -192,10 +193,12 @@ def screen(working, version_text, inst_info):
                             "83 hPa and above / > 0.9 at 100 hPa and below, "
                             "precision > 0, 261-0.00046 hPa; failures are "
                             "instrument_flag (no cloud screening)")
-    if missing:
-        note(inst_info, "Temp", f"MLS quality fields missing from a file "
-                                f"({', '.join(missing)}): their rules not applied "
-                                "there, its values qc_incomplete")
+    if missing:  # (appended: the screening note above holds the Temp key)
+        text = (f"MLS quality fields missing from a file ({', '.join(missing)}): "
+                "their rules not applied there, its values qc_incomplete")
+        notes = record(inst_info)["notes"]
+        if text not in notes.get("Temp", ""):
+            _append_note(notes, "Temp", text)
     pres = np.asarray(working["Pressure"], dtype=float).ravel()[None, :]
     with np.errstate(invalid="ignore"):
         # (the files' levels are float32 and nominal: 261 hPa is stored as

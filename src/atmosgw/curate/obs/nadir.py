@@ -130,14 +130,16 @@ lowers variance: the 15 micron high perturbation of 2019-01-01 has a
 standard deviation of 0.240 K native, 0.190 K regridded; how much of that is
 footprint noise and how much signal is not established. A coherent wave
 also loses amplitude: on the synthetic geometry of ``tests/test_nadir_cris.py``
-an along-track wave of 100 km keeps about 95% at the swath centre and 85%
+an along-track wave of 100 km keeps about 96% at the swath centre and 85%
 in the outer columns (200 km: 99% and 96%; ``docs/validation.md``).
 
 Segments: the swath is split where successive rows are more than
 ``max_row_gap_seconds`` apart: AIRS 180 s (missing granules, or separate
 time ranges; not 1.5 scans, because the AIRS daily files store times as
-float32); IASI and CrIS 12 s, 1.5 scans, so a missing scan is not bridged.
-Each segment is
+float32); IASI and CrIS 12 s, 1.5 scans, so a missing scan is not bridged
+(for IASI a difference from MATLAB, which regrids across it). A row's time
+is the median of its pixels' times. Segments are numbered on the native grid
+too (``original_grid=True``). Each segment is
 regridded on its own along-track axis, all on one cross-track axis (the
 median over every scan that can be placed, Q14; MATLAB takes that of the
 first scan, assuming every scan has the same cross-track geometry). Rows of
@@ -496,12 +498,15 @@ def _load_nadir_arrays(time_range, instrument, **options):
     # apart. AIRS 180 s: the daily files store times as float32, in steps of
     # 16 s in 2007 to 64 s in 2025, so a 1.5-scan rule would split every
     # granule; a missing granule leaves a 6 min gap. IASI and CrIS 12 s (1.5
-    # scans of 8 s; their rows step by exactly 0 or 8 s), so a missing scan
-    # splits the swath instead of being bridged by the regridding.
+    # scans of 8 s; their rows step by 0 or 8 s apart from gaps, e.g. 12.3
+    # and 19 s on SNPP 2016-01-17), so a missing scan splits the swath
+    # instead of being bridged by the regridding. Each row's time is its
+    # median, so one stray pixel time (up to 600 s off is kept) cannot fake
+    # a gap.
     n_rows = lat.shape[1]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        row_time = np.nanmean(np.asarray(data["Time"], float), axis=0)
+        row_time = np.nanmedian(np.asarray(data["Time"], float), axis=0)
     gap = np.diff(row_time) * 86400 > info["max_row_gap_seconds"]
     # and around scans that cannot be placed (any position or time missing)
     placeable = _placeable(data, info["scan_width_km"])
@@ -623,9 +628,7 @@ def _prepare(time_range, instrument, options):
                                  "brightness_temperature_variance", "native_time",
                                  "original_files", "original_file_version"})
     additional = check_additional_vars(options, reserved)
-    if additional and str(options["product"]).lower() == "2d":
-        # (the 2-D readers read their channel groups only; before 2026-11-28
-        # an extra failed with a bare KeyError; found in review)
+    if additional and product == "2d":  # (2-D readers: channel groups only)
         raise TypeError(f"additional_vars is not supported for {name} 2-D: its "
                         "file variables are the channel groups (channels option).")
 
@@ -826,8 +829,8 @@ def _regrid_footprints(data, flags, settings, info):
     (``swath.regrid_footprints``; CrIS); returns (data, flags, (cross km,
     along km)), as ``_regrid``. One cross-track axis for all segments: over
     the median, over the rows that can be placed, of each row's nearest and
-    farthest footprint across track holding a value (``n_cross`` points or
-    ``dx_cross`` km);
+    farthest footprint across track (columns not in ``empty_columns``;
+    ``n_cross`` points or ``dx_cross`` km);
     grid points outside the footprints but within half a cross-track step of
     one take its value (``extrapolated``), as ``_regrid``'s edge rule. The
     columns in ``info["empty_columns"]`` (CrIS fields of regard 1 and 30) are

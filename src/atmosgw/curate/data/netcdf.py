@@ -190,8 +190,8 @@ def to_netcdf(ds, path, pack=False, clobber=False):
 def _publish_new(temporary, path):
     """Move the complete temporary file to path only if path does not exist,
     atomically where the filesystem has hard links (os.link fails if path
-    exists, so of two writers racing for one path exactly one succeeds;
-    before 2026-11-28 both could, found in review); else check, then rename."""
+    exists, so of two writers racing for one path exactly one succeeds);
+    else check, then rename."""
     try:
         os.link(temporary, path)
     except FileExistsError:

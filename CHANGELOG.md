@@ -14,7 +14,10 @@ reference outputs.
     of the regridding (1 and 30, empty in the files) are fixed, so the grid
     and each channel's missing values no longer depend on which channels
     are asked for; `interp_type="nearest"` takes the nearest footprint (it
-    could take one up to 16 km farther).
+    could take one up to 16 km farther). A row's time for this rule is the
+    median of its pixels' times, so one stray pixel cannot fake a gap.
+    Segments are numbered on the native grid too; for IASI, splitting at a
+    missing scan is a new difference from MATLAB.
   - IAGOS: a time stored as the file's fill (-9999 in old files) is NaT
     instead of a time the day before; samples of the flight's altitude
     (GPS, else barometric) flagged 3 or 7 are NaN, with `keep_outliers` too
@@ -35,7 +38,9 @@ reference outputs.
   - File longitudes must lie in -180 to 360, in every loader (C. Wright):
     180-360 are wrapped and kept, beyond is `bad_geolocation` (Q13). This
     now applies with `original_z=True` (which wrapped -200 to 160), and
-    nadir and trajectory files may hold 180-360 (they were refused). The
+    nadir and trajectory files may hold 180-360 (they were marked
+    `bad_geolocation`). FAAM: a second with one position sample out of
+    range is `bad_geolocation`, not averaged into a plausible value. The
     requested `lon_range` takes any value, wrapped, as before.
   - `to_profiles` (time-height): file versions and pressure uncertainty
     kept, `session` copied, dangling `ancillary_variables` dropped.

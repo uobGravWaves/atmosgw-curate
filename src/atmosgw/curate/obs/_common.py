@@ -405,6 +405,8 @@ def choose_file(found, inst_info, label, prefer=None):
 # longitude of missing scans (times kept); latitude = longitude = 0 exactly in
 # IASI scans without geolocation (some with time 0) and AIRS 2014-01-01 g228.
 FILL_VALUES = (-999.0, -9999.0)
+STRAY_SECONDS = 600.0  # a pixel this far from its scan's median time is stray
+MISDATED_DAYS = 1.0  # a scan this far outside its file's span is misdated
 
 
 def wrap_file_longitudes(lon):
@@ -422,8 +424,6 @@ def wrap_file_longitudes(lon):
     out = np.array(array, dtype=array.dtype if array.dtype.kind == "f" else float)
     out[over] -= 360.0
     return out
-STRAY_SECONDS = 600.0  # a pixel this far from its scan's median time is stray
-MISDATED_DAYS = 1.0  # a scan this far outside its file's span is misdated
 
 
 def nadir_fill_to_nan(lat, lon, time, temp, span):

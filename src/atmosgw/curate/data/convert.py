@@ -237,8 +237,10 @@ def _time_height_to_profiles(ds):
         "pressure_flag": (pl, pressure_flag, states.flag_attrs()),
     }
     own_pressure = "pressure" in ds and "pressure_flag" in ds  # (as _pressure)
-    for name in ("temperature_uncertainty", "pressure_uncertainty"):
-        if name in ds and (name != "pressure_uncertainty" or own_pressure):
+    carried = ("temperature_uncertainty",) + (("pressure_uncertainty",)
+                                              if own_pressure else ())
+    for name in carried:
+        if name in ds:
             out[name] = (pl, ds[name].values.copy(), ds[name].attrs)
     if "session" in ds:  # (a copy: the input is not shared)
         out["session"] = (("profile",), ds["session"].values.copy(),
@@ -248,7 +250,7 @@ def _time_height_to_profiles(ds):
             out[name] = (pl, over_levels(ds[name].values), ds[name].attrs)
     result = xr.Dataset(out)
     # the files and the version each states (values only: not the site
-    # coordinates; the versions were left behind before 2026-11-28)
+    # coordinates)
     files = {name: ("file", ds[name].values.copy(), ds[name].attrs)
              for name in ("original_files", "original_file_version") if name in ds}
     if files:

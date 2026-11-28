@@ -7,7 +7,9 @@ GNSS without pressure, MLS with a quality field missing, time-height
 profiles, netCDF publication and 2-D nadir extras.
 
 Each test builds the case the review reproduced, on synthetic files.
-Tolerances: exact, except converted times (1 ms) and angles (1e-6 degree).
+Tolerances: exact, except angles (Aeolus 1e-6 degree; the FAAM dateline
+mean 1e-3 degree, as the samples are float32) and pytest.approx defaults
+(relative 1e-6) for converted values.
 """
 
 import shutil
@@ -207,7 +209,7 @@ def test_mls_missing_field_screens_the_rest_and_marks_incomplete(tmp_path):
     kept = np.isfinite(ds.temperature.values)
     assert kept.any() and states.has_state(flag[kept], "qc_incomplete").all()
     assert np.all(ds.temperature.values[1, 2:6] == 230)
-    assert "Convergence" in ds.temperature.attrs["comment"]
+    assert "missing from a file (Convergence)" in ds.temperature.attrs["comment"]
 
 
 @pytest.mark.parametrize("missing", ["Status", "Quality", "Convergence",
@@ -322,7 +324,7 @@ def test_new_file_not_replaced_by_a_second_writer(tmp_path):
 def test_file_longitudes_0_360_accepted_outside_bad_in_every_loader(tmp_path):
     # file longitudes must lie in -180..360: 180-360 are wrapped and kept,
     # beyond is bad_geolocation (Q13, limb; nadir and trajectories had
-    # refused 180-360). The requested lon_range takes any value (unchanged).
+    # marked 180-360 bad). The requested lon_range takes any value (unchanged).
     from test_nadir_iasi import DAY_SECONDS, write_orbit
     from test_new_loaders import faam_file
     path = write_orbit(tmp_path / "iasi", DAY_SECONDS, 90)
@@ -356,6 +358,14 @@ def test_file_longitudes_0_360_accepted_outside_bad_in_every_loader(tmp_path):
     ds = load_trajectories("2025-07-09", "FAAM", file_path=faam.parent)
     assert ds.longitude.values[0, 0] == pytest.approx(-1.0)
     assert states.has_state(ds.temperature_flag.values[0, 1], "bad_geolocation")
+    # one bad sample among good ones: the second is bad, not a plausible mean
+    with netCDF4.Dataset(faam, "a") as f:
+        lon = f["LON_GIN"][:]
+        lon[2, :] = 10.0
+        lon[2, 5] = 400.0
+        f["LON_GIN"][:] = lon
+    ds = load_trajectories("2025-07-09", "FAAM", file_path=faam.parent)
+    assert states.has_state(ds.temperature_flag.values[0, 2], "bad_geolocation")
 
 
 # ------------------------------------------------------------ nadir 2-D

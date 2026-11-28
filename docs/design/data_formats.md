@@ -116,7 +116,8 @@ This is the `load_limb_sounders` output since 2026-11-25 (values unchanged by
 the format; data variables may be float32 or float64). States it sets:
 `bad_geolocation`, `outside_physical_range`, `outside_requested_range` (with
 `original_z`), `instrument_flag` (MLS, SOFIE, ROMEX, Aeolus, with
-`instrument_qc`), `a_priori_dominated` (HIRDLS), `missing` (a NaN between a
+`instrument_qc`), `a_priori_dominated` (HIRDLS), `qc_incomplete` (MLS, with
+`instrument_qc`), `missing` (a NaN between a
 profile's first and last value), `no_observation` (every other NaN),
 `extrapolated` (with `extrapolate`), `derived` (estimated pressure, point by
 point; planetary-wave data, sampled data).
@@ -331,7 +332,7 @@ Initial registry (proposal), in three groups:
 | 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
 | 512 | `extrapolated` | value | outside the source data's coverage (with `extrapolate`; nadir: also cross-track edge columns taking a segment's edge value) |
 | 1024 | `a_priori_dominated` | value | the retrieval has little information here, as the provider marks it (with `instrument_qc`: HIRDLS negative precision); later perhaps also from the CPs' averaging kernels |
-| 2048 | `qc_incomplete` | value | the provider's quality control could not be completed: a quality field it needs is missing from the file (with `instrument_qc`: MLS); the rules that could be applied were (added 2026-11-28, C. Wright) |
+| 2048 | `qc_incomplete` | value | the provider's quality control could not be completed: a quality field it needs is missing from the file (with `instrument_qc`: MLS); the other rules were applied (added 2026-11-28, C. Wright) |
 
 Several bits can be set together (e.g. `derived` and `extrapolated`). With
 `keep_outliers`, points in the "removed as bad" group keep their values,

@@ -229,7 +229,8 @@ def test_short_dropout_splits_the_swath(tmp_path):
     sec = (ds.time.values - np.datetime64("2000-01-01")) / np.timedelta64(1, "s")
     finite = np.isfinite(ds.brightness_temperature.values[..., 0])
     assert not np.any(finite & (sec > gap0 + 4) & (sec < gap1 - 4))
-    assert gap1 - start > gap0 - start  # (times as written)
+    assert gap1 - gap0 == pytest.approx(24.0)  # (scans 20 and 23: three steps)
+    assert start < gap0
 
 
 def test_nearest_is_the_nearest_footprint(tmp_path):

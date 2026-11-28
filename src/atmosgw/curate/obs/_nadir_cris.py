@@ -22,8 +22,8 @@ outermost, are NaN in every channel in the files checked (2016-01-01;
 2019-01-01 and 15 of both satellites; the scan and fill census of all 90
 files): they are kept on the native grid as ``missing``, and left out of
 the regridded swath by a fixed rule (``EMPTY_COLUMNS``), which spans FORs
-2-29 whichever channels are asked for (a note is recorded if a file has
-values there).
+2-29 whichever channels are asked for (a note is recorded if the channels
+read have values there).
 
 Channel groups (``channels`` option; default all, in this order):
 
@@ -88,6 +88,7 @@ import numpy as np
 
 from atmosgw.curate.obs._common import (
     FILL_VALUES,
+    _append_note,
     day_label,
     locate,
     nadir_fill_to_nan,
@@ -277,9 +278,10 @@ def load(settings, inst_info, var_names):
     data["ChannelName"] = np.array(channels)
     data["DerivedVars"] = DERIVED
     if granules and np.any(np.isfinite(data["Temp"][list(EMPTY_COLUMNS)])):
-        note(inst_info, "Temp", "values in fields of regard 1 and 30 (NaN in the "
-                                "files checked): kept on the native grid, not "
-                                "regridded")
+        # (appended: a fill-count note may already hold the Temp key)
+        _append_note(record(inst_info)["notes"], "Temp",
+                     "values in fields of regard 1 and 30 (NaN in the files "
+                     "checked): kept on the native grid, not regridded")
     plain = [c for c in channels if not CHANNELS[c][3]]
     if plain:
         note(inst_info, "BTPert", "no perturbation or variance in the files for "

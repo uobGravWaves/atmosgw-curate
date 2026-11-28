@@ -39,7 +39,8 @@ Duplicates: consecutive L2B files overlap by about 30 s, so the flat files
 hold copies of some observations; an observation identical in every field
 read (time, bin, type, HLOS, error, validity, position, azimuth) to another,
 in the same file or an earlier one read for the request, is read once; of
-copies differing only in validity, the valid one is read (2019-01-05,
+copies in one file differing only in validity, the valid one is read
+(2019-01-05,
 Rayleigh-clear: 758 of 164,750 share time and bin with another, 180 of them
 also the wind; pairs that differ in another field are both kept, the second
 starting a profile of its own). Consecutive monthly files abut without
@@ -203,9 +204,8 @@ def read_month(path, prefix, obs_type, day_span, var_names, file_count, settings
     else:
         obs = {n.split("_", 1)[1]: np.empty(0) for n in names}
     if obs["time"].size:  # (exact copies from overlapping L2B files: once)
-        # (every field read is in the key; before 2026-11-28 a valid copy
-        # could be dropped for an invalid one; found in review)
-        key = np.stack([np.nan_to_num(obs[n], nan=-1.0) for n in KEY_FIELDS])
+        # (every field read is in the key)
+        key =np.stack([np.nan_to_num(obs[n], nan=-1.0) for n in KEY_FIELDS])
         order = np.lexsort(key[::-1])
         new = np.r_[True, np.any(np.diff(key[:, order], axis=1) != 0, axis=0)]
         keep = np.sort(order[new])  # (the first of each set, in time order)
