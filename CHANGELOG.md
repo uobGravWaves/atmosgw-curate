@@ -5,6 +5,40 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- New `analysis` package: `analysis.detrend(ds, ...)` applies the group's
+  current detrending to any loader's Dataset and adds
+  `<var>_perturbation` and `<var>_background` (float32, each with a flag):
+  a Savitzky-Golay filter in height for profiles and time-height series
+  (18 km, order 2; 5 km for radiosondes; port of `func_filter_sgolay`), a
+  4th-order polynomial across track for 3-D and 2-D swaths (port of
+  `airs_4dp_detrend` in `prep_airs_3d`), the Hindley23 planetary-wave files
+  loaded with `hindley_pws=True` (`method="hindley23"`, from
+  `func_filter_hindley23`), and box or Gaussian smoothing
+  (`analysis.smooth_array`). Steps can be chained (`steps=[...]`); every
+  number is an option, and the chain is recorded in the `detrending`
+  attribute. New code, not in MATLAB: `skip_nan=True` (each fit uses the
+  values present) and, after a Savitzky-Golay step, a tropopause kink mask:
+  values within 2 km (`mask_half_width_km`) of each profile's strongest
+  tropopause kink (a sharp reversal of the temperature gradient, cooling
+  below and warming above by at least 3 K/km, most likely the tropopause;
+  `find_tropopause_kink`) are set to NaN, with a `TropopauseKinkWarning`;
+  the heights and strengths are returned as `tropopause_kink_altitude` and
+  `tropopause_kink_strength` (`mask_tropopause_kink=False` switches it
+  off). `"hindley23"` removes outliers as MATLAB's `H23_OutRem`
+  (`outlier_removal=True`). Existing variables are replaced only with
+  `overwrite=True`. Matches MATLAB R2024b at array level within 7e-13 K
+  (`docs/validation.md`). [Claude]
+- `data.to_profiles` also converts radiosonde trajectories (instrument
+  ending in "sondes", e.g. `"DWDsondes"`): each ascent is interpolated
+  linearly in height (pressure in log(pressure)) to one regular grid (new
+  options `dz_km`, default 0.05 km, and `height_range`), without
+  extrapolation or bridging a missing sample. Aircraft trajectories are
+  refused. [Claude]
+- New data state `not_computed` (bit 4096): the input has a value, but an
+  analysis step could not compute one. `validate` checks
+  `<data variable>_perturbation` and `_background` where present (float32,
+  the data variable's dimensions and units, flag, origin). Files saved
+  before the new state stay valid. [Claude]
 - Fixes from an external review (2026-11-28), each with a test. [Claude]
   - `load_nadir_sounders`: IASI and CrIS swaths are split where successive
     scans are more than 12 s apart (1.5 scans; was 180 s, still used for

@@ -5,9 +5,9 @@ satellites, ground-based instruments, radiosondes and aircraft, into common
 documented formats. Each value records why it is missing or how it was
 obtained, and each Dataset records how it was loaded. Much of the loading
 code is ported from the group's MATLAB code and checked against it; the
-rest is new code, checked against other data (`docs/validation.md`). Wave
-analysis (a general detrender, Stockwell wrappers) is planned but not yet
-here.
+rest is new code, checked against other data (`docs/validation.md`). A
+detrender (`analysis.detrend`) applies the group's current methods to any
+loader's output; Stockwell wrappers are planned but not yet here.
 
 Status: pre-alpha (0.x). The data formats are proposals: profile version
 3, swath version 2, time_height and trajectory version 1.
@@ -51,7 +51,8 @@ ds.attrs["files_read"]                           # the record of the load
 | | CrIS 2-D brightness temperatures (SNPP, NOAA-20) | swaths | new code |
 | `obs.load_time_height` | the ALOMAR lidar | a (time, level) series at the site | new code |
 | `obs.load_trajectories` | DWD high-resolution radiosondes (`DWDsondes`), IAGOS and FAAM aircraft | flights, (flight, sample) | new code |
-| `data.to_profiles` | swaths and time-height series | profiles | new code |
+| `data.to_profiles` | swaths, time-height series and radiosonde ascents | profiles | new code |
+| `analysis.detrend` | any loader's output (radiosondes after `to_profiles`) | the input with `<var>_perturbation` and `<var>_background` added | port of MATLAB `func_filter_sgolay`, `func_filter_hindley23` and `prep_airs_3d`'s polynomial; `skip_nan`, chains and the tropopause kink mask are new code |
 | `data.to_netcdf`, `data.load_netcdf` | any of the formats | a checked netCDF file and back | new code |
 
 Each returns an `xarray.Dataset` in a format defined in
@@ -85,6 +86,11 @@ with versions, dates and what was not covered.
   them NaN and flagged. AIRS 2-D is not compared with MATLAB.
 - These MATLAB comparisons check internal arrays (MATLAB names, datenum
   times), not the public Dataset.
+- `analysis.detrend` matches the MATLAB Savitzky-Golay, Hindley23 and
+  smoothing outputs (HIRDLS and SABER, 2007-01-01) and the polynomial of
+  `prep_airs_3d` (11 AIRS and IASI cases): within 7e-13 K at array level
+  (float64), and within float32 rounding in the Dataset. `skip_nan`, chains
+  and the tropopause kink mask are new code, checked by known-answer tests.
 - `load_time_height` (new code) gives the same values, rows and states as
   `load_limb_sounders(..., "ALOMAR", original_z=True)`.
 - The newer readers (LIMS, ROMEX, Aeolus, CrIS and `load_trajectories`;
@@ -102,7 +108,7 @@ with versions, dates and what was not covered.
 
 | Document | What it holds |
 |---|---|
-| `docs/usage.md` | how to load data and read what comes back |
+| `docs/usage.md` | how to load data, read what comes back and detrend it |
 | loader docstrings (`help(load_limb_sounders)` ...) | every option, output variable and attribute |
 | `docs/data_supply.md` | the input files each loader reads, and their provenance |
 | `docs/design/data_formats.md` | the profile, swath, time_height and trajectory formats; data states |

@@ -1,8 +1,9 @@
 # Design: `load_nadir_sounders` (port of [`prep_airs_3d`](https://github.com/corwin365/MatlabFunctions/blob/master/DatasetSpecific/AIRS/prep_airs_3d.m))
 
-**Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1). Parts
-still planned, not implemented: the `analysis` steps (detrend, smooth, fill)
-and `data.to_netcdf` with packing.
+**Status:** design of 2026-11-25, implemented in 0.4-0.5 (format version 1).
+Built later (CHANGELOG, Unreleased): `data.to_netcdf` with packing, and
+detrending and smoothing as `analysis.detrend` (2026-11-28; §7). Still
+planned, not implemented: `analysis.fill`.
 Decisions marked *agreed* were agreed with C. Wright on 2026-11-25; anything
 else is a proposal.
 
@@ -219,6 +220,24 @@ contiguous.
 
 ## 7. Analysis functions (outside the loader)
 
+*Built (2026-11-28)* as one function for every format, `analysis.detrend`
+(`help(atmosgw.curate.analysis.detrend)`), not as the separate functions
+planned below. For swaths it fits a 4th-order polynomial across track to
+pixel numbers 1..N, as `airs_4dp_detrend`, and adds
+`temperature_perturbation` and `temperature_background` (`Tp`, `BG`;
+matching MATLAB, `docs/validation.md`). `PreSmooth` is a smoothing step
+before it, box or Gaussian (`analysis.smooth`, our own code written from
+`smoothn`'s documented behaviour):
+
+```python
+from atmosgw.curate.analysis import detrend
+out = detrend(swath)                                   # Tp, BG of airs_4dp_detrend
+out = detrend(swath, steps=[("smooth", {"size": {"cross_track": 3, "along_track": 3}}),
+                            "polynomial"])             # with PreSmooth [3, 3, 1]
+```
+
+`analysis.fill` is not implemented. The plan, as agreed on 2026-11-25:
+
 - `analysis.detrend.polynomial(ds, var="temperature", dim="cross_track",
   order=4)`: fits and removes a polynomial along one dimension for each line
   of the others; adds `temperature_perturbation` and
@@ -266,8 +285,8 @@ As MATLAB, so the step-by-step core can be compared with it:
    their states; flagged points become NaN. (MATLAB refills IASI points from
    the nearest along-track value; Python does not, by design. The MATLAB
    comparison is therefore made on the screened values before MATLAB's
-   refill, and separately on `fill_missing` output with
-   `method="nearest"` along track.)
+   refill; a comparison on `fill_missing` output with `method="nearest"`
+   along track was planned, but `analysis.fill` is not implemented.)
 4. missing heights: the AIRS fallback height grid, as MATLAB (flagged in a
    variable note);
 5. split into segments; regrid each horizontally (distance space, dateline
@@ -303,7 +322,10 @@ own branches, so it can run alongside the limb-loader work.
 2. AIRS 3-D reader and `load_nadir_sounders`, matching the MATLAB reference.
 3. *Deferred (agreed 2026-11-25), waiting for a general Detrender:*
    `analysis.detrend`, `analysis.smooth` (MATLAB `Tp`, `BG`). Until then the
-   loader returns temperatures only, with no perturbations.
+   loader returns temperatures only, with no perturbations. *Done*
+   (2026-11-28) as the general `analysis.detrend` (§7), outside the loader,
+   which still returns temperatures only: `detrend(swath)` gives `Tp` and
+   `BG`, matching MATLAB for the 11 AIRS and IASI reference cases.
 4. IASI reader. *Done.* The outlier screen is swappable (`obs._screen`;
    `load_nadir_sounders(screen=...)`): IASI uses a rolling 10-min window,
    day and night separately, 5 x IQR (agreed 2026-11-25, from measurements);
@@ -362,6 +384,7 @@ own branches, so it can run alongside the limb-loader work.
 
 `l1_lat` latitude, `l1_lon` longitude, `l1_time` time, `ret_temp`
 temperature, `ret_z` altitude, `ret_press` (IASI) via `additional_vars`,
-`Tp` temperature_perturbation, `BG` temperature_background, `DayNightFlag`
+`Tp` temperature_perturbation, `BG` temperature_background (both added by
+`analysis.detrend`, not the loader), `DayNightFlag`
 day_retrieval, `Spacing` the `grid_spacing_km` attribute, `Source` /
 `FilePath` original_files.

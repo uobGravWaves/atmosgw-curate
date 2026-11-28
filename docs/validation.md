@@ -301,6 +301,103 @@ units, signs, time bases and gross errors, not accuracy.
   `not_measured`) and the new comments differ. The ERA5 comparison, rerun,
   is unchanged.
 
+## `analysis.detrend` and radiosondes as profiles
+
+`analysis.detrend` against the group's MATLAB, in
+`tests/test_detrend_matlab.py` (run when the reference files are
+installed):
+
+- **References:** `detrend_sgolay_ref.mat`, made by
+  `tests/matlab/make_detrend_reference.m` from
+  corwin365/MatlabFunctions-Common@52518fc and
+  MatlabFunctions-Personal@5112703: `func_filter_sgolay` on HIRDLS and
+  SABER 2007-01-01 (five length and order cases, SABER also on its own
+  descending, irregular heights), `func_filter_hindley23` (with and without
+  `H23_OutRem`) and `smoothn` (box and Gaussian, with and without a NaN).
+  The polynomial is compared with `Tp` and `BG` in
+  `prep_airs_3d_reference.mat` (the nadir reference above): all 11 AIRS and
+  IASI cases with `Tp`, including `PreSmooth` [3, 3, 1] as a smoothing step
+  followed by the polynomial.
+- **Arrays** (float64; tolerance 1e-10 K): Savitzky-Golay within
+  4.6e-13 K, polynomial within 6.9e-13 K, smoothing within 1.8e-13 K,
+  Hindley23 identical; NaN patterns identical. The polynomial is fitted by
+  QR with column pivoting, as MATLAB's backslash: its design matrix (pixel
+  number to the 4th power) has a condition number of 1e8-1e9, and NumPy's
+  SVD-based least squares differed from MATLAB by up to 2.4e-7 K.
+- **Datasets** (outputs float32): profiles within 3.1e-5 K (one float32
+  spacing at 256-512 K), swaths within 1e-4 K (their float32 inputs'
+  rounding carried through the fit, plus the output's; largest seen
+  2.9e-5 K).
+- **Deliberate difference:** the Hindley23 background is NaN where every
+  mode is NaN (MATLAB: 0); no such point in the reference.
+- **Known answers** (`tests/test_detrend.py`, synthetic): a polynomial of
+  degree up to the order is its own background, a quadratic with gaps,
+  `skip_nan`, chains, `find_tropopause_kink` (piecewise-linear profiles
+  with known tropopause kink heights and strengths, weak, missing and
+  out-of-range ones, fine noisy profiles) and the tropopause kink mask, the
+  formats and the flags.
+- **Not compared with MATLAB** (new code): `skip_nan`, the tropopause kink
+  mask and `find_tropopause_kink`, chains other than smoothing then the
+  polynomial, and radiosonde and time-height data.
+
+The tropopause kink figures below were computed on eepc-0184 with Python
+3.12.4 and default options, unless stated.
+
+`to_profiles` for radiosondes (new code): `tests/test_convert_trajectory.py`
+against known answers (linear and exponential profiles, burst, wiggles,
+gaps, the dateline, the grid options).
+
+- **DWD radiosondes, 2010-01-15:** 18 ascents from 9 stations converted on
+  the 0.05 km grid, 0-34.15 km; the profiles pass `validate`. `detrend`
+  used Savitzky-Golay with 5 km (a frame of 101 levels, 5.05 km), found a
+  tropopause kink in all 18 ascents (9.8-11.4 km, median 10.3 km), and the
+  mask removed 1,442 values (15.4 % of those computed).
+- **HIRDLS and SABER, 2007-01-01, default 18-60 km grid** (5,553 and 1,412
+  profiles): the outputs pass `validate`; frame 37 levels (18.5 km);
+  perturbation + background equals the temperature to 1.6e-5 K (float32
+  output). HIRDLS: a tropopause kink in 156 profiles (19.5-22.0 km); 1,367
+  values masked (0.3 % of those computed). SABER: 68 tropopause kinks, 577
+  values masked (0.5 %). A lapse-rate tropopause finder was tried first
+  and rejected: on this grid it marked 560 of the 5,553 HIRDLS profiles at
+  18.5-22 km, mostly in the winter polar stratosphere, where the
+  temperature falls with height.
+- **HIRDLS, 2007-01-01, on a 5-60 km grid** (`height_scale`): a tropopause
+  kink in 4,751 of the 5,553 profiles, median height 17.0 km at 0-30
+  degrees latitude, 11.0 km at 30-60 and 9.0 km at 60-90; 42,759 values
+  masked (6.9 % of those computed). The RMS perturbation at 10-20 km is
+  2.59 K with the mask and 3.11 K without (5-10 km: 4.19 and 4.22 K;
+  20-30 km: 1.78 K both).
+- **Why 3 K/km and 2 km** (the same 5-60 km grid, no mask): the median size
+  of the 18 km Savitzky-Golay perturbation is 1.14 K away from any
+  tropopause kink. At a tropopause kink of strength below 3 K/km it is
+  1.05 K (no spike); 3-5 K/km, 3.27 K; 5-8 K/km, 5.84 K; 8-12 K/km,
+  8.51 K. At 2 km from the tropopause kink it is 1.37, 1.64 and 2.66 K for
+  those three classes. A second lobe near 5 km (1.53, 2.28 and 3.87 K) is
+  outside the default mask.
+- **Hindley23 files, HIRDLS, 2007-01-01:** the perturbation is the stored
+  residual exactly and the background the sum of the stored modes; the
+  chain with Savitzky-Golay after it passes `validate`.
+- **AIRS 3-D, granule 53 of 2007-01-01, and IASI, granule 100 of
+  2007-11-06:** outputs pass `validate`. Through the private layer with
+  the MATLAB cross-track axis, the AIRS perturbation matches MATLAB's `Tp`
+  to 9e-13 K; the public loader's axis differs (Q14), so its values are
+  not MATLAB's. IASI: the perturbation is present at 89.8 % of points by
+  default and at 99.6 % with `skip_nan=True` (429 rows with gaps fitted),
+  which is every point that has a temperature.
+- **CrIS 2-D, 2016-01-17 00-01 UTC:** `detrend` refuses to replace the
+  producer's perturbation unless `overwrite=True`; with it, the output
+  passes `validate`, and correlates with the producer's perturbation at
+  0.83-0.89 in the three channels that have one (the producer's method
+  was not compared step by step).
+- **ALOMAR, 2007-01-01 to 2007-02-28** (2,429 profiles, 0.15 km levels):
+  frame 121 levels (18.15 km); temperature is present at 31.9 % of points,
+  the perturbation at 20.6 % by default and 31.8 % with `skip_nan=True`;
+  where the default has a value the two are identical (0 of 382,476
+  differ). (The `skip_nan=True` figure was computed before the tropopause
+  kink mask and has not been rechecked.) A tropopause kink in 319
+  profiles, at 18.5-22 km, near the bottom of the lidar's range, where the
+  default filter gives no values anyway: 0 values masked.
+
 ## Changes since the MATLAB comparisons
 
 Every later change meant to leave values alone was checked old against new

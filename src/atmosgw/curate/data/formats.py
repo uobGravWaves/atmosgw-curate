@@ -58,7 +58,10 @@ What ``validate`` checks:
 - every tracked optional variable (temperature, pressure, the winds,
   viewing geometry, uncertainties, source indices ...) is either present or
   listed in ``availability`` with a known state (entries added in a later
-  format version are not required of older Datasets).
+  format version are not required of older Datasets);
+- ``<data variable>_perturbation`` and ``<data variable>_background``
+  (added by ``analysis.detrend``), if present: checked as float32 data
+  variables with the dimensions and units of the data variable.
 
 Origin
 ------
@@ -88,6 +91,7 @@ Change log
 2026/11/26 [Claude] time_height format; checks of uncertainty variables
 2026/11/27 [Claude] profile format version 2 (HLOS wind product); trajectory format
 2026/11/27 [Claude] profile version 3, swath version 2: T, P and winds always listed
+2026/11/28 [Claude] <data variable>_perturbation and _background are checked
 
 """
 
@@ -294,6 +298,9 @@ FORMATS = {
     },
 }
 
+# variables analysis.detrend adds to any data variable of a format
+ANALYSIS_SUFFIXES = ("_perturbation", "_background")
+
 _CHARACTERISATION = re.compile(r"^[A-Za-z0-9_.-]+/\d+$")
 
 
@@ -391,6 +398,18 @@ def problems(ds, format_name):
         out.extend(_check_variable(ds, name, var))
         if var["kind"] == "data":
             out.extend(_check_data_variable(ds, name, var, listed))
+    # analysis outputs (analysis.detrend): <data variable>_perturbation and
+    # _background, checked as float32 data variables on the same grid
+    for base, var in spec["variables"].items():
+        if var["kind"] != "data":
+            continue
+        for suffix in ANALYSIS_SUFFIXES:
+            name = base + suffix
+            if name in spec["variables"] or name not in ds.variables:
+                continue
+            derived = {**var, "required": False, "dtypes": ("float32",)}
+            out.extend(_check_variable(ds, name, derived))
+            out.extend(_check_data_variable(ds, name, derived, listed))
     return out
 
 
