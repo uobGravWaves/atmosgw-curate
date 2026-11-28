@@ -107,7 +107,8 @@ and units of ``var``:
 - ``<var>_perturbation``: what the chain left; ``<var>_background``: the
   sum of the backgrounds removed. ``origin`` "derived"; the ``detrending``
   attribute is the chain as JSON, with every option and the frame used.
-- flags: the input's states, plus ``derived`` on every value, and
+- flags: the input's states (without its "no value" states where the
+  output has a value), plus ``derived`` on every value, and
   ``not_computed`` where the input has a value but none could be computed
   (a NaN in the frame or row, the tropopause mask).
 - ``<var>_perturbation_uncertainty`` and ``<var>_background_uncertainty``
@@ -185,6 +186,7 @@ Usage
 Change log
 ----------
 2026/11/28 [Claude] initial version
+2026/11/28 [Claude] find_tropopause: all-NaN profile gives NaN (was IndexError)
 
 """
 
@@ -211,6 +213,7 @@ TROPOPAUSE_DEFAULTS = {"lapse_rate": 2.0, "depth_km": 2.0,
 _ALIASES = {"boxcar": ("smooth", {"kernel": "box"}),
             "gaussian": ("smooth", {"kernel": "gaussian"})}
 _BACKGROUND_METHODS = ("savgol", "polynomial", "hindley23")
+_NO_VALUE_BITS = states.FLAG_DTYPE(sum(s.bit for s in states.STATES if s.no_value))
 _CHUNK_VALUES = 2.0e7  # values per block of sliding frames (memory)
 
 
@@ -305,6 +308,9 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
     for name, values, what in ((names[0], current, "perturbation"),
                                (names[1], background, "background")):
         this_flag = flag.copy()
+        # (a value that exists carries no "no value" state: e.g. a Hindley23
+        # background where the residual is missing)
+        this_flag[np.isfinite(values)] &= ~_NO_VALUE_BITS
         states.set_state(this_flag, np.isfinite(values), "derived")
         states.set_state(this_flag,
                          np.isnan(values) & ~states.no_value_mask(flag),
@@ -758,5 +764,5 @@ def _clean_profile(altitude, temperature, resolution_km):
         used = count > 0
         z = np.bincount(layer, weights=z)[used] / count[used]
         t = np.bincount(layer, weights=t)[used] / count[used]
-    distinct = np.concatenate(([True], np.diff(z) > 0))
+    distinct = np.diff(z, prepend=-np.inf) > 0  # (empty profile: empty)
     return z[distinct], t[distinct]
