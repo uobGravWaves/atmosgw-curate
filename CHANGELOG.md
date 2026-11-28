@@ -5,6 +5,15 @@ the package stays at 0.x until the ports match the MATLAB
 reference outputs.
 
 ## [Unreleased]
+- `load_nadir_sounders`: IASI and CrIS swaths are split where successive
+  scans are more than 12 s apart (1.5 scans; was 180 s, still used for
+  AIRS), so a missing scan is no longer bridged by the regridding with
+  good-looking values. On the IASI and CrIS days checked only SNPP
+  2016-01-17 changes (up to 0.019 K). CrIS: the fields of regard left out
+  of the regridding (1 and 30, empty in the files) are fixed, so the grid
+  and each channel's missing values no longer depend on which channels are
+  asked for; `interp_type="nearest"` takes the nearest footprint (it could
+  take one up to 16 km farther). Found in an external review. [Claude]
 - New `load_nadir_sounders` instrument `"CrIS"` (new code): 2-D brightness
   temperatures from L. Hoffmann's daily files, SNPP or NOAA-20 (new option
   `satellite`), in 6-minute pseudo-granules by time. As each field of

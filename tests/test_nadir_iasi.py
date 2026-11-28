@@ -18,8 +18,10 @@ DAY_SECONDS = ((np.datetime64("2007-11-07") - np.datetime64("2000-01-01"))
 Z = np.r_[0:61:3, 65:91:5].astype(np.float32)
 
 
-def write_orbit(root, start_seconds, n_rows, temp=None, with_temp=True):
-    """One IASI orbit file starting at start_seconds (rows every 4 s, 60 across)."""
+def write_orbit(root, start_seconds, n_rows, temp=None, with_temp=True, skip=None):
+    """One IASI orbit file starting at start_seconds (rows every 4 s, 60
+    across); skip (row, n): n rows absent before that row (times and
+    positions advanced past them)."""
     t = np.datetime64("2000-01-01T00:00:00") + np.timedelta64(int(start_seconds), "s")
     stamp = str(t).replace("-", "").replace(":", "").replace("T", "")
     day = str(t)[:10]
@@ -28,6 +30,8 @@ def write_orbit(root, start_seconds, n_rows, temp=None, with_temp=True):
     folder = root / day[:4] / f"{doy:03d}"
     folder.mkdir(parents=True, exist_ok=True)
     rows = np.arange(n_rows)
+    if skip is not None:
+        rows = np.where(rows >= skip[0], rows + skip[1], rows)
     lat = np.broadcast_to(-40 + 0.05 * rows[:, None], (n_rows, 60)) + 0 * np.arange(60)
     lon = np.broadcast_to(20 + 0.3 * np.arange(60), (n_rows, 60)) + 0.01 * rows[:, None]
     time = start_seconds + np.broadcast_to(4.0 * rows[:, None], (n_rows, 60))
@@ -63,6 +67,21 @@ def test_granule_spanning_a_file_start_gets_both_files(tmp_path):
     assert ds.sizes["along_track"] == 90  # 6 min of rows every 4 s
     assert ds.attrs["files_read"].count("iasi_") == 2
     assert set(ds.granule.values) == {9}
+
+
+def test_short_dropout_splits_the_swath(tmp_path):
+    # 5 rows (20 s) missing after row 40: with the 12 s segment rule the
+    # regular grid has two segments and no value dated inside the gap (the
+    # earlier 180 s rule bridged it with good-looking values; found in review)
+    write_orbit(tmp_path, DAY_SECONDS, 180, skip=(40, 5))
+    ds = load_nadir_sounders(None, "IASI", granules=[("2007-11-07", 1),
+                                                     ("2007-11-07", 2)],
+                             file_path=tmp_path, screen="none")
+    validate(ds, "swath")
+    assert len(np.unique(ds.segment.values)) == 2
+    sec = (ds.time.values - np.datetime64("2007-11-07")) / np.timedelta64(1, "s")
+    finite = np.isfinite(ds.temperature.values[..., 0])
+    assert not np.any(finite & (sec > 4 * 39 + 2) & (sec < 4 * 45 - 2))
 
 
 def test_file_without_temperature_is_skipped_and_recorded(tmp_path):
