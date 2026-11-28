@@ -57,7 +57,9 @@ Methods and their options (``**params`` for a single method; defaults in
   only: default half the row, and at least order + 2).
 - ``"hindley23"``: for Datasets loaded with ``hindley_pws=True``: the
   perturbation is ``temperature_residual`` and the background the sum of
-  ``temperature_pw`` over modes. No options. Must be the first step.
+  ``temperature_pw`` over modes. ``outlier_removal`` (True, MATLAB's
+  ``H23_OutRem``): both are NaN (``outside_physical_range``) where that sum
+  is below 100 K, or above 400 K below 100 km. Must be the first step.
 - ``"smooth"`` (also ``"boxcar"``, ``"gaussian"``): smooth what the
   earlier steps left; not a background. ``size`` (odd points per dimension,
   as a dict by dimension name, e.g. ``{"cross_track": 3, "along_track":
@@ -81,7 +83,8 @@ perturbation + background is the smoothed input, not the input.
   removes half a frame either side); smoothing spreads NaN over the kernel.
 - True: each fit uses the values present in the same row or frame, so only
   the missing values stay missing. Where nothing is missing the result is
-  the same as with False. New behaviour, not in MATLAB.
+  the same as with False (identical for the fits; to rounding, 1e-13 K,
+  for smoothing). New behaviour, not in MATLAB.
 
 Tropopause mask (``"savgol"`` steps): a vertical filter turns the kink at
 the tropopause into spurious waves, so by default values within
@@ -111,8 +114,8 @@ and units of ``var``:
 - ``<var>_perturbation``: what the chain left; ``<var>_background``: the
   sum of the backgrounds removed. ``origin`` "derived"; the ``detrending``
   attribute is the chain as JSON, with every option and the frame used.
-- flags: the input's states (without its "no value" states where the
-  output has a value), plus ``derived`` on every value, and
+- flags: the input's states (without ``missing``, ``no_observation`` and
+  ``outside_requested_range`` where the output has a value), plus ``derived`` on every value, and
   ``not_computed`` where the input has a value but none could be computed
   (a NaN in the frame or row, the tropopause mask).
 - ``<var>_perturbation_uncertainty`` and ``<var>_background_uncertainty``
@@ -127,9 +130,10 @@ height.
 
 Differences from MATLAB
 -----------------------
-- ``hindley23``: the background is NaN where every mode is NaN (MATLAB:
-  ``nansum``, so 0). The outlier removal of ``func_filter_hindley23``
-  (``H23_OutRem``) is not repeated: the loader applies the same limits.
+- ``hindley23``: with ``outlier_removal=False`` the background is NaN where
+  every mode is NaN (MATLAB: ``nansum``, so 0). MATLAB's outlier removal
+  also removes points with latitude or longitude out of range; here the
+  loader has already done that.
 - ``savgol`` in a chain subtracts the background from the current residual
   on regular and irregular grids alike (MATLAB's regular branch subtracts
   it from the temperature; the same for a single filter).
@@ -195,6 +199,7 @@ Change log
 ----------
 2026/11/28 [Claude] initial version
 2026/11/28 [Claude] find_tropopause: only profiles reaching down to reach_km (5 km)
+2026/11/28 [Claude] hindley23 outlier removal (H23_OutRem); kept outliers keep their states
 2026/11/28 [Claude] find_tropopause: all-NaN profile gives NaN (was IndexError)
 
 """
@@ -212,7 +217,7 @@ DEFAULTS = {
     "savgol": {"order": 2, "length_km": 18.0, "min_points": None},
     "polynomial": {"order": 4, "dim": "cross_track", "abscissa": "index",
                    "min_points": None},
-    "hindley23": {},
+    "hindley23": {"outlier_removal": True},
     "smooth": {"size": None, "kernel": "box", "sigma": 0.65},
 }
 # Savitzky-Golay frame for radiosondes (as Wright et al. 2016, AMT 9, 877, are
@@ -225,7 +230,10 @@ TROPOPAUSE_DEFAULTS = {"lapse_rate": 2.0, "depth_km": 2.0,
 _ALIASES = {"boxcar": ("smooth", {"kernel": "box"}),
             "gaussian": ("smooth", {"kernel": "gaussian"})}
 _BACKGROUND_METHODS = ("savgol", "polynomial", "hindley23")
-_NO_VALUE_BITS = states.FLAG_DTYPE(sum(s.bit for s in states.STATES if s.no_value))
+# "no value" states that cannot stay on a value that exists (the states of
+# values removed as bad are kept, as with keep_outliers=True)
+_ABSENT_BITS = states.FLAG_DTYPE(sum(s.bit for s in states.STATES if s.no_value
+                                     and s.group != "removed as bad"))
 _CHUNK_VALUES = 2.0e7  # values per block of sliding frames (memory)
 
 
@@ -258,7 +266,8 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
 
     # the values the chain starts from (float64 copies)
     if first_is_pw:
-        base, current, flag, attrs, dims, background = _planetary_wave_start(ds, var)
+        (base, current, flag, attrs, dims, background,
+         pw_info) = _planetary_wave_start(ds, var, chain[0][1])
     else:
         base = var or _default_variable(ds)
         if base not in ds:
@@ -281,7 +290,7 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
     record, kept, frames_km = [], [], []
     for name, options in chain:
         if name == "hindley23":
-            info = {}
+            info = pw_info
         elif name == "savgol":
             _need_dim(dims, "level", name)
             removed, info = _savgol_step(_heights(ds, dims), current, dims,
@@ -320,9 +329,9 @@ def detrend(ds, method=None, var=None, *, steps=None, skip_nan=False,
     for name, values, what in ((names[0], current, "perturbation"),
                                (names[1], background, "background")):
         this_flag = flag.copy()
-        # (a value that exists carries no "no value" state: e.g. a Hindley23
-        # background where the residual is missing)
-        this_flag[np.isfinite(values)] &= ~_NO_VALUE_BITS
+        # (a value that exists is not "missing": e.g. a Hindley23 background
+        # where the residual is missing; "removed as bad" states are kept)
+        this_flag[np.isfinite(values)] &= ~_ABSENT_BITS
         states.set_state(this_flag, np.isfinite(values), "derived")
         states.set_state(this_flag,
                          np.isnan(values) & ~states.no_value_mask(flag),
@@ -445,9 +454,9 @@ def _default_variable(ds):
     return "temperature"
 
 
-def _planetary_wave_start(ds, var):
+def _planetary_wave_start(ds, var, options):
     """Hindley23: the stored residual as the perturbation so far, the sum of
-    the stored waves as the background."""
+    the stored waves as the background (func_filter_hindley23.m)."""
     if var not in (None, "temperature"):
         raise ValueError("'hindley23' applies to temperature only.")
     if "temperature_residual" not in ds or "temperature_pw" not in ds:
@@ -459,8 +468,22 @@ def _planetary_wave_start(ds, var):
     some = np.any(np.isfinite(waves), axis=-1)
     background = np.where(some, np.nansum(waves, axis=-1), np.nan)
     flag = _input_flag(ds, "temperature_residual", current)
+    removed = 0
+    if options["outlier_removal"]:
+        # MATLAB H23_OutRem (default true): no perturbation or background where
+        # the summed waves are below 100 K, or above 400 K below 100 km (the
+        # sum is 0 where every mode is missing, so those points go too)
+        total = np.nansum(waves, axis=-1)
+        altitude = _heights(ds, ds["temperature_residual"].dims)
+        bad = (total < 100.0) | ((total > 400.0) & (altitude < 100.0))
+        states.set_state(flag, bad & some & np.isfinite(current),
+                         "outside_physical_range")
+        removed = int(np.count_nonzero(bad & np.isfinite(current)))
+        current[bad] = np.nan
+        background = np.where(bad, np.nan, background)
     return ("temperature", current, flag, ds["temperature_residual"].attrs,
-            ds["temperature_residual"].dims, background)
+            ds["temperature_residual"].dims, background,
+            {"values_removed_as_outliers": removed})
 
 
 def _input_flag(ds, name, values):

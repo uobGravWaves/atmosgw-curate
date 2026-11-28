@@ -387,7 +387,7 @@ def test_too_few_points_for_the_polynomial():
 def _pw_inputs():
     rng = np.random.default_rng(6)
     residual = rng.normal(size=(3, 121))
-    waves = 220 + rng.normal(size=(3, 121, 4))
+    waves = 55 + rng.normal(size=(3, 121, 4))  # (four modes: about 220 K)
     waves[0, 5, :] = np.nan  # every mode missing: background NaN
     waves[1, 7, 1:] = np.nan  # some modes missing: the sum of the others
     residual[2, 9] = np.nan
@@ -397,8 +397,8 @@ def _pw_inputs():
 def test_hindley23():
     residual, waves = _pw_inputs()
     ds = example_pw_profile(residual, waves, Z)
-    out = detrend(ds)  # (the default for planetary-wave data)
-    assert record(out)["steps"][0]["method"] == "hindley23"
+    assert record(detrend(ds))["steps"][0]["method"] == "hindley23"  # the default
+    out = detrend(ds, outlier_removal=False)
     np.testing.assert_array_equal(out["temperature_perturbation"],
                                   residual.astype(np.float32))
     expected = np.nansum(waves, axis=-1)
@@ -418,6 +418,43 @@ def test_hindley23():
     validate(out, "profile")
 
 
+def test_hindley23_outlier_removal():
+    """MATLAB's H23_OutRem (the default): no perturbation or background where
+    the summed waves are below 100 K (every mode missing: 0 K; some missing:
+    a partial sum), or above 400 K below 100 km."""
+    residual, waves = _pw_inputs()
+    waves[2, 20, :] = 110.0  # 440 K at Z[20] (below 100 km)
+    out = detrend(example_pw_profile(residual, waves, Z))
+    pert, bg = (out[f"temperature_{n}"].values for n in ("perturbation", "background"))
+    for where in ((0, 5), (1, 7), (2, 20)):
+        assert np.isnan(pert[where]) and np.isnan(bg[where])
+    removed = np.isnan(pert) & np.isfinite(residual)
+    assert removed.sum() == 3
+    assert record(out)["steps"][0]["values_removed_as_outliers"] == 3
+    flag = out["temperature_perturbation_flag"].values
+    assert states.has_state(flag, "outside_physical_range")[1, 7]
+    assert states.has_state(flag, "outside_physical_range")[2, 20]
+    assert states.no_value_mask(flag)[0, 5]
+    keep = ~removed & np.isfinite(residual)
+    np.testing.assert_array_equal(pert[keep], residual.astype(np.float32)[keep])
+    validate(out, "profile")
+
+
+def test_kept_outliers_keep_their_states():
+    """A value loaded with keep_outliers=True carries its "removed as bad"
+    state onto the outputs; "missing" does not stay on a value that exists."""
+    ds = example_profile(wave_profiles(), Z)
+    flag = ds["temperature_flag"].values.copy()
+    states.set_state(flag, np.arange(flag.size).reshape(flag.shape) == 40,
+                     "outside_physical_range")
+    ds["temperature_flag"] = (ds["temperature_flag"].dims, flag,
+                              ds["temperature_flag"].attrs)
+    out = detrend(ds, mask_tropopause=False)
+    assert np.isfinite(out["temperature_perturbation"].values.ravel()[40])
+    assert states.has_state(out["temperature_perturbation_flag"].values,
+                            "outside_physical_range").ravel()[40]
+
+
 def test_hindley23_rules():
     residual, waves = _pw_inputs()
     pw = example_pw_profile(residual, waves, Z)
@@ -428,7 +465,8 @@ def test_hindley23_rules():
         detrend(pw, method="savgol")
     with pytest.raises(ValueError, match="first step"):
         detrend(pw, steps=["savgol", "hindley23"])
-    out = detrend(pw, steps=["hindley23", "savgol"], mask_tropopause=False)
+    out = detrend(pw, steps=[("hindley23", {"outlier_removal": False}), "savgol"],
+                  mask_tropopause=False)
     # savgol on the residual; backgrounds add
     bg, _ = DT._savgol_step(np.broadcast_to(Z, residual.shape), residual, PL, SG,
                             False)

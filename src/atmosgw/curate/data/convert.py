@@ -122,8 +122,8 @@ Swaths and time_height: reshaping only, apart from the pressure estimate
 (``atmosphere``, U.S. Standard Atmosphere 1976 [R1]).
 
 Trajectories: the default 50 m grid is the spacing used by Moffat-Griffin
-et al. for radiosondes (as given in the agreed brief, 2026-11-28; the paper
-was not checked here: UNVERIFIED). Pressure is interpolated in
+et al. for radiosondes (the paper was not checked here:
+UNVERIFIED). Pressure is interpolated in
 log(pressure), exact for an isothermal layer in geopotential height (R3 of
 ``docs/theory/relations.md``; DWD heights are geopotential). Caveat, to
 revisit: putting 1-s sonde
