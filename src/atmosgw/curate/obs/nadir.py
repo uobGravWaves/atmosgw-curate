@@ -66,7 +66,10 @@ Options (type, default; MATLAB name):
 - ``keep_native_geolocation`` (bool, False; ``KeepOldTime`` for time): also
   return the positions and times before regridding.
 - ``additional_vars`` (list of str, ()): extra file variables, [cross x
-  along] or [cross x along x level], regridded like temperature.
+  along] or [cross x along x level], regridded horizontally like
+  temperature. Their levels are kept as in the files (own dimension
+  ``<name>_dim2``): not interpolated to the output heights nor cut to
+  ``height_range``. 3-D products only (2-D: TypeError; use ``channels``).
 - ``file_source`` (bool, False): also return ``source_file``, ``source_row``
   and ``original_files``.
 - ``file_path`` (str or Path, None): read the files from this folder.
@@ -272,6 +275,7 @@ from atmosgw.curate.obs._common import (
     warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
+    wrap_file_longitudes,
 )
 from atmosgw.curate.paths import dataset_dir
 from atmosgw.curate.profiles import in_box
@@ -415,6 +419,8 @@ def _load_nadir_arrays(time_range, instrument, **options):
             t0, t1 = settings["time_range"]
             load_settings["time_range"] = np.array([t0 - pad / 1440, t1 + pad / 1440])
     data, file_list = inst_info["reader"].load(load_settings, inst_info, var_names)
+    # file longitudes of 180-360 wrapped; outside -180..360 stay bad (as Q13)
+    data["Lon"] = wrap_file_longitudes(data["Lon"])
     settings["record"] = record(inst_info)
     settings["files_read"] = list(file_list)
     warn_mixed_versions(settings, stacklevel=3)
@@ -606,6 +612,11 @@ def _prepare(time_range, instrument, options):
                                  "brightness_temperature_variance", "native_time",
                                  "original_files", "original_file_version"})
     additional = check_additional_vars(options, reserved)
+    if additional and str(options["product"]).lower() == "2d":
+        # (the 2-D readers read their channel groups only; before 2026-11-28
+        # an extra failed with a bare KeyError; found in review)
+        raise TypeError(f"additional_vars is not supported for {name} 2-D: its "
+                        "file variables are the channel groups (channels option).")
 
     for label in ("n_cross", "n_along"):
         value = options[label]

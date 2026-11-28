@@ -72,9 +72,12 @@ def load(settings, inst_info, var_names):
         working = _get_mls(path)
         note_version(inst_info, path, pge_version(path))
         store = {}
+        screened = None
         for name in var_names:
-            if name == "InstrumentBad":  # (for the data states: see screen())
-                store[name] = screen(working, pge_version(path), inst_info)
+            if name in ("InstrumentBad", "QcIncomplete"):  # (data states: screen())
+                if screened is None:
+                    screened = screen(working, pge_version(path), inst_info)
+                store[name] = screened[0 if name == "InstrumentBad" else 1]
             elif name == "Temp":
                 store["Temp"] = working["L2gpValue"]
             elif name == "Lat":
@@ -161,46 +164,59 @@ SCREENED_VERSIONS = ("v5.", "v6.")
 
 
 def screen(working, version_text, inst_info):
-    """[profiles x levels] 1.0 where the MLS data quality document says not to
-    use a temperature value (see above), else 0.0. Profile rules (Status
-    odd, Convergence >= 1.03, Quality at or below the threshold for the
-    level's pressure) mark the whole profile's affected levels; level rules
-    (precision <= 0, pressure outside 261-0.00046 hPa) mark points. Versions
-    the documents do not cover are not screened (noted)."""
+    """
+    ([profiles x levels] bad, [profiles x levels] incomplete), as floats 1.0
+    or 0.0. bad: where the MLS data quality document says not to use a
+    temperature value (see above). Profile rules (Status odd, Convergence >=
+    1.03, Quality at or below the threshold for the level's pressure) mark
+    the whole profile's affected levels; level rules (precision <= 0,
+    pressure outside 261-0.00046 hPa) mark points. A rule whose field is
+    missing from the file is not applied, the others are, and every value of
+    the file is incomplete (``qc_incomplete``; before 2026-11-28 a missing
+    field turned all screening off and left no mark; found in review).
+    Versions the documents do not cover are not screened (noted).
+    """
     temp = np.asarray(working["L2gpValue"])
     shape = temp.shape
+    none = np.zeros(shape)
     version = version_text.split()[1] if version_text else ""
     if not version.lower().startswith(SCREENED_VERSIONS):
         note(inst_info, "Temp", f"no MLS screening rules for version "
                                 f"{version or 'unknown'}: not screened")
-        return np.zeros(shape)
-    fields = ("Status", "Quality", "Convergence", "L2gpPrecision")
-    if any(np.size(working[f]) == 0 for f in fields):
-        note(inst_info, "Temp", "MLS quality fields missing from the file: not "
-                                "screened")
-        return np.zeros(shape)
+        return none, none
+    missing = [f for f in ("Status", "Quality", "Convergence", "L2gpPrecision")
+               if np.size(working[f]) == 0]
     note(inst_info, "Temp", "MLS data quality document screening applied "
                             "(v5.0x section 3.22.6, v6.x section 3.23.6): "
                             "Status even, Convergence < 1.03, Quality > 0.2 at "
                             "83 hPa and above / > 0.9 at 100 hPa and below, "
                             "precision > 0, 261-0.00046 hPa; failures are "
                             "instrument_flag (no cloud screening)")
+    if missing:
+        note(inst_info, "Temp", f"MLS quality fields missing from a file "
+                                f"({', '.join(missing)}): their rules not applied "
+                                "there, its values qc_incomplete")
     pres = np.asarray(working["Pressure"], dtype=float).ravel()[None, :]
-    status = np.asarray(working["Status"], dtype=float).reshape(-1, 1)
-    quality = np.asarray(working["Quality"], dtype=float).reshape(-1, 1)
-    convergence = np.asarray(working["Convergence"], dtype=float).reshape(-1, 1)
-    precision = np.asarray(working["L2gpPrecision"], dtype=float)
     with np.errstate(invalid="ignore"):
-        odd = ~np.isfinite(status) | (np.mod(status, 2) == 1)
-        threshold = np.where(pres < QUALITY_SPLIT_HPA, QUALITY_LOW_P, QUALITY_HIGH_P)
-        bad = (odd | ~(convergence < CONVERGENCE_MAX)
-               | ~(quality > threshold)
-               | ~(precision > 0)
-               # (the files' levels are float32 and nominal: 261 hPa is stored
-               # as 261.016, so the range is compared to within 1e-4)
-               | (pres < USEFUL_RANGE_HPA[0] * (1 - 1e-4))
+        # (the files' levels are float32 and nominal: 261 hPa is stored as
+        # 261.016, so the range is compared to within 1e-4)
+        bad = ((pres < USEFUL_RANGE_HPA[0] * (1 - 1e-4))
                | (pres > USEFUL_RANGE_HPA[1] * (1 + 1e-4)))
-    return np.broadcast_to(bad, shape).astype(float)
+        if "Status" not in missing:
+            status = np.asarray(working["Status"], dtype=float).reshape(-1, 1)
+            bad = bad | ~np.isfinite(status) | (np.mod(status, 2) == 1)
+        if "Convergence" not in missing:
+            convergence = np.asarray(working["Convergence"], dtype=float).reshape(-1, 1)
+            bad = bad | ~(convergence < CONVERGENCE_MAX)
+        if "Quality" not in missing:
+            quality = np.asarray(working["Quality"], dtype=float).reshape(-1, 1)
+            threshold = np.where(pres < QUALITY_SPLIT_HPA, QUALITY_LOW_P,
+                                 QUALITY_HIGH_P)
+            bad = bad | ~(quality > threshold)
+        if "L2gpPrecision" not in missing:
+            bad = bad | ~(np.asarray(working["L2gpPrecision"], dtype=float) > 0)
+    incomplete = np.ones(shape) if missing else none
+    return np.broadcast_to(bad, shape).astype(float), incomplete
 
 
 def pge_version(path):

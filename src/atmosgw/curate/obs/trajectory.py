@@ -161,6 +161,7 @@ from atmosgw.curate.obs._common import (
     warn_missing_files,
     warn_mixed_versions,
     warn_multiple_matches,
+    wrap_file_longitudes,
 )
 from atmosgw.curate.obs.limb import _state_flags
 from atmosgw.curate.paths import dataset_dir
@@ -271,7 +272,10 @@ def _prepare(time_range, instrument, options):
     name = find_instrument(instrument, INSTRUMENTS,
                            " (satellite profiles: load_limb_sounders)")
     info = INSTRUMENTS[name]
+    # (the readers' working names, e.g. the per-sample masks "TempBad", are
+    # reserved too: an extra of that name replaced the mask; found in review)
     reserved = ({"Lat", "Lon", "Time", "Alt", *_OUTPUTS}
+                | {f"{key}Bad" for key in _OUTPUTS}
                 | {out for out, _ in _OUTPUTS.values()} | set(info["per_flight"])
                 | set(info["flight_times"])
                 | {"latitude", "longitude", "time", "altitude", "start_time",
@@ -331,6 +335,8 @@ def _to_dataset(flights, file_list, settings, call):
         present[k, :np.size(flight["Time"])] = True
     alt = grid("Alt")
     lat, lon = grid("Lat"), grid("Lon")
+    # file longitudes of 180-360 wrapped; outside -180..360 bad (as Q13)
+    lon = wrap_file_longitudes(lon)
     with np.errstate(invalid="ignore"):
         bad_geo = (np.abs(lat) > 90) | (lon < -180) | (lon > 180)
 

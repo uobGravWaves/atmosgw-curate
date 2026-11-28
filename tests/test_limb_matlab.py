@@ -54,7 +54,9 @@ MetaData for profiles with none (Q10; then 1e-12 degrees, as the longitude
 goes through unwrap and wrap), times from the occultation id where the file's
 is hour-rounded (Q10), and only the rows Python keeps (Q11: one copy per
 occultation; a profile given a MetaData position outside a box is left out).
-The rows Python leaves out are checked to be exactly those.
+The rows Python leaves out are checked to be exactly those. Syn_lon_origz:
+file longitudes below -180 are bad_geolocation, NaN (Q13 with original_z,
+2026-11-28; MATLAB wraps them).
 
 Real-data cases use the MATLAB test's dates: 2007-01-01 (and -02) for most;
 2007-01-02 for MIPAS, 2007-06-01 for SOFIE and 2007-01-23 for ALOMAR; and,
@@ -156,7 +158,17 @@ def test_synthetic_against_matlab(reference, syn_dir, case):
     got, _ = _load_limb_arrays(*args, **_defaults(options))
     # Sampler files hold pressure, so only the others compute it from height
     tol = {} if case == "Syn_sampler" else {"Pres": ("rtol", PRESSURE_RTOL)}
-    assert_same_as_matlab(got, reference[case], _interp_pressure_tol(tol, options))
+    want = reference[case]
+    if case == "Syn_lon_origz":
+        # Q13 with original_z (2026-11-28): the profiles whose file longitudes
+        # are below -180 (rows 1 and 3: -190 and -350 in the synlon files;
+        # 190 and 350 are 0-360 values, kept) are bad_geolocation, NaN in
+        # every field; MATLAB wraps them
+        want = {name: (np.where(np.isin(np.arange(np.shape(v)[0]), [1, 3])[:, None],
+                                np.nan, v)
+                       if np.ndim(v) == 2 and np.asarray(v).dtype.kind == "f" else v)
+                for name, v in want.items()}
+    assert_same_as_matlab(got, want, _interp_pressure_tol(tol, options))
 
 
 # real data: (dataset, kind, args, options), as in the MATLAB test

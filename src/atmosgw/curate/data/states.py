@@ -74,6 +74,7 @@ Change log
 2026/11/25 [Claude] descriptions match the shared rules; counts_text
 2026/11/26 [Claude] docstring: Validation names the existing tests
 2026/11/27 [Claude] descriptions: trajectories; instrument_flag rules referenced
+2026/11/28 [Claude] qc_incomplete (bit 2048), agreed with C. Wright
 
 """
 
@@ -117,6 +118,10 @@ STATES = (
     State("a_priori_dominated", 1024, False, "qualified value",
           "the retrieval has little information here, as the provider marks "
           "it (HIRDLS: negative precision)"),
+    State("qc_incomplete", 2048, False, "qualified value",
+          "the provider's quality control could not be completed for this "
+          "value: a quality field it needs is missing from the file (MLS); "
+          "the rules that could be applied were"),
 )
 
 FLAG_DTYPE = np.uint16  # 16 states; change to uint32 if more are ever needed

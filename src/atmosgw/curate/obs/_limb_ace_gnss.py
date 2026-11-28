@@ -103,8 +103,10 @@ def load(settings, inst_info, var_names):
             inst_data["Pres"] = np.asarray(inst_data["Pres"], dtype=float) * factor
             note(inst_info, "Pres", text)
         estimated = "Pres" not in inst_data
-        if estimated:
-            inst_data["Pres"] = height_to_pressure(inst_data["Alt"])
+        if estimated:  # (GNSS heights are MSL_alt, one row; before 2026-11-28
+            # this asked for Alt, which GNSS files lack: a KeyError; found in review)
+            heights = inst_data["MSL_alt"] if instrument == "GNSS" else inst_data["Alt"]
+            inst_data["Pres"] = height_to_pressure(np.asarray(heights, dtype=float))
             note_estimated_pres(inst_info)
         # which points have estimated pressure (asked for by the core, for the
         # output's data states; not in the MATLAB)

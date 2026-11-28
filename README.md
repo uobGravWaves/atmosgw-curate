@@ -35,7 +35,7 @@ from atmosgw.curate.obs import load_limb_sounders
 
 ds = load_limb_sounders("2007-01-01", "SABER")   # one day, 18-60 km every 0.5 km
 ds.temperature                                   # (profile, level), K
-ds.temperature_flag                              # 0 for a plain good value; else why not
+ds.temperature_flag                              # 0: no recorded state applies; else why not
 ds.attrs["files_read"]                           # the record of the load
 ```
 

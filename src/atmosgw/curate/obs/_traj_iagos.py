@@ -36,7 +36,10 @@ temperature (P1 or PM) where the flight has values not flagged 3 or 7 (3
 of 150 L2 3.1 flights reviewed had none), else the aircraft's
 (``air_temp_AC``), per flight in ``temperature_source``; ``Alt`` = GPS
 altitude (geometric) likewise, else barometric (pressure altitude), per
-flight in ``altitude_source``; ``Pres`` =
+flight in ``altitude_source``, NaN where that altitude is flagged 3 or 7,
+with ``keep_outliers`` too (a coordinate has no flag to carry the state, as
+FAAM's flagged positions; no per-sample fallback: the datum would change);
+``Pres`` =
 ``air_press_AC`` / 100 (hPa); ``U``, ``V`` = ``zon_wind_AC``,
 ``mer_wind_AC``. Screening (``<var>Bad``): validity flag 3 (erroneous) or 7
 (missing) is ``instrument_flag``; 0, 2 and 4 are kept (old files: no
@@ -64,6 +67,8 @@ Change log:
 2026/11/27 [Claude] review: scale_factor/add_offset applied if not 1 and 0;
   no variable but the time assumed present (absent ones NaN, source "none");
   an unreadable or undated tied copy ranks last
+2026/11/28 [Claude] review: time fill removed for any declared fill;
+  flagged altitudes NaN
 """
 
 import math
@@ -101,7 +106,8 @@ def load(settings, inst_info):
     note(inst_info, "Alt", "GPS altitude (geometric, gps_alt_AC) where the flight "
                            "has values not flagged 3 or 7, else barometric "
                            "altitude (baro_alt_AC, pressure altitude); per "
-                           "flight in altitude_source")
+                           "flight in altitude_source; samples of the chosen "
+                           "altitude flagged 3 or 7 are NaN")
     for key in ("Pres", "Temp", "U", "V"):
         note(inst_info, f"{key}Bad", "validity flag 3 (erroneous) or 7 (missing)")
     start, end = settings["time_range"]
@@ -185,15 +191,13 @@ def read_flight(handle, settings):
             return np.zeros(n, dtype=bool)
         return np.isin(np.asarray(flag), REMOVED_FLAGS)
 
-    seconds = _values(handle["UTC_time"], fill_to_nan=False)
+    seconds = _time_seconds(handle["UTC_time"])
     found = _UNITS.search(str(getattr(handle["UTC_time"], "units", "")))
     if not found or seconds.size == 0:
         return None
     base = datenum(*(int(g) for g in found.groups()))
-    keep = seconds > 0 if str(getattr(handle["UTC_time"], "_FillValue", "")) == "0.0" \
-        else np.isfinite(seconds)
     n = seconds.size
-    time = np.where(keep, base + seconds / 86400.0, np.nan)
+    time = base + seconds / 86400.0
 
     def usable(name):
         """True if the file has values of name not flagged 3 or 7."""
@@ -226,9 +230,12 @@ def read_flight(handle, settings):
         # (pressure <= 0 is also missing: one 2023 flight has -999900 Pa, the
         # -9999 fill in hPa scaled to Pa)
         pressure = np.where(pressure > 0, pressure, np.nan) / 100.0
+    # (the chosen altitude's samples flagged 3 or 7 are NaN: the source is
+    # chosen per flight, so no sample falls back to the other datum)
+    altitude = np.where(bad(alt_source), np.nan, get_or_nan(alt_source) / 1000.0)
     out = {
         "Lat": get_or_nan("lat"), "Lon": get_or_nan("lon"), "Time": time,
-        "Alt": get_or_nan(alt_source) / 1000.0,
+        "Alt": altitude,
         "Pres": pressure,
         "Temp": get_or_nan(temp_source),
         "U": get_or_nan("zon_wind_AC"), "V": get_or_nan("mer_wind_AC"),
@@ -258,6 +265,26 @@ def read_flight(handle, settings):
                  else f"MOZAIC L2 revision {attrs.get('file_revision', '')}".strip()),
     )
     return out
+
+
+def _time_seconds(var):
+    """``UTC_time`` in seconds, NaN where the stored value is the declared
+    ``_FillValue`` (old files -9999, new files 0) or, unpacked, <= -9999;
+    removed before any scale/offset. A stored 0 is a real midnight unless 0
+    is the declared fill. (Before 2026-11-28 only a fill of 0 was removed: a
+    -9999 became 21:13:21 the day before departure; found in review.)"""
+    raw = np.asarray(var[:], dtype=float)
+    scale = float(getattr(var, "scale_factor", 1.0))
+    offset = float(getattr(var, "add_offset", 0.0))
+    packed = scale != 1.0 or offset != 0.0
+    fill = ~np.isfinite(raw)
+    if hasattr(var, "_FillValue"):
+        fill |= raw == float(var._FillValue)
+    if not packed:
+        fill |= raw <= FILL
+    seconds = raw * scale + offset if packed else raw.copy()
+    seconds[fill] = np.nan
+    return seconds
 
 
 def _values(var, fill_to_nan=True):

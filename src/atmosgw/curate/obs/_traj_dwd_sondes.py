@@ -15,7 +15,8 @@ anywhere below the folder:
   ``AE_GPM`` (gpm); ``AE_P`` (hPa); ``AE_TT`` (degrees C); ``AE_RF`` (%);
   ``AE_TD`` (degrees C); ``AE_FF`` (m/s); ``AE_DD`` (degrees); ``eor``.
   -999 is missing. Rows are in order of reference time (every file checked
-  is; a file found out of order is read in full instead).
+  is; a file found out of order where it is read, or at its last row, is
+  read in full instead: ``read_rows``).
 - ``Metadaten_Sekunde_Aero_<station>.txt`` (beside it): per ascent
   ``Bezugsdatum``, ``AE_Start``, ``AE_Ende`` (yyyymmddHHMM), the burst
   height and ``Geraete_Name`` (sonde type).
@@ -62,6 +63,7 @@ Origin: new code (no MATLAB equivalent).
 Change log:
 2026/11/27 [Claude] initial version
 2026/11/27 [Claude] UTC and geopotential heights confirmed (ERA5, hypsometric checks)
+2026/11/28 [Claude] review: order also checked at the stopping row and the last row
 """
 
 import math
@@ -215,9 +217,16 @@ def read_rows(path, ref_lo, ref_hi):
     The sample rows of one product file whose reference time (yyyymmddhh)
     is in [ref_lo, ref_hi], as a float array [rows x 13] (COLUMNS), -999 as
     NaN. The file is sorted by reference time, so the first row is found by
-    bisection on byte offsets; if the rows read are out of order, the whole
-    file is read instead.
+    bisection on byte offsets. The order is checked where the file is read:
+    at the bisection's probes, the rows read, the row where reading stops and
+    the file's last row; if any is out of order, the whole file is read
+    instead. (A file out of order only elsewhere is not detected: reading
+    every file in full would defeat the bisection; all 409 files on
+    eepc-0184 were sorted, 2026-11-27. Before 2026-11-28 the stopping row and
+    last row were not checked, so rows moved to the end of a file were
+    missed; found in review.)
     """
+    probes = []  # (offset, reference) of each line looked at
     with open(path, "rb") as handle:
         header = handle.readline()
         body = len(header)
@@ -227,7 +236,10 @@ def read_rows(path, ref_lo, ref_hi):
             mid = (lo + hi) // 2
             handle.seek(mid)
             handle.readline()  # (the rest of a partial line)
+            at = handle.tell()
             line = handle.readline()
+            if line.strip():
+                probes.append((at, _ref_of(line)))
             if not line or _ref_of(line) >= ref_lo:
                 hi = mid
             else:
@@ -236,15 +248,27 @@ def read_rows(path, ref_lo, ref_hi):
         if lo > body:
             handle.readline()
         lines = []
-        for line in handle:
+        while True:
+            at = handle.tell()
+            line = handle.readline()
+            if not line:
+                break
+            if not line.strip():
+                continue
             ref = _ref_of(line)
             if ref < ref_lo:
                 continue
             if ref > ref_hi:
+                probes.append((at, ref))
                 break
             lines.append(line)
+        last = _last_line(handle, body, size)
+        if last is not None:
+            probes.append(last)
+    refs = [ref for _, ref in sorted(probes)]  # (in file order)
+    unsorted = any(b < a for a, b in zip(refs, refs[1:], strict=False))
     rows = _parse(lines)
-    if rows.shape[0] and np.any(np.diff(rows[:, 1]) < 0):  # (not sorted)
+    if unsorted or (rows.shape[0] and np.any(np.diff(rows[:, 1]) < 0)):  # (not sorted)
         with open(path, "rb") as handle:
             handle.readline()
             lines = [line for line in handle if ref_lo <= _ref_of(line) <= ref_hi]
@@ -252,6 +276,22 @@ def read_rows(path, ref_lo, ref_hi):
         order = np.argsort(rows[:, 1], kind="stable")
         rows = rows[order]
     return rows
+
+
+def _last_line(handle, body, size):
+    """(offset, reference) of the file's last non-empty line, or None."""
+    start = max(body, size - 65536)
+    handle.seek(start)
+    if start > body:
+        handle.readline()  # (the rest of a partial line)
+    last = None
+    while True:
+        at = handle.tell()
+        line = handle.readline()
+        if not line:
+            return last
+        if line.strip():
+            last = (at, _ref_of(line))
 
 
 def _flight(rows, launch, settings):

@@ -331,6 +331,7 @@ Initial registry (proposal), in three groups:
 | 256 | `filled` | value | filled from neighbours after loading (`analysis.fill.fill_missing`) |
 | 512 | `extrapolated` | value | outside the source data's coverage (with `extrapolate`; nadir: also cross-track edge columns taking a segment's edge value) |
 | 1024 | `a_priori_dominated` | value | the retrieval has little information here, as the provider marks it (with `instrument_qc`: HIRDLS negative precision); later perhaps also from the CPs' averaging kernels |
+| 2048 | `qc_incomplete` | value | the provider's quality control could not be completed: a quality field it needs is missing from the file (with `instrument_qc`: MLS); the rules that could be applied were (added 2026-11-28, C. Wright) |
 
 Several bits can be set together (e.g. `derived` and `extrapolated`). With
 `keep_outliers`, points in the "removed as bad" group keep their values,
@@ -339,8 +340,11 @@ and their bits are still set.
 Instruments' own quality variables are not output unless asked for with
 `additional_vars` (e.g. MLS `Status`, `Quality`). Where a provider's rules
 are implemented (limb, with `instrument_qc`: MLS, SOFIE, HIRDLS, ROMEX,
-Aeolus; trajectories: IAGOS, FAAM), they set `instrument_flag` or
-`a_priori_dominated`, and the rule is stated in a `comment`. For MLS,
+Aeolus; trajectories: IAGOS, FAAM), they set `instrument_flag`,
+`a_priori_dominated` or `qc_incomplete`, and the rule is stated in a
+`comment`. A zero flag means none of the recorded states applies: the
+checks each loader makes are listed in its docstring, and a value with
+`qc_incomplete` passed only some of them. For MLS,
 SOFIE and HIRDLS it is in the temperature's comment, with its source in
 `docs/quirks.md` (Q15, Q17). For ROMEX, Aeolus, IAGOS and FAAM it is in the
 comment of each screened variable, after "instrument_flag:".

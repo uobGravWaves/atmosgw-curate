@@ -26,7 +26,8 @@ each variable's ``comment``).
 
 Sample rate (``sample_rate``, decided by C. Wright, 2026-11-27): "1hz"
 (default): for each second, the mean of that second's unflagged samples
-(NaN, and the flag kept, if none is unflagged), at the centre of the
+(longitude: the mean on the circle, so a second across the dateline stays
+there; NaN, and the flag kept, if none is unflagged), at the centre of the
 second's samples (Time + 15.5/32 s for 32 Hz); "full": every sample, at
 Time + k/N s. Extras at other rates are averaged the same way ("1hz") or
 repeated to 32 Hz ("full"; rates that do not divide 32, e.g. 20 or 64 Hz,
@@ -45,6 +46,7 @@ Change log:
   extras of rates other than divisors of 32 refused at sample_rate='full'
 2026/11/27 [Claude] flag rule in the variables' comments
 2026/11/27 [Claude] review: highest core version before revision; scale/offset applied
+2026/11/28 [Claude] review: 1 Hz longitude averaged on the circle
 """
 
 import math
@@ -140,8 +142,10 @@ def read_flight(handle, settings):
     seconds[seconds == -9999] = np.nan
     seconds = _unpacked(handle["Time"], seconds)
 
-    def per_sample(name):
-        """(values, flagged) of a variable at the output rate."""
+    def per_sample(name, circular=False):
+        """(values, flagged) of a variable at the output rate; circular: a
+        longitude (degrees), averaged on the circle (an arithmetic mean of
+        +179.9 and -179.9 is 0; found in review)."""
         var = handle[name]
         value = np.asarray(var[:], dtype=float)
         value[value == float(getattr(var, "_FillValue", -9999.0))] = np.nan
@@ -158,6 +162,12 @@ def read_flight(handle, settings):
             with warnings.catch_warnings():  # (seconds with no good sample: NaN)
                 warnings.simplefilter("ignore", RuntimeWarning)
                 mean = np.nanmean(good, axis=1)
+                if circular:  # (only seconds spanning > 180 degrees: the dateline)
+                    across = (np.nanmax(good, axis=1) - np.nanmin(good, axis=1)) > 180
+                    rad = np.deg2rad(good[across])
+                    mean[across] = np.rad2deg(np.arctan2(
+                        np.nanmean(np.sin(rad), axis=1),
+                        np.nanmean(np.cos(rad), axis=1)))
             no_good = np.all(flagged | np.isnan(value), axis=1)
             return mean, no_good & np.any(flagged, axis=1)
         if FULL_RATE % value.shape[1]:  # (e.g. 20 or 64 Hz: no exact placing)
@@ -176,7 +186,7 @@ def read_flight(handle, settings):
                 / 86400.0).ravel()
     out = {"Time": time}
     for key, name in FILE_NAMES.items():
-        value, flagged = per_sample(name)
+        value, flagged = per_sample(name, circular=key == "Lon")
         if key == "Alt":
             value = value / 1000.0
         if key in ("Lat", "Lon", "Alt"):
